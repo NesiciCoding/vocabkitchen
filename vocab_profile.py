@@ -7,12 +7,12 @@ Determines the vocabulary level of English text against three word lists:
   - AWL   Coxhead's Academic Word List (academic vocabulary or not)
   - NAWL  the New Academic Word List
 
-This is a faithful reimplementation of the original C# profiler
-(CefrProfiler / AwlProfiler / NawlProfiler in VkCore + VkInfrastructure).
-It reuses the exact same word-list .txt files and reproduces the same
-tokenizer, matching, ordering and percentage-rounding, so its JSON output
-matches the .NET CLI. It has no third-party dependencies — only the Python 3
-standard library — so it runs on any Linux/macOS box with python3 installed.
+This is a faithful reimplementation of VocabKitchen's original C# profiler
+(CefrProfiler / AwlProfiler / NawlProfiler). It reuses the exact same word-list
+.txt files and reproduces the same tokenizer, matching, ordering and
+percentage-rounding, so its JSON output matches the original. It has no
+third-party dependencies — only the Python 3 standard library — so it runs on
+any Linux/macOS box with python3 installed.
 
 Usage:
     python3 vocab_profile.py --type cefr --text "The cat sat on the mat."

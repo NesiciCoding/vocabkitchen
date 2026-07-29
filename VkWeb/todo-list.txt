@@ -1,4 +1,0 @@
-﻿Wish list:
--allow users to change their email (and username)
--edit existing texts (shift indexes)?
--select phrases

@@ -12,11 +12,12 @@ level of every word against three word lists:
 
 ## What this fork adds
 
-- **`vocab_profile.py`** — a single, dependency-free **Python 3** tool that runs
-  the original app's profiler logic (the same tokenizer, matching, ordering and
-  percentage-rounding as `CefrProfiler` / `AwlProfiler` / `NawlProfiler`) with
-  **no database, AWS, Angular, auth — or .NET**. It reuses the exact same word
-  lists and is validated to produce identical output to the original C# profiler.
+- **`vocab_profile.py`** — a single, dependency-free **Python 3** tool that
+  reproduces the original app's profiler logic (the same tokenizer, matching,
+  ordering and percentage-rounding as its `CefrProfiler` / `AwlProfiler` /
+  `NawlProfiler`) with **no database, AWS, Angular, auth — or .NET**. It reuses
+  the exact same word lists and is validated to produce identical output to the
+  original C# profiler.
 - **A Claude Cowork skill** (`.claude/skills/vocab-profiler/`) that wraps the
   script, so the profiler is available out of the box in a cowork session — just
   ask for the CEFR level or vocabulary breakdown of a text.
@@ -69,9 +70,8 @@ Everyday text like this scores as almost entirely A1/A2, while academic text
 spreads into the higher bands — e.g. *chlorophyll*, *photosynthesis*, and
 *synthesize* resolve to C2.
 
-The original profiler logic still lives in the `VkCore` / `VkInfrastructure`
-projects (part of the upstream web app); `vocab_profile.py` is a faithful
-standalone port of just that slice.
+`vocab_profile.py` is a faithful standalone port of the profiler slice of the
+original C# application (see below); it carries no other part of that codebase.
 
 ## About the original project
 
