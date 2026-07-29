@@ -18,8 +18,10 @@ level of every word against three word lists:
   the same domain code the site used, wrapped in a console entry point.
 - **Rebuilt word-list data** — the CEFR/AWL/NAWL lists in the repo had been
   truncated to only "a" words, which made scoring wrong for real text. They were
-  rebuilt in full from public, permissively-licensed sources. See
-  [`VkProfilerCli/README.md`](VkProfilerCli/README.md) for exact provenance.
+  rebuilt in full from documented public sources (each with its own licence) and
+  validated against a curated dictionary so only real, correctly-spelled words
+  remain. See [`VkProfilerCli/README.md`](VkProfilerCli/README.md) for exact
+  sources, versions, and licences.
 
 ## Quick start
 
