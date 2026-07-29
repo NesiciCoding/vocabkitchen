@@ -138,11 +138,20 @@ _PROFILERS = {
 }
 
 
+class WordListError(Exception):
+    """Raised when a word-list file cannot be read (missing/unreadable/non-UTF-8)."""
+
+
 def load_wordlist(base_dir, rel_path):
     full = os.path.join(base_dir, *rel_path.split("/"))
-    with open(full, "r", encoding="utf-8") as f:
-        # Match the C# reader: keep every line as-is (only newline stripped).
-        return {line.rstrip("\n").rstrip("\r").lower() for line in f}
+    try:
+        with open(full, encoding="utf-8") as f:
+            # Match the C# reader: keep every line as-is (only newline stripped).
+            return {line.rstrip("\n").rstrip("\r").lower() for line in f}
+    except UnicodeDecodeError as ex:
+        raise WordListError(f"Word list '{full}' is not valid UTF-8: {ex}")
+    except OSError as ex:
+        raise WordListError(f"Could not read word list '{full}': {ex}")
 
 
 def profile(text, levels):
@@ -229,7 +238,11 @@ def main(argv=None):
         if t not in _PROFILERS:
             sys.stderr.write(f"Unknown profiler type '{t}'. Valid types: cefr, awl, nawl, all.\n")
             return 1
-        levels = [(name, load_wordlist(base_dir, rel)) for name, rel in _PROFILERS[t]]
+        try:
+            levels = [(name, load_wordlist(base_dir, rel)) for name, rel in _PROFILERS[t]]
+        except WordListError as ex:
+            sys.stderr.write(str(ex) + "\n")
+            return 1
         ordered, total = profile(text, levels)
         if total_word_count is None:
             total_word_count = total

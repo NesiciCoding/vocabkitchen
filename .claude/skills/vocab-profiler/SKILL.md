@@ -1,6 +1,6 @@
 ---
 name: vocab-profiler
-description: Profile the vocabulary level of English text — CEFR level (A1–C2), academic vocabulary (Coxhead's AWL, and the NAWL), and reading difficulty. Use when the user wants to know how hard a text is, what CEFR/proficiency level it targets, which words are advanced or academic, or wants a per-word breakdown of a passage, essay, article, or reading. Runs a dependency-free Python script — no .NET, build step, or install required.
+description: Profile the vocabulary level of English text — CEFR level (A1–C2) and academic vocabulary (Coxhead's AWL, and the NAWL). Use when the user wants to know what CEFR/proficiency level a text targets, how lexically demanding its vocabulary is, which words are advanced or academic, or wants a per-word breakdown of a passage, essay, article, or reading. Reports vocabulary-level distribution, not a readability score (Flesch–Kincaid, etc.). Runs a dependency-free Python script — no .NET, build step, or third-party packages required.
 ---
 
 # Vocabulary profiler
@@ -14,8 +14,9 @@ Reports the vocabulary level of English text against three word lists:
 - **NAWL** — the New Academic Word List.
 
 This is a pure-Python port of VocabKitchen's original C# profiler, validated to
-produce identical output. It needs only **Python 3** (preinstalled on
-Linux/macOS) — no .NET, no build, no third-party packages.
+produce identical output. It needs only **Python 3** — no .NET, no build, no
+third-party packages. Most Linux/macOS systems already have it; if a run fails,
+confirm with `python3 --version`.
 
 ## How to run
 

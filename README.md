@@ -30,8 +30,9 @@ level of every word against three word lists:
 
 ## Quick start
 
-The profiler needs only **Python 3** (preinstalled on Linux/macOS) — no install,
-no build, no dependencies:
+The profiler needs only **Python 3** — no build, no third-party dependencies.
+Most Linux and macOS systems already have it (on macOS it may require the Xcode
+Command Line Tools); confirm with `python3 --version` before running:
 
 ```bash
 python3 vocab_profile.py --type cefr --text "The cat sat on the mat."

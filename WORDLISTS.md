@@ -20,11 +20,18 @@ blanket claim.
   the [live page](https://www.wgtn.ac.nz/lals/resources/academicwordlist) was
   reachable at the time of writing).
 - **NAWL** — the New Academic Word List v1.2 (Browne, C., Culligan, B. &
-  Phillips, J. 2013): ~960 headwords. The original host
-  (`newgeneralservicelist.org`) is **no longer controlled by the authors and now
-  serves unrelated content**, so this cites the
-  [archived copy (Jan 2020)](https://web.archive.org/web/20200108211829/http://www.newgeneralservicelist.org/)
-  instead of the live domain.
+  Phillips, J. 2013): ~960 headwords. Licensed under
+  [**Creative Commons Attribution-ShareAlike 4.0 International (CC BY-SA 4.0)**](https://creativecommons.org/licenses/by-sa/4.0/):
+  *"New Academic Word List by Browne, C., Culligan, B., and Phillips, J. is
+  licensed under a Creative Commons Attribution-ShareAlike 4.0 International
+  License."* The authors' canonical site is
+  [charlie-browne.com](https://www.charlie-browne.com/); the original host
+  (`newgeneralservicelist.org`) still carries the list and its licence notice but
+  its site chrome now shows **unrelated third-party content**, so for stability
+  this also references the
+  [archived copy (Jan 2020)](https://web.archive.org/web/20200108211829/http://www.newgeneralservicelist.org/).
+  Because CC BY-SA 4.0 is a share-alike licence, `WordLists/NAWL/nawl.txt` is
+  redistributed here under the same terms with the attribution above.
 - **Dictionary (validation filter)** — the
   [12dicts](http://wordlist.aspell.net/12dicts/) `2of12inf` list, package
   **v6.0.2** (compiled by Alan Beale, released to the **public domain**),

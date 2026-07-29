@@ -11,6 +11,8 @@ import json
 import subprocess
 import sys
 import os
+import shutil
+import tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SCRIPT = os.path.join(HERE, "vocab_profile.py")
@@ -66,6 +68,39 @@ check("nothing off-list", cefr["Off List"]["wordCount"] == 0)
 rc, out, _ = run(["--type", "awl"], "Academic research demonstrates significant methodology.")
 d = json.loads(out)
 check("awl 100%", d["results"]["awl"]["Awl"]["percentage"] == "100%")
+
+# --- integration: --file input -------------------------------------------------
+_tmp = tempfile.mkdtemp(prefix="vocabtest_")
+try:
+    essay = os.path.join(_tmp, "essay.txt")
+    with open(essay, "w", encoding="utf-8") as f:
+        f.write("The cat sat on the mat.")
+    rc, out, _ = run(["--type", "cefr", "--file", essay], "")
+    check("--file rc==0", rc == 0)
+    dfile = json.loads(out)
+    check("--file total==6", dfile["totalWordCount"] == 6)
+    check("--file A1 83%", dfile["results"]["cefr"]["A1"]["percentage"] == "83%")
+    check("--file matches --text output", dfile == json.loads(
+        run(["--type", "cefr", "--text", "The cat sat on the mat."], "")[1]))
+
+    rc, out, err = run(["--type", "cefr", "--file", os.path.join(_tmp, "missing.txt")], "")
+    check("--file missing errors rc==1", rc == 1 and "Could not read file" in err)
+
+    # --- integration: --wordlists override -------------------------------------
+    wl = os.path.join(_tmp, "custom")
+    os.makedirs(os.path.join(wl, "AWL"))
+    with open(os.path.join(wl, "AWL", "awl.txt"), "w", encoding="utf-8") as f:
+        f.write("zzzcustomword\n")
+    rc, out, _ = run(["--type", "awl", "--wordlists", wl, "--text", "zzzcustomword here"], "")
+    check("--wordlists rc==0", rc == 0)
+    dwl = json.loads(out)["results"]["awl"]["Awl"]
+    check("--wordlists override matches custom word",
+          dwl["percentage"] == "50%" and dwl["words"] == [{"word": "zzzcustomword", "occurrences": 1}])
+
+    rc, out, err = run(["--type", "awl", "--wordlists", os.path.join(_tmp, "nope"), "--text", "hi"], "")
+    check("--wordlists unreadable errors rc==1", rc == 1 and "Could not read word list" in err)
+finally:
+    shutil.rmtree(_tmp, ignore_errors=True)
 
 # --- integration: stdin + error handling ---------------------------------------
 rc, out, err = run(["--type", "cefr"], "   ")
