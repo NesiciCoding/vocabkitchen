@@ -21,13 +21,17 @@ namespace VkProfilerCli
                 switch (args[i])
                 {
                     case "--type":
-                        profilerType = args[++i].ToLowerInvariant();
+                        if (!TryTakeValue(args, ref i, "--type", out profilerType))
+                            return 1;
+                        profilerType = profilerType.ToLowerInvariant();
                         break;
                     case "--file":
-                        filePath = args[++i];
+                        if (!TryTakeValue(args, ref i, "--file", out filePath))
+                            return 1;
                         break;
                     case "--text":
-                        text = args[++i];
+                        if (!TryTakeValue(args, ref i, "--text", out text))
+                            return 1;
                         break;
                     default:
                         text ??= args[i];
@@ -36,7 +40,17 @@ namespace VkProfilerCli
             }
 
             if (filePath != null)
-                text = File.ReadAllText(filePath);
+            {
+                try
+                {
+                    text = File.ReadAllText(filePath);
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    Console.Error.WriteLine($"Could not read file '{filePath}': {ex.Message}");
+                    return 1;
+                }
+            }
 
             if (text == null && Console.IsInputRedirected)
                 text = Console.In.ReadToEnd();
@@ -102,6 +116,19 @@ namespace VkProfilerCli
 
             Console.WriteLine(json);
             return 0;
+        }
+
+        private static bool TryTakeValue(string[] args, ref int i, string flag, out string value)
+        {
+            if (i + 1 >= args.Length)
+            {
+                Console.Error.WriteLine($"Missing value for {flag}.");
+                value = null;
+                return false;
+            }
+
+            value = args[++i];
+            return true;
         }
 
         private static string StripHtml(string rowHtml)
