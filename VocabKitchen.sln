@@ -1,4 +1,4 @@
-﻿
+
 Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 16
 VisualStudioVersion = 16.0.29613.14
@@ -19,10 +19,6 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution 
 	ProjectSection(SolutionItems) = preProject
 		global.json = global.json
 	EndProjectSection
-EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "VkProfilerCli", "VkProfilerCli\VkProfilerCli.csproj", "{8C130F6A-1E2B-495D-A833-6D3B16DBA6E4}"
-EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "VkProfilerCli.Test", "VkProfilerCli.Test\VkProfilerCli.Test.csproj", "{0C799473-B5DA-43FD-9136-5F52CF101D30}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -54,14 +50,6 @@ Global
 		{09080A36-6F6E-47CB-BDB7-A871BEC5E0F1}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{09080A36-6F6E-47CB-BDB7-A871BEC5E0F1}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{09080A36-6F6E-47CB-BDB7-A871BEC5E0F1}.Release|Any CPU.Build.0 = Release|Any CPU
-		{8C130F6A-1E2B-495D-A833-6D3B16DBA6E4}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{8C130F6A-1E2B-495D-A833-6D3B16DBA6E4}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{8C130F6A-1E2B-495D-A833-6D3B16DBA6E4}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{8C130F6A-1E2B-495D-A833-6D3B16DBA6E4}.Release|Any CPU.Build.0 = Release|Any CPU
-		{0C799473-B5DA-43FD-9136-5F52CF101D30}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{0C799473-B5DA-43FD-9136-5F52CF101D30}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{0C799473-B5DA-43FD-9136-5F52CF101D30}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{0C799473-B5DA-43FD-9136-5F52CF101D30}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

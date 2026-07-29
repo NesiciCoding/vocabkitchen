@@ -1,62 +1,13 @@
-# VkProfilerCli
+# Word-list data & provenance
 
-A small standalone command-line tool that runs VocabKitchen's **vocabulary profiler**
-logic directly — no database, no AWS, no Angular/Node, no authentication. It reads a
-piece of text and reports the vocabulary level of every word against three word lists:
-
-- **CEFR** — buckets words into A1, A2, B1, B2, C1, C2 (the standard language-proficiency scale)
-- **AWL** — Coxhead's Academic Word List (binary: academic word or not)
-- **NAWL** — the New Academic Word List (binary)
-
-It reuses the real profiler code from `VkCore` and `VkInfrastructure`
-(`CefrProfiler` / `AwlProfiler` / `NawlProfiler`), so it exercises the same
-tokenizer and scoring the web app used — just wrapped in a console entry point
-that targets `net8.0`.
-
-## Requirements
-
-- .NET 8 SDK and the ASP.NET Core 8 runtime (pulled in transitively by the
-  referenced projects). On Arch/CachyOS: `sudo pacman -S dotnet-sdk-8.0 aspnet-runtime-8.0`.
-
-## Build
-
-```bash
-dotnet build VkProfilerCli
-```
-
-The word-list `.txt` files in `VkInfrastructure/Profilers/WordLists` are copied
-next to the executable at build time, which is where the profilers read them from.
-
-## Usage
-
-```bash
-# from the VkProfilerCli directory
-dotnet run -- --type cefr --text "The cat sat on the mat."
-dotnet run -- --type all  --file essay.txt
-echo "She analysed the philosophical implications." | dotnet run -- --type awl
-```
-
-Options:
-
-| Flag        | Meaning                                                        |
-|-------------|---------------------------------------------------------------|
-| `--type`    | `cefr`, `awl`, `nawl`, or `all` (default `all`)                |
-| `--text`    | inline text to analyse                                        |
-| `--file`    | path to a UTF-8 text file to analyse                          |
-| (stdin)     | if neither `--text` nor `--file` is given, text is read from stdin |
-
-Output is JSON: a `totalWordCount` plus, per profiler, each level's percentage,
-word count, and the distinct words in that level ranked by number of occurrences.
-Words not found in any list appear under `Off List`.
-
-## Word-list data & provenance
-
+The profiler scores text against the CEFR / AWL / NAWL word lists in
+`VkInfrastructure/Profilers/WordLists/` (one word per line, plain UTF-8 `.txt`).
 Each list is built from a documented source and validated against a curated
 dictionary so that only real, correctly-spelled words are included. Sources and
 their licences differ, so they are listed per-list rather than under a single
 blanket claim.
 
-### Sources
+## Sources
 
 - **CEFR (A1–C2)** — the
   [Words-CEFR-Dataset](https://github.com/Maximax67/Words-CEFR-Dataset)
@@ -81,7 +32,7 @@ blanket claim.
   variants. Every word that ships in the CEFR and NAWL lists must appear in this
   dictionary.
 
-### How the lists are built from those sources
+## How the lists are built from those sources
 
 - **CEFR** — each word is assigned the **lowest** CEFR level among its parts of
   speech; words whose only part-of-speech tags are proper nouns (NNP/NNPS) are
@@ -93,7 +44,7 @@ blanket claim.
   inflected forms that are attested in the validation dictionary (so
   over-generated non-words are excluded).
 
-### Accuracy notes
+## Accuracy notes
 
 - The profiler does exact, case-insensitive **surface-form** matching (no
   lemmatization). Word lists are pre-expanded to inflected forms to compensate.
