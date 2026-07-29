@@ -25,8 +25,7 @@ Flags:
     --text        inline text to analyse
     --file        path to a UTF-8 text file to analyse
     --wordlists   directory holding the CEFR/AWL/NAWL word-list folders
-                  (default: VkInfrastructure/Profilers/WordLists next to this
-                  script)
+                  (default: the WordLists folder next to this script)
     (stdin)       if neither --text nor --file is given, text is read from stdin
 
 Output is JSON on stdout: a totalWordCount plus, per profiler, each level's
@@ -199,9 +198,7 @@ def main(argv=None):
     args = parser.parse_args(argv)
 
     script_dir = os.path.dirname(os.path.abspath(__file__))
-    base_dir = args.wordlists or os.path.join(
-        script_dir, "VkInfrastructure", "Profilers", "WordLists"
-    )
+    base_dir = args.wordlists or os.path.join(script_dir, "WordLists")
 
     text = args.text
     if text is None and args.file:

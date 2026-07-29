@@ -33,28 +33,11 @@
   </ItemGroup>
 
   <ItemGroup>
-    <None Update="Profilers\WordLists\AWL\awl.txt">
-      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
-    </None>
-    <None Update="Profilers\WordLists\CEFR\A1.txt">
-      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
-    </None>
-    <None Update="Profilers\WordLists\CEFR\A2.txt">
-      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
-    </None>
-    <None Update="Profilers\WordLists\CEFR\B1.txt">
-      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
-    </None>
-    <None Update="Profilers\WordLists\CEFR\B2.txt">
-      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
-    </None>
-    <None Update="Profilers\WordLists\CEFR\C1.txt">
-      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
-    </None>
-    <None Update="Profilers\WordLists\CEFR\C2.txt">
-      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
-    </None>
-    <None Update="Profilers\WordLists\NAWL\nawl.txt">
+    <!-- The canonical word lists live at the repo root (../WordLists). They are
+         linked into Profilers\WordLists in the build output so the profilers,
+         which read from that assembly-relative path, keep working. -->
+    <None Include="..\WordLists\**\*.txt">
+      <Link>Profilers\WordLists\%(RecursiveDir)%(Filename)%(Extension)</Link>
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </None>
   </ItemGroup>

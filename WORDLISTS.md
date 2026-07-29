@@ -1,7 +1,7 @@
 # Word-list data & provenance
 
-The profiler scores text against the CEFR / AWL / NAWL word lists in
-`VkInfrastructure/Profilers/WordLists/` (one word per line, plain UTF-8 `.txt`).
+The profiler scores text against the CEFR / AWL / NAWL word lists in the
+`WordLists/` folder at the repo root (one word per line, plain UTF-8 `.txt`).
 Each list is built from a documented source and validated against a curated
 dictionary so that only real, correctly-spelled words are included. Sources and
 their licences differ, so they are listed per-list rather than under a single

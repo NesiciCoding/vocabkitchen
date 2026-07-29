@@ -85,5 +85,5 @@ JSON on stdout. Shape:
 
 - Verify Python is available with `python3 --version` if a run fails.
 - Word-list sources, licences, and build method are documented in
-  [`WORDLISTS.md`](../../../WORDLISTS.md); the lists live in
-  `VkInfrastructure/Profilers/WordLists/`.
+  [`WORDLISTS.md`](../../../WORDLISTS.md); the lists live in the `WordLists/`
+  folder at the repo root.
