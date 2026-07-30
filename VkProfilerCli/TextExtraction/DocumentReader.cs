@@ -55,9 +55,10 @@ namespace VkProfilerCli.TextExtraction
             string extension = Path.GetExtension(filePath);
             var extractor = _byExtension.TryGetValue(extension, out var found) ? found : _fallback;
 
+            string text;
             try
             {
-                return extractor.Extract(filePath);
+                text = extractor.Extract(filePath);
             }
             catch (DocumentReadException)
             {
@@ -69,6 +70,16 @@ namespace VkProfilerCli.TextExtraction
                 throw new DocumentReadException(
                     $"Could not read {kind} '{filePath}': {ex.Message}", ex);
             }
+
+            if (string.IsNullOrWhiteSpace(text))
+            {
+                string hint = extension.Equals(".pdf", StringComparison.OrdinalIgnoreCase)
+                    ? " (a scanned or image-only PDF has no text layer; OCR is not performed)"
+                    : string.Empty;
+                throw new DocumentReadException($"No analysable text found in '{filePath}'{hint}.");
+            }
+
+            return text;
         }
     }
 }

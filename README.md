@@ -53,9 +53,11 @@ Options:
 | `--file`   | path to a `.txt`, `.md`, `.docx`, or `.pdf` file to analyse       |
 | (stdin)    | if neither `--text` nor `--file` is given, text is read from stdin |
 
-**Input** — `--file` detects the format from the extension: plain text, Markdown
-(syntax stripped to prose), Word `.docx`, or `.pdf` (its text layer; no OCR for
-scanned pages).
+**Input** — `--file` detects the format from the extension: Markdown
+(`.md`/`.markdown`, syntax stripped to prose), Word `.docx`, or `.pdf` (its text
+layer; no OCR for scanned pages). Any other extension (`.txt` included) is read
+as plain UTF-8 text. See [`VkProfilerCli/README.md`](VkProfilerCli/README.md#input-formats)
+for the full table.
 
 **Output** — two shapes, selected by `--format`:
 

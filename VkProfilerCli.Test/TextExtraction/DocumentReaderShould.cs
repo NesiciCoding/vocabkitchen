@@ -86,6 +86,35 @@ namespace VkProfilerCli.Test.TextExtraction
         }
 
         [Fact]
+        public void Extract_multi_fragment_pdf_as_separated_words_in_order()
+        {
+            string path = Path.Combine(_dir, "multi.pdf");
+            // Two separate text fragments on one line; the higher-level extractor keeps
+            // them as distinct, ordered words rather than mashing them into one token.
+            var builder = new PdfDocumentBuilder();
+            var font = builder.AddStandard14Font(Standard14Font.Helvetica);
+            var page = builder.AddPage(595, 842);
+            page.AddText("alpha", 12, new UglyToad.PdfPig.Core.PdfPoint(50, 750), font);
+            page.AddText("omega", 12, new UglyToad.PdfPig.Core.PdfPoint(300, 750), font);
+            File.WriteAllBytes(path, builder.Build());
+
+            string text = _reader.Read(path);
+
+            Assert.Contains("alpha", text);
+            Assert.Contains("omega", text);
+            Assert.True(text.IndexOf("alpha") < text.IndexOf("omega"),
+                $"Expected alpha before omega, got: {text}");
+        }
+
+        [Fact]
+        public void Throw_when_file_has_no_analysable_text()
+        {
+            string path = Write("empty.txt", "   \n\t ");
+            var ex = Assert.Throws<DocumentReadException>(() => _reader.Read(path));
+            Assert.Contains("No analysable text", ex.Message);
+        }
+
+        [Fact]
         public void Throw_for_missing_file()
         {
             string path = Path.Combine(_dir, "nope.txt");
