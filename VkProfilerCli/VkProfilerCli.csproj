@@ -13,4 +13,11 @@
     <ProjectReference Include="..\VkInfrastructure\VkInfrastructure.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <PackageReference Include="DocumentFormat.OpenXml" Version="3.5.1" />
+    <PackageReference Include="Markdig" Version="1.3.2" />
+    <PackageReference Include="PdfPig" Version="0.1.15" />
+    <PackageReference Include="Spectre.Console" Version="0.57.2" />
+  </ItemGroup>
+
 </Project>

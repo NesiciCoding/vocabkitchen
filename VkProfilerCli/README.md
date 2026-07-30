@@ -32,7 +32,7 @@ next to the executable at build time, which is where the profilers read them fro
 ```bash
 # from the VkProfilerCli directory
 dotnet run -- --type cefr --text "The cat sat on the mat."
-dotnet run -- --type all  --file essay.txt
+dotnet run -- --type all  --file essay.pdf
 echo "She analysed the philosophical implications." | dotnet run -- --type awl
 ```
 
@@ -41,13 +41,50 @@ Options:
 | Flag        | Meaning                                                        |
 |-------------|---------------------------------------------------------------|
 | `--type`    | `cefr`, `awl`, `nawl`, or `all` (default `all`)                |
+| `--format`  | `auto` (default), `json`, or `pretty` — see [Output](#output) |
 | `--text`    | inline text to analyse                                        |
-| `--file`    | path to a UTF-8 text file to analyse                          |
+| `--file`    | path to a file to analyse (see [Input formats](#input-formats)) |
 | (stdin)     | if neither `--text` nor `--file` is given, text is read from stdin |
 
-Output is JSON: a `totalWordCount` plus, per profiler, each level's percentage,
-word count, and the distinct words in that level ranked by number of occurrences.
-Words not found in any list appear under `Off List`.
+### Input formats
+
+`--file` detects the format from the file extension and extracts its text:
+
+| Extension            | How it's read                                                    |
+|----------------------|------------------------------------------------------------------|
+| `.txt` / (other)     | read as UTF-8 text (the fallback for any unknown extension)      |
+| `.md` / `.markdown`  | Markdown syntax (headings, emphasis, links, code) stripped to prose via [Markdig](https://github.com/xoofx/markdig) |
+| `.docx`              | paragraph text extracted with the [Open XML SDK](https://github.com/dotnet/Open-XML-SDK) |
+| `.pdf`               | text layer extracted with [PdfPig](https://github.com/UglyToad/PdfPig) |
+
+> **Note:** image-only / scanned PDFs have no text layer and yield no words (there is no OCR).
+
+### Output
+
+The tool emits **two** output shapes, selected by `--format`:
+
+- **`json`** (machine-readable) — a `totalWordCount` plus, per profiler, each
+  level's percentage, word count, and the distinct words in that level ranked by
+  number of occurrences. Words not found in any list appear under `Off List`.
+- **`pretty`** — a colour-coded terminal view for humans: a CEFR distribution
+  summary (typical level + 90%-coverage level + a breakdown bar), per-level word
+  lists, and the source text reprinted with each word tinted by its CEFR level
+  (A1 blue → C2 pink), rendered with [Spectre.Console](https://spectreconsole.net/).
+
+`--format auto` (the default) picks `pretty` when stdout is an interactive
+terminal and `json` when stdout is piped or redirected — so scripts and other
+tools keep receiving JSON automatically, while a human at a prompt gets the
+coloured view. Pass `--format json` or `--format pretty` to force either.
+
+## Planned / future ideas
+
+Not yet implemented — tracked here so they aren't lost:
+
+- **`--no-color`** — disable ANSI colour in the pretty view (for logs / accessibility).
+- **Paging or capping long highlighted text** — very long inputs reprint the whole
+  source in the *Text* panel; add truncation or paging.
+- **Richer AWL/NAWL presentation** — currently a compact list; could get its own
+  coverage bar and per-sublist breakdown like the CEFR section.
 
 ## Word-list data & provenance
 

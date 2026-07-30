@@ -3,8 +3,11 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
+using Spectre.Console;
 using VkCore.Models.Profiler;
 using VkInfrastructure.Profilers;
+using VkProfilerCli.Rendering;
+using VkProfilerCli.TextExtraction;
 
 namespace VkProfilerCli
 {
@@ -15,6 +18,7 @@ namespace VkProfilerCli
             string profilerType = "all";
             string text = null;
             string filePath = null;
+            string formatArg = null;
 
             for (int i = 0; i < args.Length; i++)
             {
@@ -33,21 +37,27 @@ namespace VkProfilerCli
                         if (!TryTakeValue(args, ref i, "--text", out text))
                             return 1;
                         break;
+                    case "--format":
+                        if (!TryTakeValue(args, ref i, "--format", out formatArg))
+                            return 1;
+                        break;
                     default:
                         text ??= args[i];
                         break;
                 }
             }
 
+            string sourceLabel = null;
             if (filePath != null)
             {
                 try
                 {
-                    text = File.ReadAllText(filePath);
+                    text = new DocumentReader().Read(filePath);
+                    sourceLabel = Path.GetFileName(filePath);
                 }
-                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                catch (DocumentReadException ex)
                 {
-                    Console.Error.WriteLine($"Could not read file '{filePath}': {ex.Message}");
+                    Console.Error.WriteLine(ex.Message);
                     return 1;
                 }
             }
@@ -57,7 +67,13 @@ namespace VkProfilerCli
 
             if (string.IsNullOrWhiteSpace(text))
             {
-                Console.Error.WriteLine("Usage: vkprofiler [--type cefr|awl|nawl|all] [--text \"...\" | --file path.txt | < stdin]");
+                Console.Error.WriteLine("Usage: vkprofiler [--type cefr|awl|nawl|all] [--format auto|json|pretty] [--text \"...\" | --file path{.txt|.md|.docx|.pdf} | < stdin]");
+                return 1;
+            }
+
+            if (!OutputFormatResolver.TryResolve(formatArg, Console.IsOutputRedirected, out var format, out var formatError))
+            {
+                Console.Error.WriteLine(formatError);
                 return 1;
             }
 
@@ -69,12 +85,10 @@ namespace VkProfilerCli
             };
 
             var typesToRun = profilerType == "all"
-                ? profilers.Keys
-                : profilerType.Split(',').Select(t => t.Trim());
+                ? profilers.Keys.ToList()
+                : profilerType.Split(',').Select(t => t.Trim()).ToList();
 
-            var output = new Dictionary<string, object>();
-            int? totalWordCount = null;
-
+            var results = new Dictionary<string, ProfilerResult>();
             foreach (var type in typesToRun)
             {
                 if (!profilers.TryGetValue(type, out var profiler))
@@ -83,23 +97,40 @@ namespace VkProfilerCli
                     return 1;
                 }
 
-                ProfilerResult result = profiler.Profile(text);
-                totalWordCount ??= result.TotalWordCount;
+                results[type] = profiler.Profile(text);
+            }
+
+            if (format == OutputFormat.Pretty)
+                new PrettyRenderer(AnsiConsole.Console).Render(sourceLabel, results);
+            else
+                Console.WriteLine(BuildJson(results));
+
+            return 0;
+        }
+
+        private static string BuildJson(Dictionary<string, ProfilerResult> results)
+        {
+            int? totalWordCount = null;
+            var output = new Dictionary<string, object>();
+
+            foreach (var kvp in results)
+            {
+                totalWordCount ??= kvp.Value.TotalWordCount;
 
                 var levels = new Dictionary<string, object>();
-                foreach (var kvp in result.TableResult)
+                foreach (var level in kvp.Value.TableResult)
                 {
-                    levels[kvp.Key] = new
+                    levels[level.Key] = new
                     {
-                        percentage = kvp.Value.Percentage,
-                        wordCount = kvp.Value.Rows?.Sum(r => r.Occurrences) ?? 0,
-                        words = kvp.Value.Rows?
+                        percentage = level.Value.Percentage,
+                        wordCount = level.Value.Rows?.Sum(r => r.Occurrences) ?? 0,
+                        words = level.Value.Rows?
                             .OrderByDescending(r => r.Occurrences)
                             .Select(r => new { word = StripHtml(r.RowHtml), occurrences = r.Occurrences })
                     };
                 }
 
-                output[type] = levels;
+                output[kvp.Key] = levels;
             }
 
             var final = new
@@ -108,14 +139,11 @@ namespace VkProfilerCli
                 results = output
             };
 
-            var json = JsonSerializer.Serialize(final, new JsonSerializerOptions
+            return JsonSerializer.Serialize(final, new JsonSerializerOptions
             {
                 WriteIndented = true,
                 Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping
             });
-
-            Console.WriteLine(json);
-            return 0;
         }
 
         private static bool TryTakeValue(string[] args, ref int i, string flag, out string value)

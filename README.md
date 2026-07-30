@@ -39,23 +39,36 @@ dotnet build VkProfilerCli
 
 cd VkProfilerCli
 dotnet run -- --type cefr --text "The cat sat on the mat."
-dotnet run -- --type all  --file essay.txt
+dotnet run -- --type all  --file essay.pdf
 echo "She analysed the philosophical implications." | dotnet run -- --type awl
 ```
 
 Options:
 
-| Flag     | Meaning                                                            |
-|----------|-------------------------------------------------------------------|
-| `--type` | `cefr`, `awl`, `nawl`, or `all` (default `all`)                    |
-| `--text` | inline text to analyse                                            |
-| `--file` | path to a UTF-8 text file to analyse                              |
-| (stdin)  | if neither `--text` nor `--file` is given, text is read from stdin |
+| Flag       | Meaning                                                            |
+|------------|-------------------------------------------------------------------|
+| `--type`   | `cefr`, `awl`, `nawl`, or `all` (default `all`)                    |
+| `--format` | `auto` (default), `json`, or `pretty`                             |
+| `--text`   | inline text to analyse                                            |
+| `--file`   | path to a `.txt`, `.md`, `.docx`, or `.pdf` file to analyse       |
+| (stdin)    | if neither `--text` nor `--file` is given, text is read from stdin |
 
-Output is JSON: a `totalWordCount` plus, per profiler, each level's percentage,
-word count, and the distinct words in that level ranked by number of occurrences.
-Words not found in any list appear under `Off List`. Full details, output shape,
-and accuracy notes are in [`VkProfilerCli/README.md`](VkProfilerCli/README.md).
+**Input** — `--file` detects the format from the extension: plain text, Markdown
+(syntax stripped to prose), Word `.docx`, or `.pdf` (its text layer; no OCR for
+scanned pages).
+
+**Output** — two shapes, selected by `--format`:
+
+- **JSON** — a `totalWordCount` plus, per profiler, each level's percentage, word
+  count, and the distinct words in that level ranked by occurrences (`Off List`
+  holds unrecognised words). Ideal for scripting and other tools.
+- **Pretty** — a colour-coded terminal view: a CEFR distribution summary,
+  per-level word lists, and the text tinted by level (A1 blue → C2 pink).
+
+`--format auto` (default) shows the pretty view in an interactive terminal and
+emits JSON when piped/redirected, so downstream tools always get JSON. Full
+details, output shape, and accuracy notes are in
+[`VkProfilerCli/README.md`](VkProfilerCli/README.md).
 
 ### Example
 
