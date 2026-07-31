@@ -266,6 +266,14 @@ The plugins live in [`plugins/vocab-profiler/`](plugins/vocab-profiler) and
 and data as symlinks to the canonical copies at the repo root, so there is a
 single source of truth and the plain CLI usage above stays unchanged.
 
+> **Note:** those symlinks point outside the plugin directory (to the repo root).
+> Installing from the marketplace copies the plugin and dereferences the symlinks,
+> so that path is unaffected. Loading a clone in place with `--plugin-dir` relies
+> on the loader following those external symlinks, which isn't guaranteed on every
+> Claude Code version — if a plugin's command or data doesn't resolve that way,
+> install it from the marketplace, or just run the script directly
+> (`python3 grammar_profile.py …` / `python3 vocab_profile.py …`).
+
 ## About the original project
 
 Vocabkitchen (<https://vocabkitchen.com/>) is a language-teaching application by
