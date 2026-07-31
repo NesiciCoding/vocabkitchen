@@ -1,6 +1,6 @@
 {
   "name": "vocabkitchen",
-  "description": "VocabKitchen tools for Claude Code — English vocabulary profiling (CEFR, AWL, NAWL).",
+  "description": "VocabKitchen tools for Claude Code — English vocabulary and grammar profiling by CEFR level.",
   "owner": {
     "name": "NesiciCoding",
     "url": "https://github.com/NesiciCoding"
@@ -10,6 +10,11 @@
       "name": "vocab-profiler",
       "source": "./plugins/vocab-profiler",
       "description": "Profile the CEFR level (A1–C2) and academic-vocabulary density (AWL/NAWL) of English text. Dependency-free Python 3."
+    },
+    {
+      "name": "grammar-profiler",
+      "source": "./plugins/grammar-profiler",
+      "description": "Profile the grammar of English text by CEFR level — which constructions it uses (tenses, aspect, passive, modals, relative clauses, conditionals) and what level each maps to. Rule-based over a spaCy parse; uses the CEFR-J Grammar Profile. Requires Python 3 + spaCy."
     }
   ]
 }

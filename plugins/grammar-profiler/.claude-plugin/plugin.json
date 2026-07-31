@@ -1,0 +1,10 @@
+{
+  "name": "grammar-profiler",
+  "description": "Profile the grammar of English text by CEFR level — which constructions it uses (tenses, aspect, passive, modals, relative clauses, conditionals, non-finite forms) and what CEFR level each maps to. Rule-based over a spaCy parse; uses the CEFR-J Grammar Profile. Requires Python 3 + spaCy.",
+  "author": {
+    "name": "NesiciCoding"
+  },
+  "homepage": "https://github.com/NesiciCoding/vocabkitchen-CLI",
+  "repository": "https://github.com/NesiciCoding/vocabkitchen-CLI",
+  "keywords": ["cefr", "grammar", "cefr-j", "language-learning", "english", "spacy"]
+}
