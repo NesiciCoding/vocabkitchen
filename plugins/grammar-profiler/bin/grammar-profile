@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# Thin wrapper so the grammar-profiler plugin exposes a `grammar-profile` command
+# on the Bash tool's PATH. It self-locates the bundled profiler relative to this
+# script. When the plugin is installed from the marketplace, its grammar_profile.py
+# / GrammarProfile (symlinks back to the repo root) are dereferenced into real
+# files, so this resolves directly. Loading a clone in place with --plugin-dir
+# instead relies on those external symlinks being followed; if that path isn't
+# available, run ../grammar_profile.py from the repo directly.
+set -euo pipefail
+
+here="$(cd "$(dirname "$0")" && pwd)"
+exec python3 "$here/../grammar_profile.py" "$@"
