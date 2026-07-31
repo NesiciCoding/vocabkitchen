@@ -1,0 +1,15 @@
+{
+  "name": "vocabkitchen",
+  "description": "VocabKitchen tools for Claude Code — English vocabulary profiling (CEFR, AWL, NAWL).",
+  "owner": {
+    "name": "NesiciCoding",
+    "url": "https://github.com/NesiciCoding"
+  },
+  "plugins": [
+    {
+      "name": "vocab-profiler",
+      "source": "./plugins/vocab-profiler",
+      "description": "Profile the CEFR level (A1–C2) and academic-vocabulary density (AWL/NAWL) of English text. Dependency-free Python 3."
+    }
+  ]
+}

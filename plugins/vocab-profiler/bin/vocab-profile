@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# Thin wrapper so the vocab-profiler plugin exposes a `vocab-profile` command
+# on the Bash tool's PATH. It self-locates the bundled profiler relative to
+# this script, so it works whether the plugin dir is loaded in place (its
+# vocab_profile.py / WordLists are symlinks back to the repo root) or copied
+# into the plugin cache (the symlinks are dereferenced to real files).
+set -euo pipefail
+
+here="$(cd "$(dirname "$0")" && pwd)"
+exec python3 "$here/../vocab_profile.py" "$@"

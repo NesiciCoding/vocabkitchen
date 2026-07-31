@@ -18,9 +18,11 @@ level of every word against three word lists:
   `NawlProfiler`) with **no database, AWS, Angular, auth — or .NET**. It reuses
   the exact same word lists and is validated to produce identical output to the
   original C# profiler.
-- **A Claude Cowork skill** (`.claude/skills/vocab-profiler/`) that wraps the
-  script, so the profiler is available out of the box in a cowork session — just
-  ask for the CEFR level or vocabulary breakdown of a text.
+- **A Claude Code plugin & skill** — an installable plugin
+  ([`plugins/vocab-profiler/`](plugins/vocab-profiler)) plus a repo-local skill
+  (`.claude/skills/vocab-profiler/`) that wrap the script, so the profiler is
+  available in a Claude Code / Cowork session — just ask for the CEFR level or
+  vocabulary breakdown of a text. See [Use in Claude Code](#use-in-claude-code).
 - **Rebuilt word-list data** — the CEFR/AWL/NAWL lists in the repo had been
   truncated to only "a" words, which made scoring wrong for real text. They were
   rebuilt in full from documented public sources (each with its own licence) and
@@ -114,6 +116,40 @@ spreads into the higher bands — e.g. *chlorophyll*, *photosynthesis*, and
 
 `vocab_profile.py` is a faithful standalone port of the profiler slice of the
 original C# application (see below); it carries no other part of that codebase.
+
+## Use in Claude Code
+
+Beyond the command line, the profiler ships as a **Claude Code plugin**, so you
+can ask Claude for a text's CEFR level or vocabulary breakdown right in a session
+instead of invoking the script yourself.
+
+### Install from the marketplace
+
+```bash
+/plugin marketplace add NesiciCoding/vocabkitchen-CLI
+/plugin install vocab-profiler@vocabkitchen
+```
+
+Then just ask — e.g. *"What CEFR level is this paragraph?"* — or invoke the skill
+explicitly with `/vocab-profiler:vocab-profiler`. The plugin still needs
+**Python 3** on your machine: it bundles the script and word lists, not a runtime.
+
+Updates are automatic. The plugin is intentionally unversioned, so every push to
+this repo counts as a new release and Claude Code picks it up on its next
+background marketplace refresh (force one with `/plugin marketplace update`).
+
+### Try it before installing
+
+To load the plugin straight from a clone, without adding the marketplace:
+
+```bash
+claude --plugin-dir ./plugins/vocab-profiler
+```
+
+The plugin lives in [`plugins/vocab-profiler/`](plugins/vocab-profiler); its
+`vocab_profile.py`, `WordLists/`, and `WORDLISTS.md` are symlinks to the canonical
+copies at the repo root, so there is a single source of truth and the plain CLI
+usage above stays unchanged.
 
 ## About the original project
 

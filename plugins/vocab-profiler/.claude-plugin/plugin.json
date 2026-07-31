@@ -1,0 +1,10 @@
+{
+  "name": "vocab-profiler",
+  "description": "Profile the vocabulary level of English text — CEFR level (A1–C2) and academic-vocabulary density (Coxhead's AWL and the NAWL). Dependency-free Python 3, no build step.",
+  "author": {
+    "name": "NesiciCoding"
+  },
+  "homepage": "https://github.com/NesiciCoding/vocabkitchen-CLI",
+  "repository": "https://github.com/NesiciCoding/vocabkitchen-CLI",
+  "keywords": ["cefr", "vocabulary", "readability", "academic-word-list", "language-learning", "english"]
+}
