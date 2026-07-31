@@ -10,27 +10,32 @@ Determines the vocabulary level of English text against three word lists:
 This is a faithful reimplementation of VocabKitchen's original C# profiler
 (CefrProfiler / AwlProfiler / NawlProfiler). It reuses the exact same word-list
 .txt files and reproduces the same tokenizer, matching, ordering and
-percentage-rounding, so its JSON output matches the original. It has no
-third-party dependencies — only the Python 3 standard library — so it runs on
-any Linux/macOS box with python3 installed.
+percentage-rounding, so its JSON output matches the original.
+
+The core profiler has no third-party dependencies — only the Python 3 standard
+library. It reads plain text, Markdown, and Word .docx files with the stdlib
+alone; PDF input additionally needs the optional ``pypdf`` package.
 
 Usage:
     python3 vocab_profile.py --type cefr --text "The cat sat on the mat."
-    python3 vocab_profile.py --type all  --file essay.txt
+    python3 vocab_profile.py --type all  --file essay.pdf
     echo "She analysed it." | python3 vocab_profile.py --type awl
 
 Flags:
     --type        cefr | awl | nawl | all  (default: all; also accepts a
                   comma-separated list, e.g. cefr,awl)
+    --format      auto | json | pretty  (default: auto — a colour terminal view
+                  when stdout is a TTY, JSON when piped/redirected)
     --text        inline text to analyse
-    --file        path to a UTF-8 text file to analyse
+    --file        path to a .txt, .md, .docx, or .pdf file to analyse
     --wordlists   directory holding the CEFR/AWL/NAWL word-list folders
                   (default: the WordLists folder next to this script)
     (stdin)       if neither --text nor --file is given, text is read from stdin
 
-Output is JSON on stdout: a totalWordCount plus, per profiler, each level's
-percentage, word count, and the distinct words in that level ranked by number
-of occurrences. Words not in any list appear under "Off List".
+Output: with --format json, JSON on stdout (a totalWordCount plus, per profiler,
+each level's percentage, word count, and the distinct words in that level ranked
+by number of occurrences; words not in any list appear under "Off List"). With
+--format pretty, a colour-coded terminal view of the CEFR breakdown.
 """
 
 import argparse
@@ -119,6 +124,136 @@ def format_percentage(numerator, denominator):
 
 
 # ---------------------------------------------------------------------------
+# Document text extraction — plain text, Markdown, Word .docx, PDF
+# ---------------------------------------------------------------------------
+
+class DocumentError(Exception):
+    """Raised when an input file cannot be read or yields no analysable text."""
+
+
+def _read_plain(path):
+    with open(path, "r", encoding="utf-8") as f:
+        return f.read()
+
+
+# Markdown -> prose. Not a full parser: it drops the syntax that would otherwise
+# be profiled as vocabulary (fences, markers, URLs) while keeping the words.
+_MD_FENCE_RE = re.compile(r"```.*?```", re.DOTALL)
+_MD_INLINE_CODE_RE = re.compile(r"`([^`]*)`")
+_MD_IMAGE_RE = re.compile(r"!\[([^\]]*)\]\([^)]*\)")
+_MD_LINK_RE = re.compile(r"\[([^\]]*)\]\([^)]*\)")
+_MD_HTML_TAG_RE = re.compile(r"<[^>]+>")
+_MD_HEADING_RE = re.compile(r"^\s{0,3}#{1,6}\s*", re.MULTILINE)
+_MD_BLOCKQUOTE_RE = re.compile(r"^\s{0,3}>\s?", re.MULTILINE)
+_MD_LIST_MARKER_RE = re.compile(r"^\s{0,3}(?:[-*+]|\d+[.)])\s+", re.MULTILINE)
+_MD_HR_RE = re.compile(r"^\s{0,3}(?:[-*_]\s*){3,}$", re.MULTILINE)
+_MD_EMPHASIS_RE = re.compile(r"(\*\*|__|\*|_|~~)")
+
+
+def _read_markdown(path):
+    md = _read_plain(path)
+    md = _MD_FENCE_RE.sub(" ", md)
+    md = _MD_IMAGE_RE.sub(r"\1", md)
+    md = _MD_LINK_RE.sub(r"\1", md)
+    md = _MD_INLINE_CODE_RE.sub(r"\1", md)
+    md = _MD_HTML_TAG_RE.sub(" ", md)
+    md = _MD_HR_RE.sub(" ", md)
+    md = _MD_HEADING_RE.sub("", md)
+    md = _MD_BLOCKQUOTE_RE.sub("", md)
+    md = _MD_LIST_MARKER_RE.sub("", md)
+    md = _MD_EMPHASIS_RE.sub("", md)
+    md = md.replace("|", " ")  # table cell separators
+    return md
+
+
+# .docx is a zip of XML; the visible text lives in word/document.xml as <w:t>
+# nodes grouped into <w:p> paragraphs. Extract it with the stdlib alone.
+_DOCX_NS = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
+
+
+def _read_docx(path):
+    import zipfile
+    import xml.etree.ElementTree as ET
+
+    try:
+        with zipfile.ZipFile(path) as z:
+            with z.open("word/document.xml") as f:
+                root = ET.parse(f).getroot()
+    except (zipfile.BadZipFile, KeyError) as ex:
+        raise DocumentError(f"'{path}' is not a readable .docx file: {ex}")
+
+    paragraphs = []
+    for para in root.iter(_DOCX_NS + "p"):
+        runs = []
+        for node in para.iter():
+            tag = node.tag
+            if tag == _DOCX_NS + "t" and node.text:
+                runs.append(node.text)
+            elif tag == _DOCX_NS + "tab":
+                runs.append(" ")
+            elif tag == _DOCX_NS + "br":
+                runs.append("\n")
+        paragraphs.append("".join(runs))
+    return "\n".join(paragraphs)
+
+
+def _read_pdf(path):
+    try:
+        from pypdf import PdfReader
+    except ImportError:
+        try:
+            from PyPDF2 import PdfReader  # older name, same API
+        except ImportError:
+            raise DocumentError(
+                "Reading PDF files needs the optional 'pypdf' package. "
+                "Install it with:  pip install pypdf"
+            )
+    try:
+        reader = PdfReader(path)
+        return "\n".join((page.extract_text() or "") for page in reader.pages)
+    except DocumentError:
+        raise
+    except Exception as ex:  # pypdf raises a variety of parse errors
+        raise DocumentError(f"Could not read PDF '{path}': {ex}")
+
+
+_EXTRACTORS = {
+    ".md": _read_markdown,
+    ".markdown": _read_markdown,
+    ".docx": _read_docx,
+    ".pdf": _read_pdf,
+}
+
+
+def extract_text(path):
+    """Read *path* and return its text, dispatching on file extension.
+
+    ``.md``/``.markdown``, ``.docx`` and ``.pdf`` get dedicated extractors; any
+    other extension (including ``.txt``) is read as UTF-8 text. Raises
+    :class:`DocumentError` for unreadable files or ones with no analysable text.
+    """
+    if not os.path.exists(path):
+        raise DocumentError(f"Could not read file '{path}': file not found.")
+
+    ext = os.path.splitext(path)[1].lower()
+    extractor = _EXTRACTORS.get(ext, _read_plain)
+    try:
+        text = extractor(path)
+    except DocumentError:
+        raise
+    except (IOError, OSError, UnicodeDecodeError) as ex:
+        raise DocumentError(f"Could not read file '{path}': {ex}")
+
+    if text is None or text.strip() == "":
+        hint = (
+            " (a scanned or image-only PDF has no text layer; OCR is not performed)"
+            if ext == ".pdf" else ""
+        )
+        raise DocumentError(f"No analysable text found in '{path}'{hint}.")
+    return text
+
+
+# ---------------------------------------------------------------------------
 # Profiler
 # ---------------------------------------------------------------------------
 
@@ -196,9 +331,225 @@ def build_rows(counts):
     return by_count  # list of (word, occurrences)
 
 
+def results_to_json(ordered):
+    """Shape one profiler's ordered result as the JSON `results[type]` mapping."""
+    return {
+        name: {
+            "percentage": pct,
+            "wordCount": sum(occ for _w, occ in rows),
+            "words": [{"word": w, "occurrences": occ} for w, occ in rows],
+        }
+        for name, pct, rows in ordered
+    }
+
+
+# ---------------------------------------------------------------------------
+# Pretty terminal rendering (colour-coded, dependency-free ANSI)
+# ---------------------------------------------------------------------------
+
+# CEFR level colours, matching the original Vocabkitchen web app (RGB).
+_LEVEL_RGB = {
+    "A1": (0, 153, 204),
+    "A2": (0, 187, 0),
+    "B1": (255, 153, 0),
+    "B2": (179, 0, 0),
+    "C1": (215, 51, 255),
+    "C2": (219, 112, 147),
+    "Off List": (136, 136, 136),
+}
+_DEFAULT_RGB = (200, 200, 200)
+_CEFR_ORDER = ["A1", "A2", "B1", "B2", "C1", "C2"]
+_COVERAGE_TARGET = 0.90
+
+
+def _use_colour(stream):
+    return stream.isatty() and os.environ.get("NO_COLOR") is None
+
+
+def _paint(rgb, text, enabled):
+    if not enabled:
+        return text
+    r, g, b = rgb
+    return f"\x1b[38;2;{r};{g};{b}m{text}\x1b[0m"
+
+
+def _bold(text, enabled):
+    return f"\x1b[1m{text}\x1b[0m" if enabled else text
+
+
+def _cefr_stats(ordered, total):
+    """From a CEFR `ordered` result, return (level_counts, typical, coverage)."""
+    counts = {name: sum(occ for _w, occ in rows) for name, _pct, rows in ordered}
+    bands = [(lvl, counts.get(lvl, 0)) for lvl in _CEFR_ORDER]
+    classified = sum(c for _lvl, c in bands)
+
+    if classified == 0:
+        return counts, "—", "—"
+
+    # Typical = band with the most words (ties resolve to the lower level).
+    typical = max(bands, key=lambda lc: (lc[1], -_CEFR_ORDER.index(lc[0])))[0]
+
+    # Coverage = lowest band at which cumulative coverage reaches the target.
+    cumulative = 0
+    coverage = next((lvl for lvl, c in reversed(bands) if c > 0), "—")
+    for lvl, c in bands:
+        cumulative += c
+        if cumulative >= classified * _COVERAGE_TARGET:
+            coverage = lvl
+            break
+    return counts, typical, coverage
+
+
+def _distribution_bar(counts, total, width, colour):
+    segments, legend = [], []
+    for lvl in _CEFR_ORDER + ["Off List"]:
+        c = counts.get(lvl, 0)
+        if c == 0:
+            continue
+        cells = round(c / total * width) if total else 0
+        if cells:
+            segments.append(_paint(_LEVEL_RGB[lvl], "█" * cells, colour))
+        pct = round(c / total * 100) if total else 0
+        legend.append(_paint(_LEVEL_RGB[lvl], "■", colour) + f" {lvl} {pct}%")
+    return "".join(segments), "   ".join(legend)
+
+
+def _wrap_words(items, width):
+    """Greedy-wrap (visible_text, plain_len) items into lines of at most *width*."""
+    lines, cur, cur_len = [], "", 0
+    for visible, plain_len in items:
+        add = plain_len + (1 if cur else 0)
+        if cur and cur_len + add > width:
+            lines.append(cur)
+            cur, cur_len = visible, plain_len
+        else:
+            cur = (cur + " " + visible) if cur else visible
+            cur_len += add
+    if cur:
+        lines.append(cur)
+    return lines
+
+
+def _render_highlight(text, cefr_levels, width, colour):
+    def level_of(word):
+        w = word.lower()
+        for name, wordset in cefr_levels:
+            if w in wordset:
+                return name
+        return "Off List"
+
+    def paint_chunk(chunk):
+        out = []
+        for seg in re.split(r"([A-Za-z0-9]+)", chunk):
+            if not seg:
+                continue
+            if seg.isalnum():
+                out.append(_paint(_LEVEL_RGB[level_of(seg)], seg, colour))
+            else:
+                out.append(seg)
+        return "".join(out)
+
+    lines = []
+    for para in text.split("\n"):
+        chunks = [c for c in para.split(" ") if c]
+        items = [(paint_chunk(c), len(c)) for c in chunks]
+        lines.extend(_wrap_words(items, width) if items else [""])
+    return lines
+
+
+def render_pretty(source_label, per_type, cefr_levels, text, stream=None):
+    """Render a colour-coded CEFR view. *per_type* maps type -> (ordered, total)."""
+    stream = stream or sys.stdout
+    colour = _use_colour(stream)
+    try:
+        import shutil
+        width = min(shutil.get_terminal_size((80, 20)).columns, 100)
+    except Exception:
+        width = 80
+    out = []
+
+    out.append(_bold("Vocabulary Profile", colour))
+    if source_label:
+        out.append(_paint(_LEVEL_RGB["Off List"], f"Source: {source_label}", colour))
+    out.append("")
+
+    if "cefr" in per_type:
+        ordered, total = per_type["cefr"]
+        counts, typical, coverage = _cefr_stats(ordered, total)
+
+        out.append(f"{_bold('Total words:', colour)} {total}")
+        verdict = (
+            f"Most recognised words are {typical}."
+            if typical == coverage
+            else f"Most words are {typical}; you need {coverage} to cover ~90%."
+        )
+        out.append(
+            f"{_bold('Typical:', colour)} {_paint(_LEVEL_RGB.get(typical, _DEFAULT_RGB), typical, colour)}"
+            f"   {_bold('90% coverage:', colour)} {_paint(_LEVEL_RGB.get(coverage, _DEFAULT_RGB), coverage, colour)}"
+        )
+        out.append(_paint(_LEVEL_RGB["Off List"], verdict, colour))
+        out.append("")
+
+        bar, legend = _distribution_bar(counts, total, min(width, 64), colour)
+        out.append(bar)
+        out.append(legend)
+        out.append("")
+
+        for name, pct, rows in ordered:
+            if not rows:
+                continue
+            rgb = _LEVEL_RGB.get(name, _DEFAULT_RGB)
+            out.append(_paint(rgb, _bold(name, colour), colour) + f"  {pct}")
+            items = []
+            for w, occ in rows:
+                label = f"{w} ×{occ}" if occ > 1 else w
+                items.append((_paint(rgb, label, colour), len(label)))
+            for line in _wrap_words(items, width - 2):
+                out.append("  " + line)
+            out.append("")
+
+        if cefr_levels is not None:
+            out.append(_bold("Text", colour))
+            out.extend(_render_highlight(text, cefr_levels, width, colour))
+            out.append("")
+
+    for t in ("awl", "nawl"):
+        if t not in per_type:
+            continue
+        ordered, _total = per_type[t]
+        out.append(_bold(f"{t.upper()} — academic vocabulary", colour))
+        # Only the on-list bucket is interesting here; "Off List" is every
+        # non-academic word, which would just be noise.
+        academic = [(name, pct, rows) for name, pct, rows in ordered
+                    if name != "Off List" and rows]
+        if not academic:
+            out.append(_paint(_LEVEL_RGB["Off List"], "  No academic-list words found.", colour))
+        for name, pct, rows in academic:
+            words = ", ".join(w for w, _occ in rows)
+            out.append(f"  {_bold(name, colour)}  {pct} ({sum(o for _w, o in rows)})")
+            for line in _wrap_words([(words, len(words))], width - 4):
+                out.append("    " + line)
+        out.append("")
+
+    stream.write("\n".join(out) + "\n")
+
+
+def resolve_format(explicit, is_tty):
+    """Resolve --format: explicit value wins, else auto by TTY (pretty) vs pipe (json)."""
+    if explicit in (None, "", "auto"):
+        return "pretty" if is_tty else "json"
+    value = explicit.strip().lower()
+    if value == "json":
+        return "json"
+    if value in ("pretty", "text"):
+        return "pretty"
+    raise ValueError(f"Unknown format '{explicit}'. Valid formats: auto, json, pretty.")
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(add_help=True, description="VocabKitchen vocabulary profiler")
     parser.add_argument("--type", default="all")
+    parser.add_argument("--format", default="auto")
     parser.add_argument("--text", default=None)
     parser.add_argument("--file", default=None)
     parser.add_argument("--wordlists", default=None)
@@ -206,16 +557,23 @@ def main(argv=None):
     parser.add_argument("positional", nargs="*", help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
 
+    try:
+        out_format = resolve_format(args.format, sys.stdout.isatty())
+    except ValueError as ex:
+        sys.stderr.write(str(ex) + "\n")
+        return 1
+
     script_dir = os.path.dirname(os.path.abspath(__file__))
     base_dir = args.wordlists or os.path.join(script_dir, "WordLists")
 
+    source_label = None
     text = args.text
     if text is None and args.file:
         try:
-            with open(args.file, "r", encoding="utf-8") as f:
-                text = f.read()
-        except (IOError, OSError) as ex:
-            sys.stderr.write(f"Could not read file '{args.file}': {ex}\n")
+            text = extract_text(args.file)
+            source_label = os.path.basename(args.file)
+        except DocumentError as ex:
+            sys.stderr.write(str(ex) + "\n")
             return 1
     if text is None and args.positional:
         text = args.positional[0]
@@ -225,7 +583,8 @@ def main(argv=None):
     if text is None or text.strip() == "":
         sys.stderr.write(
             'Usage: vocab_profile.py [--type cefr|awl|nawl|all] '
-            '[--text "..." | --file path.txt | < stdin]\n'
+            '[--format auto|json|pretty] '
+            '[--text "..." | --file path{.txt|.md|.docx|.pdf} | < stdin]\n'
         )
         return 1
 
@@ -233,6 +592,8 @@ def main(argv=None):
     types = list(_PROFILERS.keys()) if requested == "all" else [t.strip() for t in requested.split(",")]
 
     results = {}
+    per_type = {}
+    cefr_levels = None
     total_word_count = None
     for t in types:
         if t not in _PROFILERS:
@@ -246,16 +607,15 @@ def main(argv=None):
         ordered, total = profile(text, levels)
         if total_word_count is None:
             total_word_count = total
-        results[t] = {
-            name: {
-                "percentage": pct,
-                "wordCount": sum(occ for _w, occ in rows),
-                "words": [{"word": w, "occurrences": occ} for w, occ in rows],
-            }
-            for name, pct, rows in ordered
-        }
+        results[t] = results_to_json(ordered)
+        per_type[t] = (ordered, total)
+        if t == "cefr":
+            cefr_levels = levels
 
-    print(json.dumps({"totalWordCount": total_word_count, "results": results}, indent=2, ensure_ascii=False))
+    if out_format == "pretty":
+        render_pretty(source_label, per_type, cefr_levels, text)
+    else:
+        print(json.dumps({"totalWordCount": total_word_count, "results": results}, indent=2, ensure_ascii=False))
     return 0
 
 

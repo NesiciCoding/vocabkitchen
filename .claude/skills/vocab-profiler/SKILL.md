@@ -35,15 +35,25 @@ Flags:
 | Flag          | Meaning                                                                   |
 |---------------|---------------------------------------------------------------------------|
 | `--type`      | `cefr`, `awl`, `nawl`, `all` (default), or a comma-list like `cefr,awl`   |
+| `--format`    | `auto` (default), `json`, or `pretty` — see below                         |
 | `--text`      | inline text to analyse                                                     |
-| `--file`      | path to a UTF-8 text file to analyse                                       |
+| `--file`      | path to a `.txt`, `.md`, `.docx`, or `.pdf` file (PDF needs the optional `pypdf` package) |
 | `--wordlists` | override the word-list directory (defaults to the bundled lists)           |
 | (stdin)       | if neither `--text` nor `--file` is given, text is read from stdin         |
 
 **Choosing input mode:** use `--text` for a short snippet, `--file` for a
 document already on disk, and pipe via stdin when the text is produced by another
 command. For long or multi-line text prefer `--file` or stdin over `--text` to
-avoid shell-quoting issues.
+avoid shell-quoting issues. `--file` detects the format from the extension:
+Markdown syntax is stripped to prose, `.docx` and `.pdf` have their text
+extracted (`.txt` and anything else is read as UTF-8). Only PDF needs a
+third-party package (`pip install pypdf`); everything else is stdlib-only.
+
+**Output format:** when you run the script and capture its output (the normal
+case here — stdout is not a terminal), it emits **JSON automatically**, so the
+parsing below applies unchanged. `--format pretty` produces a colour-coded
+terminal view for a human at a prompt; pass `--format json` to force JSON in any
+context.
 
 ## Output
 

@@ -30,13 +30,15 @@ level of every word against three word lists:
 
 ## Quick start
 
-The profiler needs only **Python 3** — no build, no third-party dependencies.
-Most Linux and macOS systems already have it (on macOS it may require the Xcode
-Command Line Tools); confirm with `python3 --version` before running:
+The profiler needs only **Python 3** — no build, and no third-party dependencies
+for text, Markdown, and `.docx` input (PDF input optionally uses `pypdf`; see
+[Input formats](#input-formats)). Most Linux and macOS systems already have
+Python (on macOS it may require the Xcode Command Line Tools); confirm with
+`python3 --version` before running:
 
 ```bash
 python3 vocab_profile.py --type cefr --text "The cat sat on the mat."
-python3 vocab_profile.py --type all  --file essay.txt
+python3 vocab_profile.py --type all  --file essay.pdf
 echo "She analysed the philosophical implications." | python3 vocab_profile.py --type awl
 ```
 
@@ -45,15 +47,54 @@ Options:
 | Flag          | Meaning                                                                 |
 |---------------|-------------------------------------------------------------------------|
 | `--type`      | `cefr`, `awl`, `nawl`, `all` (default), or a comma-list like `cefr,awl` |
+| `--format`    | `auto` (default), `json`, or `pretty` — see [Output](#output-formats)  |
 | `--text`      | inline text to analyse                                                  |
-| `--file`      | path to a UTF-8 text file to analyse                                    |
+| `--file`      | path to a `.txt`, `.md`, `.docx`, or `.pdf` file to analyse            |
 | `--wordlists` | override the word-list directory (defaults to the bundled lists)        |
 | (stdin)       | if neither `--text` nor `--file` is given, text is read from stdin      |
 
-Output is JSON: a `totalWordCount` plus, per profiler, each level's percentage,
-word count, and the distinct words in that level ranked by number of occurrences.
-Words not found in any list appear under `Off List`. See [`WORDLISTS.md`](WORDLISTS.md)
-for data provenance and accuracy notes.
+### Input formats
+
+`--file` detects the format from the extension:
+
+| Extension            | How it's read                                                     |
+|----------------------|------------------------------------------------------------------|
+| `.txt` / (other)     | read as UTF-8 text (the fallback for any unknown extension)       |
+| `.md` / `.markdown`  | Markdown syntax (headings, emphasis, links, code) stripped to prose |
+| `.docx`              | paragraph text extracted from the Word XML (stdlib only)          |
+| `.pdf`               | text layer extracted with [`pypdf`](https://pypi.org/project/pypdf/) |
+
+Everything except PDF is handled with the Python standard library alone. PDF is
+the one optional dependency — install it only if you need it:
+
+```bash
+pip install pypdf
+```
+
+Image-only / scanned PDFs have no text layer and yield no words (there is no OCR).
+
+### Output formats
+
+Selected by `--format`:
+
+- **`json`** — a `totalWordCount` plus, per profiler, each level's percentage,
+  word count, and the distinct words in that level ranked by occurrences
+  (`Off List` holds unrecognised words). Ideal for scripts, tools, and the Cowork skill.
+- **`pretty`** — a colour-coded terminal view: a CEFR distribution summary
+  (typical level + 90%-coverage level + a breakdown bar), per-level word lists,
+  and the source text tinted by level (A1 blue → C2 pink).
+
+`--format auto` (the default) picks `pretty` when stdout is an interactive
+terminal and `json` when stdout is piped or redirected, so downstream tools keep
+receiving JSON automatically. Pass `--format json`/`--format pretty` to force
+either. See [`WORDLISTS.md`](WORDLISTS.md) for data provenance and accuracy notes.
+
+### Planned / future ideas
+
+Not yet implemented — noted so they aren't lost: an explicit `--no-color` flag
+(colour already auto-disables when output isn't a terminal and honours the
+`NO_COLOR` env var); paging/truncation for the highlighted-text block on very
+long inputs; and a richer AWL/NAWL section with its own coverage bar.
 
 Run the regression tests with:
 
