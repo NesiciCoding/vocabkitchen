@@ -14,7 +14,7 @@
     {
       "name": "grammar-profiler",
       "source": "./plugins/grammar-profiler",
-      "description": "Profile the grammar of English text by CEFR level — which constructions it uses (tenses, aspect, passive, modals, relative clauses, conditionals) and what level each maps to. Rule-based over a spaCy parse; uses the CEFR-J Grammar Profile. Requires Python 3 + spaCy."
+      "description": "Profile the grammar of English text by CEFR level — which constructions it uses (tenses, aspect, passive, modals, relative clauses, conditionals) and what level each maps to. Rule-based over a spaCy parse; uses the CEFR-J Grammar Profile. Requires Python 3, spaCy, and the en_core_web_sm model."
     }
   ]
 }

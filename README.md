@@ -198,7 +198,7 @@ echo "The results were analysed by the team." | python3 grammar_profile.py
 | (stdin)             | if neither `--text` nor `--file` is given, text is read from stdin       |
 
 The same `--format auto` rule applies: a colour-coded terminal view when stdout is
-a TTY, JSON when piped or redirected. The JSON has sentence/word counts, an
+a TTY, JSON when piped or redirected. The JSON has sentence/token counts, an
 `estimatedLevel` (`typical` = busiest band, `reaches` = highest band present), and
 every detected construction banded by CEFR level with counts and example spans.
 

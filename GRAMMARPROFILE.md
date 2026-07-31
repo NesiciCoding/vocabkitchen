@@ -31,9 +31,11 @@ corresponds to (usually the affirmative-declarative form of the construction).
 At startup the tool reads the CSV and resolves that code's level, preferring the
 `CEFR-J Level` column and falling back to `Core Inventory`, then `EGP`, when
 CEFR-J itself is blank. Fine-grained sublevels are coarsened to the six CEFR
-bands (`A1.2` → `A1`, `B1-C1` → `B1`, etc.). A handful of codes carry no level in
-any column (e.g. the first conditional, which the profile leaves implicit); those
-use a documented fallback level, marked below.
+bands (`A1.2` → `A1`, `B1-C1` → `B1`, etc.). A few constructions use a documented
+**fallback** level instead — either because their code carries no level in any
+column (e.g. `had better`), or because no single CEFR-J code fits (the generic
+adverbial clause, and relative *whom*/*whose*, which the PREL family doesn't
+list). These are marked ⟨fallback⟩ below.
 
 Because the mapping lives in the data, you can point the tool at an edited or
 alternative profile with `--grammar-profile <dir>` (the directory must contain a
@@ -46,6 +48,7 @@ band; the code is the CEFR-J shorthand it is read from (⟨fallback⟩ marks the
 that use a fallback level because the source code is unlevelled).
 
 ### Tense & aspect
+
 | Construction | Level | CEFR-J code |
 |---|---|---|
 | Present simple / Present simple (be) | A1 | `TA.PRESENT.do.AFF` / `TA.PRESENT.be.AFF` |
@@ -59,6 +62,7 @@ that use a fallback level because the source code is unlevelled).
 | Past perfect progressive | B2 | `TA.PASTPFPRG.AFF` |
 
 ### Modality
+
 | Construction | Level | CEFR-J code |
 |---|---|---|
 | Modal: can | A1 | `MD.can.AFF` |
@@ -71,6 +75,7 @@ that use a fallback level because the source code is unlevelled).
 | had better ⟨fallback B2⟩ | B2 | `MD.had_better.AFF` |
 
 ### Voice
+
 | Construction | Level | CEFR-J code |
 |---|---|---|
 | Passive (present) | A1 | `PASS.PRESENT` |
@@ -81,6 +86,7 @@ that use a fallback level because the source code is unlevelled).
 | Passive (progressive) | B2 | `PASS.PRSPRG.AFF` |
 
 ### Non-finite
+
 | Construction | Level | CEFR-J code |
 |---|---|---|
 | -ing form (gerund/participle) | A1 | `VG` |
@@ -91,6 +97,7 @@ that use a fallback level because the source code is unlevelled).
 | perfect to-infinitive (to have done) | C1 | `TO.to_have_done` |
 
 ### Comparison
+
 | Construction | Level | CEFR-J code |
 |---|---|---|
 | Comparative (-er) / Superlative (-est) | A1 | `COMP.JJR.RBR.er` / `COMP.JJS.RBS.est` |
@@ -98,22 +105,25 @@ that use a fallback level because the source code is unlevelled).
 | Comparison of equality (as … as) | B2 | `COMP.EQ.as_as` |
 
 ### Relative clauses
+
 | Construction | Level | CEFR-J code |
 |---|---|---|
 | Relative clause: who / that | A1 | `PREL.who` / `PREL.that` |
-| Relative clause: whom | A2 | `INT.whom` |
 | Non-restrictive relative clause | B1 | `PREL.NR` |
-| Relative clause: whose | B1 | `PREL.whose` |
+| Relative clause: whose ⟨fallback B1⟩ | B1 | — (no PREL code) |
+| Relative clause: whom ⟨fallback B2⟩ | B2 | — (no PREL code) |
 | Relative clause: which | B2 | `PREL.which` |
 
 ### Subordination
+
 | Construction | Level | CEFR-J code |
 |---|---|---|
-| Adverbial (subordinate) clause | A1–B2 | `CL.when` (level varies by conjunction) |
+| Adverbial (subordinate) clause | A1–A2 | `CL.when` / `CL.as`; ⟨fallback A2⟩ for other subordinators |
 | that-clause complement | A2 | `CL.that.OBJ` |
 | Embedded wh- / question clause | B1 | `CL.WH.OBJ` |
 
 ### Questions
+
 | Construction | Level | CEFR-J code |
 |---|---|---|
 | Wh- question | A1–B2 | `INT.what` (level varies by wh-word) |
@@ -121,6 +131,7 @@ that use a fallback level because the source code is unlevelled).
 | Tag question | B1 | `TAG.AFF` |
 
 ### Existential, imperative & mood
+
 | Construction | Level | CEFR-J code |
 |---|---|---|
 | Existential there + be | A1 | `EX.there.AFF` |
@@ -128,6 +139,7 @@ that use a fallback level because the source code is unlevelled).
 | Negative imperative | B1 | `IMP.V.NEG` |
 
 ### Conditionals
+
 | Construction | Level | CEFR-J code |
 |---|---|---|
 | First conditional | A2 | `CL.if` |
@@ -136,6 +148,7 @@ that use a fallback level because the source code is unlevelled).
 | wish + past (unreal) | B2 | `SUBJ.wish_PAST` |
 
 ### Causative, inversion, subjunctive
+
 | Construction | Level | CEFR-J code |
 |---|---|---|
 | Causative (make/let/have + inf) | A2 | `CAUS.have.let.make` |

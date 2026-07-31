@@ -24,6 +24,11 @@ import grammar_profile as gp  # noqa: E402
 
 try:
     import spacy  # noqa: F401
+    HAVE_SPACY_PKG = True
+except ImportError:
+    HAVE_SPACY_PKG = False
+
+try:
     _NLP = gp.load_nlp()
     HAVE_SPACY = True
 except Exception:
@@ -84,35 +89,51 @@ try:
 except ValueError:
     check("format bogus raises", True)
 
-# --- unit: JSON shaping --------------------------------------------------------
+# --- unit: JSON shaping + sort order (-count, then name) -----------------------
 _fake_results = {lvl: {} for lvl in gp._CEFR_ORDER}
-_fake_results["A2"]["pres_perf"] = {
-    "name": "Present perfect", "category": "Tense & aspect", "level": "A2",
-    "count": 2, "examples": [{"span": "have gone", "sentence": "They have gone."}],
-}
-_fake_meta = {"sentenceCount": 1, "tokenCount": 3, "constructionCount": 2,
+# Three A2 constructions: two share a count (tie broken by name), one ranks above.
+_fake_results["A2"]["b_low"] = {
+    "name": "Beta", "category": "Tense & aspect", "level": "A2",
+    "count": 1, "examples": []}
+_fake_results["A2"]["a_low"] = {
+    "name": "Alpha", "category": "Tense & aspect", "level": "A2",
+    "count": 1, "examples": []}
+_fake_results["A2"]["top"] = {
+    "name": "Zeta", "category": "Tense & aspect", "level": "A2",
+    "count": 5, "examples": [{"span": "have gone", "sentence": "They have gone."}]}
+_fake_meta = {"sentenceCount": 1, "tokenCount": 3, "constructionCount": 7,
               "estimatedLevel": {"typical": "A2", "reaches": "A2"},
               "bandCounts": {lvl: 0 for lvl in gp._CEFR_ORDER}}
 _j = gp.results_to_json(_fake_results, _fake_meta)
-check("json has top-level counts", _j["sentenceCount"] == 1 and _j["constructionCount"] == 2)
+check("json has top-level counts", _j["sentenceCount"] == 1 and _j["constructionCount"] == 7)
 check("json bands all six levels", set(_j["results"]) == set(gp._CEFR_ORDER))
-check("json A2 lists construction", _j["results"]["A2"]["constructions"][0]["id"] == "pres_perf")
-check("json A2 count/distinct", _j["results"]["A2"]["constructionCount"] == 2
-      and _j["results"]["A2"]["distinct"] == 1)
+_ids = [c["id"] for c in _j["results"]["A2"]["constructions"]]
+check("json sort: higher count first, then name", _ids == ["top", "a_low", "b_low"])
+check("json A2 count/distinct", _j["results"]["A2"]["constructionCount"] == 7
+      and _j["results"]["A2"]["distinct"] == 3)
 
 # --- unit: missing-engine error path ------------------------------------------
+# Two distinct states: spaCy absent -> "pip install spacy"; spaCy present but the
+# model absent -> "spacy download". Only assert the message for the true state.
 if HAVE_SPACY:
     try:
         gp.load_nlp("definitely_not_a_real_model_xyz")
         check("bad model raises EngineError", False)
     except gp.EngineError as ex:
         check("bad model raises EngineError", "spacy download" in str(ex))
-else:
+elif not HAVE_SPACY_PKG:
     try:
         gp.load_nlp()
         check("missing spaCy raises EngineError", False)
     except gp.EngineError as ex:
         check("missing spaCy raises EngineError", "pip install spacy" in str(ex))
+else:
+    # spaCy installed but the model isn't: load_nlp() must point at the download.
+    try:
+        gp.load_nlp()
+        check("missing model raises EngineError", False)
+    except gp.EngineError as ex:
+        check("missing model raises EngineError", "spacy download" in str(ex))
 
 # --- integration: blank input errors before needing spaCy ----------------------
 rc, out, err = run(["--text", "   "])
@@ -121,6 +142,18 @@ check("blank input errors rc==1", rc == 1 and "Usage" in err)
 # --- integration: document extraction (stdlib only) ----------------------------
 _tmp = tempfile.mkdtemp(prefix="grammartest_")
 try:
+    # Plain .txt goes through the _read_plain fallback; assert it returns content.
+    txt = os.path.join(_tmp, "prose.txt")
+    with open(txt, "w", encoding="utf-8") as f:
+        f.write("The committee analysed the results carefully.")
+    check("plain txt returns content",
+          gp.extract_text(txt) == "The committee analysed the results carefully.")
+    # Unknown extension falls back to plain-text reading too.
+    rst = os.path.join(_tmp, "notes.rst")
+    with open(rst, "w", encoding="utf-8") as f:
+        f.write("Unknown extension prose.")
+    check("unknown extension reads as plain", "Unknown extension prose" in gp.extract_text(rst))
+
     md = os.path.join(_tmp, "doc.md")
     with open(md, "w", encoding="utf-8") as f:
         f.write("# Title\n\nSome **bold** and a [link](https://example.com) plus `code`.")
@@ -168,7 +201,7 @@ def ids_for(text):
     return {cid for lvl in results for cid in results[lvl]}, results, meta
 
 
-def detect_check(name, text, expected_id, expected_level=None):
+def detect_check(name, text, expected_id, expected_level=None, forbidden_ids=()):
     global skipped
     if not HAVE_SPACY:
         skipped += 1
@@ -177,6 +210,8 @@ def detect_check(name, text, expected_id, expected_level=None):
     ok = expected_id in ids
     if ok and expected_level is not None:
         ok = expected_id in results[expected_level]
+    if ok and forbidden_ids:
+        ok = not (ids & set(forbidden_ids))
     check(name, ok)
 
 
@@ -204,6 +239,23 @@ detect_check("negative imperative", "Don't touch that.", "neg_imperative", "B1")
 detect_check("causative make", "She made me laugh.", "caus_make", "A2")
 detect_check("negative-adverbial inversion", "Never have I seen such a thing.", "inversion_neg", "C1")
 
+# Coverage for previously untested constructions, with negative expectations on
+# the overlap-prone ones (an over-firing detector would fail these).
+detect_check("ought to (not mislabelled modal_can)", "You ought to leave.",
+             "ought_to", "B1", forbidden_ids=["modal_can"])
+detect_check("had better", "You had better go now.", "had_better", "B2")
+detect_check("as ... as", "She is as tall as her brother.", "as_as", "B2")
+detect_check("wish clause", "I wish I had a car.", "wish_clause", "B2")
+detect_check("non-restrictive relative", "My sister, who is older, sings.",
+             "rel_nonrestrictive", "B1")
+detect_check("having + PP", "Having finished, she left.", "having_pp", "B2")
+detect_check("being + PP", "Being asked twice, he agreed.", "being_pp", "B2")
+detect_check("causative have + PP", "I had my hair cut.", "caus_have_pp", "B2")
+detect_check("mandative subjunctive", "I suggest that he leave now.",
+             "subjunctive_mandative", "C1")
+detect_check("embedded wh-clause (not a wh-question)", "I know what you did.",
+             "wh_clause", "B1", forbidden_ids=["wh_question"])
+
 # spaCy-dependent property checks: estimatedLevel + no misfire on plain sentence
 if HAVE_SPACY:
     ids, results, meta = ids_for("The cat sat on the mat.")
@@ -220,11 +272,17 @@ if HAVE_SPACY:
     check("pretty has source", "essay.txt" in pretty)
     check("pretty non-tty has no ANSI", "\x1b[" not in pretty)
 
-    # end-to-end JSON via the CLI
+    # end-to-end JSON via the CLI. Guard json.loads so a CLI failure is counted
+    # as a FAIL rather than aborting the suite with a JSONDecodeError traceback.
     rc, out, err = run(["--format", "json", "--text", "I can swim."])
     check("cli json rc==0", rc == 0)
-    d = json.loads(out)
-    check("cli json shape", "results" in d and set(d["results"]) == set(gp._CEFR_ORDER))
+    if rc == 0:
+        d = json.loads(out)
+        check("cli json shape",
+              "results" in d and set(d["results"]) == set(gp._CEFR_ORDER))
+    else:
+        check("cli json shape", False)
+        print(f"  cli stderr: {err.strip()}")
 else:
     skipped += 1
 

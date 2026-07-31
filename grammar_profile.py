@@ -106,7 +106,7 @@ def _read_docx(path):
         with zipfile.ZipFile(path) as z:
             with z.open("word/document.xml") as f:
                 root = ET.parse(f).getroot()
-    except (zipfile.BadZipFile, KeyError) as ex:
+    except (zipfile.BadZipFile, KeyError, ET.ParseError) as ex:
         raise DocumentError(f"'{path}' is not a readable .docx file: {ex}")
 
     paragraphs = []
@@ -299,9 +299,10 @@ def load_cefrj_levels(base_dir):
 # Construction registry
 #
 # Each construction: id -> (name, category, cefrj_code, fallback_level). The
-# level shown is read from the CEFR-J profile for `cefrj_code`; `fallback` is
-# used only when that code carries no CEFR-J/Core/EGP level (a handful are blank
-# in the source, e.g. the first conditional, which the profile leaves implicit).
+# level shown is read from the CEFR-J profile for `cefrj_code`; `fallback` is used
+# only when the code is blank/absent in the source or when no single CEFR-J code
+# fits (e.g. `had better`, whose code carries no level, and the generic adverbial
+# clause / relative-whom/whose, which have no dedicated code).
 # ---------------------------------------------------------------------------
 
 # id: (display name, category, CEFR-J shorthand code, fallback level)
@@ -360,13 +361,18 @@ _CONSTRUCTIONS = {
     "rel_who":         ("Relative clause: who", "Relative clause", "PREL.who", "A1"),
     "rel_that":        ("Relative clause: that", "Relative clause", "PREL.that", "A1"),
     "rel_which":       ("Relative clause: which", "Relative clause", "PREL.which", "B2"),
-    "rel_whom":        ("Relative clause: whom", "Relative clause", "INT.whom", "B2"),
-    "rel_whose":       ("Relative clause: whose", "Relative clause", "PREL.whose", "B1"),
+    # The CEFR-J PREL family has no 'whom'/'whose' code, so these use a documented
+    # fallback rather than borrowing the interrogative INT.whom (a different item).
+    "rel_whom":        ("Relative clause: whom", "Relative clause", "", "B2"),
+    "rel_whose":       ("Relative clause: whose", "Relative clause", "", "B1"),
     "rel_nonrestrictive": ("Non-restrictive relative clause", "Relative clause", "PREL.NR", "B1"),
     # --- Subordination ------------------------------------------------------
     "that_clause":     ("that-clause complement", "Subordination", "CL.that.OBJ", "A2"),
     "wh_clause":       ("Embedded wh- / question clause", "Subordination", "CL.WH.OBJ", "B1"),
-    "adv_clause":      ("Adverbial (subordinate) clause", "Subordination", "CL.when", "A2"),
+    # Generic adverbial clause: no single CEFR-J code fits every subordinator, so
+    # the base uses a documented fallback; 'when'/'as' override it with their real
+    # CEFR-J codes via _SUBORDINATOR_CODE.
+    "adv_clause":      ("Adverbial (subordinate) clause", "Subordination", "", "A2"),
     # --- Questions ----------------------------------------------------------
     "wh_question":     ("Wh- question", "Questions", "INT.what", "A1"),
     "yesno_question":  ("Yes/no question (inversion)", "Questions", "TA.PRESENT.be.INT.AFF", "A1"),
@@ -405,14 +411,19 @@ _WH_QUESTION_CODE = {
     "who": "INT.who", "whom": "INT.whom", "which": "INT.which", "whose": "INT.whose",
     "how": "INT.how",
 }
-# Adverbial-clause subordinator -> CEFR-J code (level looked up from the profile).
-# 'if'/'unless' are intentionally excluded: conditional clauses are reported by
-# _conditionals so they aren't also counted as generic adverbial clauses.
+# Subordinating conjunctions that introduce an adverbial clause. 'if'/'unless' are
+# intentionally excluded: conditional clauses are reported by _conditionals so they
+# aren't also counted as generic adverbial clauses.
+_SUBORDINATORS = frozenset({
+    "when", "as", "because", "although", "though", "while", "since", "until",
+    "before", "after", "whereas", "whenever", "wherever",
+})
+# Only subordinators with a genuinely corresponding CEFR-J code override the
+# generic adv_clause level; the rest fall back to the adv_clause base level rather
+# than borrowing an unrelated construction's code.
 _SUBORDINATOR_CODE = {
-    "when": "CL.when", "as": "CL.as", "because": "CL.when",
-    "although": "CL.so_that", "though": "CL.so_that", "while": "CL.when",
-    "since": "CL.as", "until": "CL.as", "before": "CL.when",
-    "after": "CL.when", "whereas": "CL.so_that",
+    "when": "CL.when",
+    "as": "CL.as",
 }
 
 
@@ -491,7 +502,11 @@ def _analyze_verb_group(V):
             return "modal_perfect", span
         if progressive:
             return "modal_progressive", span
-        return _MODAL_ID.get(modal_lemma, "modal_can"), span
+        # Only the eight core modals map to a construction. spaCy also tags
+        # ought/need/dare as MD; return None for those rather than mislabelling
+        # them "Modal: can" (they're handled elsewhere or intentionally skipped).
+        cid = _MODAL_ID.get(modal_lemma)
+        return (cid, span) if cid else None
     if modal_lemma == "will":
         # will + have + done / will + be + doing collapse to future here.
         return "future_will", span
@@ -569,6 +584,10 @@ def _multiword_verbs(sent, covered):
         # ought to + VERB
         if low == "ought" and t.i + 1 < len(t.doc) and t.nbor(1).lower_ == "to":
             found.append(("ought_to", t.doc[t.i:min(t.i + 3, len(t.doc))]))
+            target = next((c for c in t.doc[t.i:min(t.i + 4, len(t.doc))]
+                           if c.tag_ == "VB"), None)
+            if target is not None:
+                covered.add(target.i)
             continue
 
         # had better + VERB
@@ -603,15 +622,23 @@ def _nonfinite(sent, covered=frozenset()):
                     found.append(("not_to_inf", H.doc[t.i - 1:H.i + 1]))
                 else:
                     found.append(("to_inf", span))
-        # having / being + past participle
-        if t.tag_ == "VBG" and t.lemma_.lower() == "have":
+        # having / being + past participle. spaCy usually parses the participle
+        # (VBN) as the head with 'having'/'being' as its VBG auxiliary, so detect
+        # from the participle side; also handle the reverse (VBN as a child).
+        # Match on the surface form: spaCy lemmatizes 'being' -> 'be' but keeps
+        # 'having' -> 'having', so the word form is the reliable key.
+        if t.tag_ == "VBN":
+            aux = next((a for a in _auxes(t)
+                        if a.tag_ == "VBG" and a.lower_ in ("having", "being")), None)
+            if aux is not None:
+                cid = "having_pp" if aux.lower_ == "having" else "being_pp"
+                lo, hi = min(aux.i, t.i), max(aux.i, t.i)
+                found.append((cid, t.doc[lo:hi + 1]))
+        elif t.tag_ == "VBG" and t.lower_ in ("having", "being"):
             pp = next((c for c in t.children if c.tag_ == "VBN"), None)
             if pp is not None:
-                found.append(("having_pp", t.doc[t.i:pp.i + 1]))
-        if t.tag_ == "VBG" and t.lemma_.lower() == "be":
-            pp = next((c for c in t.children if c.tag_ == "VBN"), None)
-            if pp is not None:
-                found.append(("being_pp", t.doc[t.i:pp.i + 1]))
+                cid = "having_pp" if t.lower_ == "having" else "being_pp"
+                found.append((cid, t.doc[t.i:pp.i + 1]))
         # bare gerund / participle used nominally or in a participial phrase
         if t.tag_ == "VBG" and t.lemma_.lower() not in ("be", "have") \
                 and not any(a.lemma_ == "be" for a in _auxes(t)) \
@@ -679,18 +706,21 @@ def _clauses(sent):
             mark = next((c for c in t.children if c.dep_ == "mark" and c.lower_ == "that"), None)
             if mark is not None:
                 found.append(("that_clause", sent.doc[mark.i:t.i + 1]))
-        # embedded wh-clause (indirect question): ccomp/advcl headed under a wh-word
+        # embedded wh-clause (indirect question): ccomp/advcl headed under a wh-word.
+        # Skip the sentence-initial wh-word, which _questions already reports.
         if t.dep_ in ("ccomp", "advcl", "acl", "dobj", "pcomp"):
             wh = next((c for c in t.children if c.tag_ in ("WDT", "WP", "WP$", "WRB")
                        and c.lower_ in _WH_WORDS), None)
-            if wh is not None and not (sent[-1].text == "?" and t.dep_ == "ROOT"):
+            if wh is not None and wh.i != sent.start:
                 found.append(("wh_clause", sent.doc[wh.i:t.i + 1]))
-        # adverbial clause: advcl with a subordinating conjunction marker
+        # adverbial clause: advcl with a subordinating conjunction marker. Only
+        # 'when'/'as' carry a real CEFR-J code override; others fall back to the
+        # adv_clause base level (code_override None).
         if t.dep_ == "advcl":
             mark = next((c for c in t.children if c.dep_ == "mark"), None)
-            if mark is not None and mark.lower_ in _SUBORDINATOR_CODE:
+            if mark is not None and mark.lower_ in _SUBORDINATORS:
                 found.append(("adv_clause", sent.doc[mark.i:t.i + 1],
-                              _SUBORDINATOR_CODE[mark.lower_]))
+                              _SUBORDINATOR_CODE.get(mark.lower_)))
     return found
 
 
@@ -699,7 +729,9 @@ def _questions(sent):
     toks = [t for t in sent if not t.is_space]
     if not toks:
         return found
-    is_question = sent[-1].text == "?"
+    # Use the space-filtered tokens: spaCy can emit a trailing SPACE token when a
+    # sentence ends with a newline, which would hide the question mark.
+    is_question = toks[-1].text == "?"
     first = toks[0]
     # Wh-question
     if is_question and first.lower_ in _WH_WORDS:
@@ -915,10 +947,10 @@ def profile(text, nlp, cefrj_levels):
     for sent in sentences:
         sent_text = sent.text.strip()
         for cid, span_text, code_override in analyze_sentence(sent):
-            meta = _CONSTRUCTIONS.get(cid)
-            if meta is None:
+            spec = _CONSTRUCTIONS.get(cid)
+            if spec is None:
                 continue
-            name, category, code, fallback = meta
+            name, category, code, fallback = spec
             code = code_override or code
             level = cefrj_levels.get(code, fallback)
             entry = agg.get(cid)
@@ -1147,6 +1179,16 @@ def main(argv=None):
         nlp = load_nlp()
     except EngineError as ex:
         sys.stderr.write(str(ex) + "\n")
+        return 1
+
+    # spaCy's parser caps input at nlp.max_length (default 1,000,000 chars) to
+    # bound memory; beyond it, nlp(text) raises ValueError. Fail cleanly instead.
+    if len(text) > nlp.max_length:
+        sys.stderr.write(
+            f"Input is too long for the parser ({len(text):,} characters; the "
+            f"limit is {nlp.max_length:,}). Split it into smaller pieces (e.g. by "
+            "chapter or section) and profile each separately.\n"
+        )
         return 1
 
     results, meta = profile(text, nlp, cefrj_levels)
