@@ -4,10 +4,6 @@ on:
   push:
     branches: [main]
   pull_request:
-    # Skip CI for doc-only PRs (README, SKILL.md, etc.) — tests never read them.
-    paths-ignore:
-      - '*.md'
-      - '**/*.md'
   workflow_dispatch:
     inputs:
       update-perf-baseline:
