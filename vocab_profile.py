@@ -289,6 +289,24 @@ def load_wordlist(base_dir, rel_path):
         raise WordListError(f"Could not read word list '{full}': {ex}")
 
 
+def load_level_index(base_dir):
+    """Load the merged word → level index from WordLists/CEFR/levels.json.
+
+    The index (built by build_wordlists.py from the OLP-EN-CEFRJ profiles; see
+    WORDLISTS.md) maps each surface form to ``{"level": ..., "pos": ...}`` and
+    lets tools answer "what CEFR level is this word?" from bundled data alone
+    — no dictionary API. Returns an empty dict when the index is absent.
+    """
+    path = os.path.join(base_dir, "CEFR", "levels.json")
+    try:
+        with open(path, encoding="utf-8") as f:
+            data = json.load(f)
+        words = data.get("words") if isinstance(data, dict) else None
+        return words if isinstance(words, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
 def profile(text, levels):
     """Run one profiler (list of (level_name, word_set)) over the text.
 

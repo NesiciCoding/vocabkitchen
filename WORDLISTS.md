@@ -13,6 +13,17 @@ blanket claim.
   [Words-CEFR-Dataset](https://github.com/Maximax67/Words-CEFR-Dataset)
   (`csv/words.csv` + `csv/word_pos.csv`), **MIT-licensed**, itself derived from
   the CEFR-J dataset and Google Books N-Gram frequency data.
+- **CEFR gap-fill (A1–C2)** — the
+  [OLP-EN-CEFRJ](https://github.com/openlanguageprofiles/olp-en-cefrj)
+  profiles, bundled alongside the lists as
+  `WordLists/CEFR/cefrj-vocabulary-profile-1.5.csv` (CEFR-J A1–B2, 7,798 rows)
+  and `WordLists/CEFR/octanove-vocabulary-profile-c1c2-1.0.csv` (Octanove
+  C1/C2, 2,135 rows). The CEFR-J resources are © Tono Laboratory, Tokyo
+  University of Foreign Studies, made available for research and commercial
+  use **at no cost, provided the source is cited** — cite as *Tono, Y. (ed.)
+  The CEFR-J Vocabulary Profile. Tono Laboratory, Tokyo University of Foreign
+  Studies. <https://www.cefr-j.org/>*; the Octanove profile is the same
+  project's open C1/C2 banding.
 - **AWL** — Coxhead's Academic Word List (Coxhead, A. 2000, *A New Academic Word
   List*, TESOL Quarterly 34(2): 213–238): 570 word families, all member forms.
   Published for research/education use by Victoria University of Wellington
@@ -46,6 +57,20 @@ blanket claim.
   dropped; every remaining surface form must be in the validation dictionary.
   The profiler then matches the lowest-level list first, so common words resolve
   to the lowest level they legitimately belong to.
+- **CEFR OLP-EN-CEFRJ merge** — `build_wordlists.py --merge` gap-fills the six
+  lists from the bundled OLP-EN-CEFRJ profiles. The merge rule is
+  **conservative: existing classifications are authoritative; the profiles only
+  fill gaps** — a profile headword is added at its level only when it is absent
+  from all six current lists, so nothing already classified ever moves (the
+  profiler's published outputs and regression tests stay stable while
+  previously unrecognised words gain a level). Slash-separated spelling
+  variants (`adviser/advisor`) are split into separate forms; multi-word
+  phrases (`according to`) can't be matched by the token profiler, so they land
+  in the machine-readable index only. The script is idempotent
+  (`--check` verifies the lists and reports what a merge would change) and
+  also writes **`WordLists/CEFR/levels.json`**: a complete `word → {level,
+  pos}` index of every list word plus the profile phrases — the API-free CEFR
+  level lookup that `--export flashcards` and RubricMaker-style tools use.
 - **AWL** — the published word families, all member forms, as distributed.
 - **NAWL** — the canonical headwords plus regular inflections, keeping only
   inflected forms that are attested in the validation dictionary (so
@@ -55,6 +80,11 @@ blanket claim.
 
 - The profiler does exact, case-insensitive **surface-form** matching (no
   lemmatization). Word lists are pre-expanded to inflected forms to compensate.
+- The OLP-EN-CEFRJ merge adds the profile's **headword forms** as-is (plus any
+  inflected forms the profile itself lists, e.g. `abandoned` B2) — no
+  heuristic inflection expansion, matching the profiler's exact surface-form
+  matching. A word added by the merge is therefore recognised in the form the
+  profile lists, not in every inflection.
 - `Off List` covers words outside the validation dictionary — typically proper
   nouns, abbreviations, typos, or foreign words.
 - These lists are a reproducible baseline. For higher precision you could swap in

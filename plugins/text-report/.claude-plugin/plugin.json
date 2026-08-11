@@ -1,0 +1,10 @@
+{
+  "name": "text-report",
+  "description": "One command that profiles BOTH the vocabulary and grammar of English text against CEFR levels and answers \"is this text right for my class?\": vocabulary band + grammatical range + a blended estimated level, a --target-level flag that flags what exceeds the class level (words, structures, a coverage figure, and a one-line verdict), and an optional Flesch–Kincaid readability line. Runs the vocab and grammar profilers together. Requires Python 3; the grammar half needs spaCy (the tool degrades gracefully without it).",
+  "author": {
+    "name": "NesiciCoding"
+  },
+  "homepage": "https://github.com/NesiciCoding/vocabkitchen-CLI",
+  "repository": "https://github.com/NesiciCoding/vocabkitchen-CLI",
+  "keywords": ["cefr", "readability", "difficulty", "vocabulary", "grammar", "language-learning", "english", "flesch-kincaid"]
+}
