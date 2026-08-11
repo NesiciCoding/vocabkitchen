@@ -63,6 +63,19 @@ def run(args, text=""):
     return p.returncode, p.stdout, p.stderr
 
 
+# --- unit: the venv re-exec is skipped in vocabulary-only modes -------------
+_saved_argv = list(sys.argv)
+try:
+    sys.argv = ["text_report.py", "--no-grammar"]
+    tr._maybe_reexec_in_venv()  # must return; never exec's with --no-grammar
+    sys.argv = ["text_report.py", "--pre-enrich"]
+    tr._maybe_reexec_in_venv()  # ...and with --pre-enrich
+    check("re-exec skipped for vocab-only modes", True)
+except Exception as _ex:
+    check("re-exec skipped for vocab-only modes", False, str(_ex))
+finally:
+    sys.argv = _saved_argv
+
 # --- unit: syllable heuristic -------------------------------------------------
 check("syllables cat -> 1", tr.count_syllables("cat") == 1)
 check("syllables the -> 1", tr.count_syllables("the") == 1)

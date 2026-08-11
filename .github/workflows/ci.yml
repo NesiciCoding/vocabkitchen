@@ -118,6 +118,66 @@ jobs:
       - name: text report tests
         run: python3 test_text_report.py
 
+      - name: class profile tests
+        run: python3 test_class_profile.py
+
+      # Golden check of the batch CLI itself over the checked-in sample
+      # folder (sample-readings/): asserts the CSV/JSON contract end to end —
+      # one row per text, ranked by level, aggregate = sum of the rows — so
+      # the folder path is exercised in CI, not just the unit suites.
+      - name: class profile CLI golden check (sample-readings)
+        run: |
+          python - <<'EOF'
+          import csv, io, json, os, subprocess, sys
+
+          def run_cli(args):
+              p = subprocess.run([sys.executable, "class_profile.py"] + args,
+                                 capture_output=True, text=True)
+              return p.returncode, p.stdout, p.stderr
+
+          files = sorted(f for f in os.listdir("sample-readings")
+                         if not f.startswith(".")
+                         and os.path.isfile(os.path.join("sample-readings", f)))
+
+          # CSV summary: one row per text, the documented spreadsheet columns.
+          rc, out, err = run_cli(["--file", "sample-readings/", "--target-level", "B1",
+                                  "--no-grammar", "--format", "csv"])
+          assert rc == 0, err
+          rows = list(csv.reader(io.StringIO(out)))
+          assert rows[0] == ["file", "total_words", "vocab_typical", "vocab_reached",
+                             "grammar_typical", "grammar_reaches", "estimated_level",
+                             "above_target_pct", "fits"], rows[0]
+          assert len(rows) == 1 + len(files), len(rows)
+          assert all(r[-1] in ("yes", "no") for r in rows[1:]), rows
+          assert all(int(r[1]) >= 5 for r in rows[1:]), rows
+
+          # JSON: nothing skipped, aggregate = sum of the rows, ranked by level
+          # with the sample folder spanning the A1 → C2 gradient.
+          rc, out, err = run_cli(["--file", "sample-readings/", "--no-grammar"])
+          assert rc == 0, err
+          d = json.loads(out)
+          assert d["texts"] == len(files) and d["skipped"] == [], (d["texts"], d["skipped"])
+          assert sum(r["totalWordCount"] for r in d["rows"]) == d["aggregate"]["totalWordCount"]
+          levels = ["A1", "A2", "B1", "B2", "C1", "C2"]
+          ranks = [levels.index(r["estimatedLevel"]) if r["estimatedLevel"] in levels else 99
+                   for r in d["rows"]]
+          assert ranks == sorted(ranks), [r["estimatedLevel"] for r in d["rows"]]
+          assert ranks[0] == 0 and ranks[-1] == 5, ranks  # A1 ... C2 gradient
+
+          # Grammar-enabled run (spaCy is installed in this job): every row
+          # carries a real grammar typical/reaches range.
+          rc, out, err = run_cli(["--file", "sample-readings/"])
+          assert rc == 0, err
+          d = json.loads(out)
+          assert d["grammarError"] is None, d["grammarError"]
+          assert all(r["grammar"] is not None for r in d["rows"]), d["rows"]
+          assert all(r["grammar"]["typical"] in levels
+                     and r["grammar"]["reaches"] in levels
+                     for r in d["rows"]), [r["grammar"] for r in d["rows"]]
+
+          print(f"golden check OK: {len(files)} texts profiled, ranked A1 to C2")
+          EOF
+
       - name: wordlist build check
         run: python3 build_wordlists.py --check
 
@@ -128,7 +188,7 @@ jobs:
         run: |
           python - <<'EOF'
           import json, subprocess, sys, time
-          suites = ["test_vocab_profile.py", "test_grammar_profile.py", "test_text_report.py"]
+          suites = ["test_vocab_profile.py", "test_grammar_profile.py", "test_text_report.py", "test_class_profile.py"]
           out = {}
           for s in suites:
               t0 = time.monotonic()

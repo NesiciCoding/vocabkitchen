@@ -1,0 +1,10 @@
+{
+  "name": "class-profile",
+  "description": "Profile a whole folder of English texts against CEFR levels in one run — the 'class set, not one text' tool. Answers 'which of these texts suits my class?' instead of 'is this one text right?': batch input (directory or glob), a spreadsheet-ready summary (--format csv, one row per text: typical & reached vocabulary band, grammar range, % above target), rank & filter by level (--max-level B1 = 'which of these suits B1?'), fits across several class levels side by side (--targets A2,B1,B2), a pooled CEFR distribution, vocabulary lists exported by CEFR band to CSV (--export-vocab), and per-text pre-teaching handouts / fill-the-gap worksheets / RubricMaker flashcard decks (--export md|csv|flashcards). Mirrors RubricMaker's Vocabulary Profile dashboard. Requires Python 3; the grammar side needs spaCy (degrades gracefully without it).",
+  "author": {
+    "name": "NesiciCoding"
+  },
+  "homepage": "https://github.com/NesiciCoding/vocabkitchen-CLI",
+  "repository": "https://github.com/NesiciCoding/vocabkitchen-CLI",
+  "keywords": ["cefr", "vocabulary", "grammar", "readability", "batch", "classroom", "language-learning", "english"]
+}

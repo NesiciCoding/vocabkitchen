@@ -16,6 +16,11 @@ into small standalone tools:
   answers *"is this text right for my class?"* in one command: vocabulary band +
   grammatical range + a blended estimated level, and with `--target-level B1` the
   coverage figure, what exceeds the level, and a one-line verdict.
+- **[Class profile](#class-profile)** (`class_profile.py`) — scales that from one
+  text to the folder of candidate readings a teacher actually has: profile a whole
+  directory (or glob) in one run, get a spreadsheet-ready summary (one row per
+  text), rank and filter the set by level — *"which of these 20 articles suits
+  B1?"* — and export the distinct vocabulary of each CEFR band to CSV.
 
 The vocabulary profiler scores against three word lists:
 
@@ -42,13 +47,21 @@ The vocabulary profiler scores against three word lists:
   range + a blended estimated level, plus (with `--target-level`) what exceeds
   the class's level, the coverage figure, and a one-line verdict. See
   [Text report](#text-report).
+- **`class_profile.py`** — a **class-set profiler** that runs the same
+  vocabulary + grammar analysis over a whole folder of candidate readings at
+  once, mirroring RubricMaker's Vocabulary Profile dashboard: a pooled CEFR
+  distribution for the set, a per-text summary ready for a spreadsheet, level
+  ranking and band filtering, and vocabulary lists exported by CEFR band. See
+  [Class profile](#class-profile).
 - **Claude Code plugins & skills** — installable plugins
   ([`plugins/vocab-profiler/`](plugins/vocab-profiler),
-  [`plugins/grammar-profiler/`](plugins/grammar-profiler)) plus repo-local skills
+  [`plugins/grammar-profiler/`](plugins/grammar-profiler),
+  [`plugins/text-report/`](plugins/text-report),
+  [`plugins/class-profile/`](plugins/class-profile)) plus repo-local skills
   (`.claude/skills/`) that wrap the scripts, so the profilers are available in a
   Claude Code / Cowork session — just ask for the CEFR level, vocabulary
-  breakdown, or grammatical range of a text. See
-  [Use in Claude Code](#use-in-claude-code).
+  breakdown, grammatical range, or *"which of these articles suits B1?"* of a
+  folder. See [Use in Claude Code](#use-in-claude-code).
 - **Rebuilt word-list data** — the CEFR/AWL/NAWL lists in the repo had been
   truncated to only "a" words, which made scoring wrong for real text. They were
   rebuilt in full from documented public sources (each with its own licence) and
@@ -349,19 +362,133 @@ matches the vocab profiler's `results.cefr` shape and `grammar` is the grammar
 profiler's full payload, plus the unified fields (`estimatedLevel`, `targetLevel`,
 `aboveTarget`, `coverage`, `verdict`, `readability`). Each `aboveTarget` entry
 carries an example sentence from the text (`context` on words, `examples` on
-structures), which the exports use to show every item in context. Run the
-regression tests with:
+structures), which the exports use to show every item in context.Run the regression tests with:
 
 ```bash
 python3 test_text_report.py
 ```
 
-## Use in Claude Code
+## Class profile
 
-Beyond the command line, the profilers ship as **Claude Code plugins**, so you
-can ask Claude for a text's CEFR level, vocabulary breakdown, grammatical range —
-or a unified *"is this text right for my class?"* report — right in a session
-instead of invoking the scripts yourself.
+`class_profile.py` scales the profilers from one text to the **folder of
+candidate readings a teacher actually has** — it mirrors RubricMaker's
+Vocabulary Profile dashboard, which aggregates a class's texts into a CEFR
+distribution and exports vocabulary lists by CEFR band to CSV, and turns the
+shell loops of use cases 5 and 10 into first-class features.
+
+```bash
+python3 class_profile.py --file essays/                          # profile a whole folder
+python3 class_profile.py --file "articles/*.txt" --target-level B1
+python3 class_profile.py --file essays/ --format csv             # spreadsheet summary
+python3 class_profile.py --file essays/ --max-level B1           # "which of these suits B1?"
+python3 class_profile.py --file essays/ --targets A2,B1,B2       # fit across classes
+python3 class_profile.py --file essays/ --export-vocab vocab-lists/   # glossaries per band
+python3 class_profile.py --file essays/ --target-level B1 --export md --output pret/  # handouts
+python3 class_profile.py --file essays/ --pre-enrich             # warm the deck cache once
+python3 class_profile.py --file sample-readings/                 # try it on the bundled demo folder
+```
+
+It reports:
+
+- **Batch input** — `--file` accepts a **directory**, a **glob**
+  (`"articles/*.txt"`, `**` for recursion), or a single file; every supported
+  text (`.txt`/`.md`/`.docx`/`.pdf`) is profiled in one run. Unreadable or
+  empty files are **skipped with a note**, never fatal.
+- **Summary report** — one row per text: filename, typical & reached
+  vocabulary band, grammar range (typical → reaches), blended estimated level,
+  and — with `--target-level` — the **percentage of recognised running words
+  above the class's level** (the same coverage figure `text_report.py`
+  reports, flipped) and a fits/no-fits verdict. `--format csv` prints it
+  ready for a spreadsheet.
+- **Rank & filter** — `--sort` ranks the set by estimated level (default) or
+  by vocabulary typical / reached band, word count, or filename; `--min-level`
+  / `--max-level` keep only the texts whose estimated level is in the band —
+  so *"which of these 20 articles suits B1?"* is exactly
+  `--file essays/ --max-level B1`.
+- **Several classes at once** — `--targets A2,B1,B2` shows each text's fits /
+  %-above verdict for every level side by side in one run, so a mixed-ability
+  set can be split across classes in a single table.
+- **Aggregate distribution** — the pooled CEFR distribution over the whole
+  set (typical band, 90%-coverage band, off-list share, a coloured bar in the
+  terminal view) — the dashboard's headline chart, from the command line.
+- **`--export-vocab DIR`** — dump the **distinct words in each CEFR band to
+  CSV** (`vocab-A1.csv` … `vocab-C2.csv`, plus `vocab-off-list.csv` for the
+  unrecognised words) over the selected set: each row is a word, its running
+  occurrences across the set, and how many texts contain it — ready-made
+  pre-teaching lists and glossaries.
+- **`--export csv|md|flashcards`** — write a **per-text pre-teaching list**
+  (the same handouts, fill-the-gap worksheets and RubricMaker flashcard decks
+  as `text_report.py`) for every text in the set, each next to its source
+  file, so a whole folder is prepared in one run. Requires `--target-level`;
+  `--cloze` blanks examples as `{{...}}` (RubricMaker syntax); `--no-enrich`
+  skips the dictionary API; `--output DIR` collects all lists in one folder.
+  With `--export flashcards` over more than one text, a **combined class-wide
+  deck** is written too — all above-target words across the set in one
+  RubricMaker deck, named after the source folder — together with a
+  **markdown index** (`essays-preteaching-B1-index.md`) listing each word
+  with its **CEFR level** (so the handout doubles as a level-keyed glossary),
+  occurrences, and the texts it came from; with `--targets A2,B1`
+  instead, one combined deck + index **per level**
+  (`essays-preteaching-A2-deck.csv` …), no per-text lists. And for
+  `--export csv|md` over more than one text, a **set-level summary handout**
+  (`essays-summary-B1.md`) aggregates the pooled distribution plus each
+  text's verdict and %-above in one page, next to the per-text lists.
+  (A re-run over the same folder skips these handouts — it never re-profiles
+  its own exports.)
+- **`--pre-enrich`** — prime the dictionary cache from the **whole folder's
+  distinct vocabulary** in one polite, rate-limited pass, then exit:
+  subsequent `--export flashcards` runs answer from the cache with zero
+  requests. `--delay SECONDS` spaces requests out (default 0.25), `--limit N`
+  caps new lookups; `--dictionary-cache` / `--dictionary-url` point the
+  lookups at a shared or test cache/server.
+
+Flags:
+
+| Flag                | Meaning                                                                 |
+|---------------------|-------------------------------------------------------------------------|
+| `--file`            | a **directory**, a **glob** (recursive with `**`), or a single `.txt`/`.md`/`.docx`/`.pdf` file |
+| `--format`          | `auto` (default), `json`, `pretty`, or `csv` — the spreadsheet summary  |
+| `--target-level`    | the class's CEFR level (A1–C2): adds each text's %-above-target and fits verdict |
+| `--targets`         | comma-separated levels (e.g. `A2,B1,B2`): fits/%above per level, side by side (instead of `--target-level`) |
+| `--min-level`       | keep only texts whose estimated level is at/above this band            |
+| `--max-level`       | keep only texts whose estimated level is at/below this band            |
+| `--sort`            | `level` (default), `typical`, `reached`, `words`, or `name`            |
+| `--export-vocab`    | write one CSV per CEFR band (distinct words × occurrences × texts) into the given directory |
+| `--export`          | `csv`, `md`, or `flashcards` — per-text pre-teaching lists (requires `--target-level`) |
+| `--cloze`           | `--export md\|csv` only: render exported examples as `{{...}}` fill-the-gap sentences |
+| `--no-enrich`       | `--export flashcards` only: skip the Free Dictionary API               |
+| `--output`          | `--export` only: write all lists into this directory (default: next to each source) |
+| `--pre-enrich`      | prime the dictionary cache from the whole folder's distinct vocabulary in one rate-limited pass, then exit |
+| `--delay`           | `--pre-enrich` only: seconds between requests (default 0.25; `0` for none) |
+| `--limit`           | `--pre-enrich` only: cap the number of new lookups                     |
+| `--dictionary-cache`| JSON cache file for dictionary lookups (default `~/.cache/vocabkitchen/dictionary.json`) |
+| `--no-dictionary-cache` | don't read or write the lookup cache (`--pre-enrich` and `--export flashcards` only) |
+| `--dictionary-url`  | override the dictionary API base URL (proxy / test server)            |
+| `--no-grammar`      | skip the grammar side even if spaCy is available                       |
+| `--wordlists`       | override the vocabulary word-list directory                             |
+| `--grammar-profile` | override the CEFR-J data directory                                     |
+| (stdin)             | if neither `--file` nor `--text` is given, text is read from stdin     |
+
+`--format auto` follows the sibling tools: a colour-coded terminal view when
+stdout is a TTY, JSON when piped. The vocabulary side is dependency-free
+Python 3; the grammar side needs spaCy exactly like `grammar_profile.py` and
+degrades gracefully when it's missing (the estimated level then falls back to
+the vocabulary 90%-coverage band). Like the other tools, a sibling `.venv`
+is auto-detected — except under `--no-grammar`, where re-exec is skipped so
+an interpreter's extras (e.g. pypdf for PDFs) are kept. The repo bundles a
+small demo folder, [`sample-readings/`](sample-readings), with a level
+gradient from A1 to C2: `python3 class_profile.py --file sample-readings/`.
+Run the regression tests with:
+
+```bash
+python3 test_class_profile.py
+```
+
+## Use in Claude CodeBeyond the command line, the profilers ship as **Claude Code plugins**, so
+you can ask Claude for a text's CEFR level, vocabulary breakdown, grammatical range —
+or a unified *"is this text right for my class?"* report, or *"which of these
+articles suits B1?"* over a whole folder — right in a session instead of
+invoking the scripts yourself.
 
 ### Install from the marketplace
 
@@ -370,15 +497,19 @@ instead of invoking the scripts yourself.
 /plugin install vocab-profiler@vocabkitchen
 /plugin install grammar-profiler@vocabkitchen
 /plugin install text-report@vocabkitchen
+/plugin install class-profile@vocabkitchen
 ```
 
 Then just ask — e.g. *"What CEFR level is this paragraph?"*, *"What grammar does
-this text use?"*, or *"Is this text right for my B1 class?"* — or invoke a skill
-explicitly with `/vocab-profiler:vocab-profiler` /
-`/grammar-profiler:grammar-profiler` / `/text-report:text-report`. The plugins
+this text use?"*, *"Is this text right for my B1 class?"*, or *"which of the
+articles in this folder suit B1?"* — or invoke a skill explicitly with
+`/vocab-profiler:vocab-profiler` /
+`/grammar-profiler:grammar-profiler` / `/text-report:text-report` /
+`/class-profile:class-profile`. The plugins
 need **Python 3** on your machine (they bundle the scripts and data, not a
-runtime); the grammar plugin and the grammar half of text-report additionally
-need **spaCy** (`pip install spacy && python3 -m spacy download en_core_web_sm`).
+runtime); the grammar plugin and the grammar half of text-report and
+class-profile additionally need **spaCy** (`pip install spacy && python3 -m
+spacy download en_core_web_sm`).
 
 Updates are automatic. The plugins are intentionally unversioned, so every push to
 this repo counts as a new release and Claude Code picks it up on its next
@@ -392,12 +523,14 @@ To load a plugin straight from a clone, without adding the marketplace:
 claude --plugin-dir ./plugins/vocab-profiler
 claude --plugin-dir ./plugins/grammar-profiler
 claude --plugin-dir ./plugins/text-report
+claude --plugin-dir ./plugins/class-profile
 ```
 
 The plugins live in [`plugins/vocab-profiler/`](plugins/vocab-profiler),
-[`plugins/grammar-profiler/`](plugins/grammar-profiler) and
-[`plugins/text-report/`](plugins/text-report); each bundles its scripts and data
-as symlinks to the canonical copies at the repo root, so there is a single
+[`plugins/grammar-profiler/`](plugins/grammar-profiler),
+[`plugins/text-report/`](plugins/text-report) and
+[`plugins/class-profile/`](plugins/class-profile); each bundles its scripts and
+data as symlinks to the canonical copies at the repo root, so there is a single
 source of truth and the plain CLI usage above stays unchanged.
 
 > **Note:** those symlinks point outside the plugin directory (to the repo root).
