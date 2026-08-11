@@ -484,6 +484,15 @@ Run the regression tests with:
 python3 test_class_profile.py
 ```
 
+CI runs the same suite and additionally a **golden check** of the batch CLI
+against [`sample-readings/`](sample-readings): it asserts the CSV/JSON contract
+(one row per text, ranked by level, aggregate = sum of the rows), the
+grammar-enabled pass, and every export shape — per-level combined decks and
+level-keyed indexes, the set summary handout, and the per-band vocabulary CSVs.
+A plugin-skill check also keeps each plugin's two `SKILL.md` copies
+flavour-consistent and its `plugin.json` `commands` matching the skill's stated
+command.
+
 ## Use in Claude CodeBeyond the command line, the profilers ship as **Claude Code plugins**, so
 you can ask Claude for a text's CEFR level, vocabulary breakdown, grammatical range —
 or a unified *"is this text right for my class?"* report, or *"which of these
