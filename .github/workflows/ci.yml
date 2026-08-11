@@ -204,9 +204,13 @@ jobs:
               subprocess.run(["git", "config", "user.name", "github-actions[bot]"], check=True)
               subprocess.run(["git", "config", "user.email", "github-actions[bot]@users.noreply.github.com"], check=True)
               subprocess.run(["git", "add", baseline_path], check=True)
-              subprocess.run(["git", "commit", "-m", "Update perf baseline"], check=True)
-              subprocess.run(["git", "push"], check=True)
-              print("baseline updated:", json.dumps(measured))
+              # git diff --cached --quiet exits 0 = no changes, 1 = changes
+              if subprocess.run(["git", "diff", "--cached", "--quiet"]).returncode == 0:
+                  print("baseline unchanged; nothing to commit")
+              else:
+                  subprocess.run(["git", "commit", "-m", "Update perf baseline"], check=True)
+                  subprocess.run(["git", "push"], check=True)
+                  print("baseline updated:", json.dumps(measured))
               sys.exit(0)
 
           pr = os.environ["PR_NUMBER"]
