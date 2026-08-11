@@ -461,10 +461,10 @@ def render_pretty(payload, source_label, stream=None):
         out.append(dim(f"  not analysed — {note}"))
     else:
         gl = g["estimatedLevel"]
+        n = g['constructionCount']
         out.append(f"  {bold('Typical:')} {_lvl(gl['typical'], colour)}"
                    f"   {bold('Reaches:')} {_lvl(gl['reaches'], colour)}"
-                   f"   {dim('(' + str(g['constructionCount']) + ' construction'
-                          + ('' if g['constructionCount'] == 1 else 's') + ')')}")
+                   f"   {dim('(' + str(n) + ' construction' + ('' if n == 1 else 's') + ')')}")
 
     est = payload["estimatedLevel"]
     out.append("")
