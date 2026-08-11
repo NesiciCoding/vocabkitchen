@@ -128,7 +128,7 @@ jobs:
       - name: class profile CLI golden check (sample-readings)
         run: |
           python - <<'EOF'
-          import csv, io, json, os, subprocess, sys
+          import csv, io, json, os, shutil, subprocess, sys, tempfile
 
           def run_cli(args):
               p = subprocess.run([sys.executable, "class_profile.py"] + args,
@@ -175,7 +175,106 @@ jobs:
                      and r["grammar"]["reaches"] in levels
                      for r in d["rows"]), [r["grammar"] for r in d["rows"]]
 
-          print(f"golden check OK: {len(files)} texts profiled, ranked A1 to C2")
+          # Pre-teaching export: per-text decks + the combined class-wide deck
+          # (named after the source folder) and its level-keyed index, in the
+          # documented shapes. --no-enrich keeps it deterministic (no network).
+          outdir = tempfile.mkdtemp(prefix="classprof-golden-")
+          try:
+              rc, out, err = run_cli(["--file", "sample-readings/", "--target-level", "B1",
+                                      "--no-grammar", "--export", "flashcards",
+                                      "--no-enrich", "--output", outdir])
+              assert rc == 0, err
+              stems = [os.path.splitext(f)[0] for f in files]
+              per_text = {f"{s}-preteaching-B1-deck.csv" for s in stems}
+              combined = "sample-readings-preteaching-B1-deck.csv"
+              index_name = "sample-readings-preteaching-B1-index.md"
+              assert set(os.listdir(outdir)) == per_text | {combined, index_name}, os.listdir(outdir)
+              deck_rows = list(csv.reader(open(os.path.join(outdir, combined), encoding="utf-8")))
+              assert deck_rows[0] == ["word", "definition", "example", "phonetic", "partOfSpeech"], deck_rows[0]
+              assert len(deck_rows) > 1, deck_rows
+              deck_words = {r[0] for r in deck_rows[1:]}
+              assert len(deck_words) == len(deck_rows) - 1, "deck words are distinct"
+              assert all(r[1] and r[1] == r[2] for r in deck_rows[1:]), "in-context backs under --no-enrich"
+              index_md = open(os.path.join(outdir, index_name), encoding="utf-8").read()
+              assert "| Word | Level | Occurrences | Texts |" in index_md, index_md
+              idx_rows = [ln for ln in index_md.splitlines() if ln.startswith("| ")][1:]
+              assert idx_rows, index_md
+              idx_words = {}
+              for ln in idx_rows:
+                  cells = [c.strip() for c in ln.strip("|").split("|")]
+                  word, lvl, occ, texts = cells[0], cells[1], cells[2], cells[3]
+                  assert lvl in ("B2", "C1", "C2"), (word, lvl)  # strictly above B1
+                  assert occ.isdigit() and int(occ) >= 1, (word, occ)
+                  srcs = [t for t in texts.split(", ") if t]
+                  assert all(t in files for t in srcs), (word, srcs)  # only real sources
+                  idx_words[word] = lvl
+              assert idx_words.keys() == deck_words, (sorted(idx_words), sorted(deck_words))
+          finally:
+              shutil.rmtree(outdir, ignore_errors=True)
+
+          # Per-level combined decks: --targets A2,B1 writes one combined deck
+          # + level-keyed index per level, no per-text decks, with B1-above a
+          # subset of A2-above.
+          outdir = tempfile.mkdtemp(prefix="classprof-golden-targets-")
+          try:
+              rc, out, err = run_cli(["--file", "sample-readings/", "--targets", "A2,B1",
+                                      "--no-grammar", "--export", "flashcards",
+                                      "--no-enrich", "--output", outdir])
+              assert rc == 0, err
+              base = "sample-readings-preteaching"
+              assert set(os.listdir(outdir)) == {f"{base}-{lvl}-deck.csv"
+                                                 for lvl in ("A2", "B1")} \
+                                                 | {f"{base}-{lvl}-index.md"
+                                                    for lvl in ("A2", "B1")}, os.listdir(outdir)
+              def _deck_words(level):
+                  rows = list(csv.reader(open(os.path.join(outdir, f"{base}-{level}-deck.csv"),
+                                              encoding="utf-8")))
+                  assert rows[0] == ["word", "definition", "example", "phonetic", "partOfSpeech"], rows[0]
+                  return {r[0] for r in rows[1:]}
+              a2_words, b1_words = _deck_words("A2"), _deck_words("B1")
+              assert a2_words and b1_words, (len(a2_words), len(b1_words))
+              assert b1_words <= a2_words, (sorted(b1_words - a2_words))
+              def _index_words(level, above):
+                  md = open(os.path.join(outdir, f"{base}-{level}-index.md"),
+                            encoding="utf-8").read()
+                  assert f"# Vocabulary index — above {level}" in md, md
+                  assert "| Word | Level | Occurrences | Texts |" in md, md
+                  words = {}
+                  for ln in [l for l in md.splitlines() if l.startswith("| ")][1:]:
+                      cells = [c.strip() for c in ln.strip("|").split("|")]
+                      word, lvl, occ, texts = cells[0], cells[1], cells[2], cells[3]
+                      assert lvl in above, (word, lvl)
+                      assert occ.isdigit() and int(occ) >= 1, (word, occ)
+                      srcs = [t for t in texts.split(", ") if t]
+                      assert all(t in files for t in srcs), (word, srcs)
+                      words[word] = lvl
+                  return words
+              assert _index_words("A2", {"B1", "B2", "C1", "C2"}).keys() == a2_words
+              assert _index_words("B1", {"B2", "C1", "C2"}).keys() == b1_words
+          finally:
+              shutil.rmtree(outdir, ignore_errors=True)
+
+          # Markdown export: per-text handouts plus one set-level summary
+          # handout aggregating every text's verdict and the pooled distribution.
+          outdir = tempfile.mkdtemp(prefix="classprof-golden-md-")
+          try:
+              rc, out, err = run_cli(["--file", "sample-readings/", "--target-level", "B1",
+                                      "--no-grammar", "--export", "md", "--output", outdir])
+              assert rc == 0, err
+              stems = [os.path.splitext(f)[0] for f in files]
+              assert set(os.listdir(outdir)) == {f"{s}-preteaching-B1.md" for s in stems} \
+                                                 | {"sample-readings-summary-B1.md"}, os.listdir(outdir)
+              summary_md = open(os.path.join(outdir, "sample-readings-summary-B1.md"),
+                                encoding="utf-8").read()
+              assert f"# Set summary — Target B1 ({len(files)} texts)" in summary_md, summary_md
+              assert "Aggregate vocabulary:" in summary_md, summary_md
+              assert "| Text | Words |" in summary_md, summary_md
+              assert all(f in summary_md for f in files), files  # every text in the table
+              assert "pre-teach" in summary_md and "on level" in summary_md, summary_md
+          finally:
+              shutil.rmtree(outdir, ignore_errors=True)
+
+          print(f"golden check OK: {len(files)} texts profiled, ranked A1 to C2, exports shaped")
           EOF
 
       - name: wordlist build check

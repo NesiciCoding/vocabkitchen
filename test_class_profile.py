@@ -815,6 +815,128 @@ if os.path.isdir(_sample):
     check("sample: ranked by level, A1 first", ranks == sorted(ranks))
     check("sample: spans the A1 to C2 gradient",
           len(ranks) >= 2 and ranks[0] == 0 and ranks[-1] == 5)
+
+    # The export pass of the CI golden check: per-text decks + the combined
+    # class-wide deck (named after the source folder) and its level-keyed
+    # index, in the documented shapes.
+    _golden_out = tempfile.mkdtemp(prefix="classprof_golden_")
+    try:
+        rc, out, err = run(["--file", _sample, "--target-level", "B1", "--no-grammar",
+                            "--export", "flashcards", "--no-enrich", "--output", _golden_out])
+        check("sample export: rc==0", rc == 0)
+        _stems = [os.path.splitext(f)[0] for f in files]
+        _per_text = {f"{s}-preteaching-B1-deck.csv" for s in _stems}
+        _combined = "sample-readings-preteaching-B1-deck.csv"
+        _index_name = "sample-readings-preteaching-B1-index.md"
+        check("sample export: exactly per-text + combined deck + index",
+              set(os.listdir(_golden_out))
+              == _per_text | {_combined, _index_name})
+        with open(os.path.join(_golden_out, _combined), encoding="utf-8") as f:
+            _deck_rows = list(_csv.reader(f))
+        check("sample export: combined deck has the RubricMaker shape",
+              _deck_rows[0] == ["word", "definition", "example", "phonetic", "partOfSpeech"]
+              and len(_deck_rows) > 1)
+        _deck_words = {r[0] for r in _deck_rows[1:]}
+        check("sample export: deck words distinct with in-context backs",
+              len(_deck_words) == len(_deck_rows) - 1
+              and all(r[1] and r[1] == r[2] for r in _deck_rows[1:]))
+        with open(os.path.join(_golden_out, _index_name), encoding="utf-8") as f:
+            _index_md = f.read()
+        check("sample export: index is level-keyed",
+              "| Word | Level | Occurrences | Texts |" in _index_md)
+        _idx_words = {}
+        for _ln in [line for line in _index_md.splitlines()
+                    if line.startswith("| ")][1:]:
+            _c = [x.strip() for x in _ln.strip("|").split("|")]
+            _word, _lvl, _occ, _texts = _c[0], _c[1], _c[2], _c[3]
+            _srcs = [t for t in _texts.split(", ") if t]
+            check(f"sample export: {_word} level above B1 and real sources",
+                  _lvl in ("B2", "C1", "C2")
+                  and _occ.isdigit() and int(_occ) >= 1
+                  and all(t in files for t in _srcs))
+            _idx_words[_word] = _lvl
+        check("sample export: index words == deck words", _idx_words.keys() == _deck_words)
+    finally:
+        shutil.rmtree(_golden_out, ignore_errors=True)
+
+    # The per-level export pass of the CI golden check: --targets A2,B1 writes
+    # one combined deck + level-keyed index per level, no per-text decks.
+    _golden_targets = tempfile.mkdtemp(prefix="classprof_golden_targets_")
+    try:
+        rc, out, err = run(["--file", _sample, "--targets", "A2,B1", "--no-grammar",
+                            "--export", "flashcards", "--no-enrich", "--output",
+                            _golden_targets])
+        check("sample targets export: rc==0", rc == 0)
+        _gbase = "sample-readings-preteaching"
+        check("sample targets export: one deck + index per level, no per-text",
+              set(os.listdir(_golden_targets))
+              == {f"{_gbase}-{lvl}-deck.csv" for lvl in ("A2", "B1")}
+              | {f"{_gbase}-{lvl}-index.md" for lvl in ("A2", "B1")})
+
+        def _gdeck_words(level):
+            with open(os.path.join(_golden_targets, f"{_gbase}-{level}-deck.csv"),
+                      encoding="utf-8") as f:
+                rows = list(_csv.reader(f))
+            check(f"sample targets export: {level} deck has the RubricMaker shape",
+                  rows[0] == ["word", "definition", "example", "phonetic", "partOfSpeech"])
+            return {r[0] for r in rows[1:]}
+
+        _ga2_words = _gdeck_words("A2")
+        _gb1_words = _gdeck_words("B1")
+        check("sample targets export: both decks non-empty", bool(_ga2_words) and bool(_gb1_words))
+        check("sample targets export: B1-above words are a subset of A2-above",
+              _gb1_words <= _ga2_words)
+
+        def _gindex_words(level, above):
+            with open(os.path.join(_golden_targets, f"{_gbase}-{level}-index.md"),
+                      encoding="utf-8") as f:
+                md = f.read()
+            check(f"sample targets export: {level} index is level-keyed",
+                  f"# Vocabulary index — above {level}" in md
+                  and "| Word | Level | Occurrences | Texts |" in md)
+            words = {}
+            for ln in [line for line in md.splitlines() if line.startswith("| ")][1:]:
+                c = [x.strip() for x in ln.strip("|").split("|")]
+                word, lvl, occ, texts = c[0], c[1], c[2], c[3]
+                srcs = [t for t in texts.split(", ") if t]
+                check(f"sample targets export: {level} {word} above level, real sources",
+                      lvl in above and occ.isdigit() and int(occ) >= 1
+                      and all(t in files for t in srcs))
+                words[word] = lvl
+            return words
+
+        check("sample targets export: A2 index == A2 deck",
+              _gindex_words("A2", {"B1", "B2", "C1", "C2"}).keys() == _ga2_words)
+        check("sample targets export: B1 index == B1 deck",
+              _gindex_words("B1", {"B2", "C1", "C2"}).keys() == _gb1_words)
+    finally:
+        shutil.rmtree(_golden_targets, ignore_errors=True)
+
+    # The md-export pass of the CI golden check: per-text handouts plus one
+    # set-level summary handout aggregating every text's verdict.
+    _golden_md = tempfile.mkdtemp(prefix="classprof_golden_md_")
+    try:
+        rc, out, err = run(["--file", _sample, "--target-level", "B1", "--no-grammar",
+                            "--export", "md", "--output", _golden_md])
+        check("sample md export: rc==0", rc == 0)
+        _stems = [os.path.splitext(f)[0] for f in files]
+        check("sample md export: per-text handouts + one summary",
+              set(os.listdir(_golden_md))
+              == {f"{s}-preteaching-B1.md" for s in _stems}
+              | {"sample-readings-summary-B1.md"})
+        with open(os.path.join(_golden_md, "sample-readings-summary-B1.md"),
+                  encoding="utf-8") as f:
+            _summary_md = f.read()
+        check("sample md export: summary names the target and text count",
+              f"# Set summary — Target B1 ({len(files)} texts)" in _summary_md)
+        check("sample md export: summary aggregates the pooled distribution",
+              "Aggregate vocabulary:" in _summary_md and "| Text | Words |" in _summary_md)
+        check("sample md export: every text appears in the summary",
+              all(f in _summary_md for f in files))
+        check("sample md export: both verdict kinds present",
+              "pre-teach" in _summary_md and "on level" in _summary_md)
+    finally:
+        shutil.rmtree(_golden_md, ignore_errors=True)
 else:
     skipped += 1
 
