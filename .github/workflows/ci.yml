@@ -4,6 +4,11 @@ on:
   push:
     branches: [main]
   pull_request:
+    # Skip CI for doc-only PRs (README, SKILL.md, etc.) — tests never read them.
+    paths-ignore:
+      - '*.md'
+      - '**/*.md'
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -14,12 +19,13 @@ concurrency:
 
 jobs:
   lint:
-    name: Lint (ruff)
+    name: Lint + plugin integrity
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
+      # Pinned to SHA for supply-chain safety; Dependabot keeps them current.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: '3.12'
 
@@ -29,23 +35,63 @@ jobs:
       - name: ruff check
         run: python -m ruff check .
 
+      - name: Plugin integrity check
+        # Guards the extension surface: every plugins/* dir must be registered
+        # in the marketplace, ship a plugin.json, and have resolvable symlinks.
+        run: |
+          python - <<'EOF'
+          import json, os, sys
+
+          mp = json.load(open(".claude-plugin/marketplace.json"))
+          registered = {p["name"] for p in mp["plugins"]}
+          ok = True
+
+          for name in sorted(os.listdir("plugins")):
+              d = os.path.join("plugins", name)
+              if not os.path.isdir(d):
+                  continue
+              if name not in registered:
+                  print(f"plugin {name}: missing from .claude-plugin/marketplace.json")
+                  ok = False
+              if not os.path.isfile(os.path.join(d, ".claude-plugin", "plugin.json")):
+                  print(f"plugin {name}: missing .claude-plugin/plugin.json")
+                  ok = False
+              for f in os.listdir(d):
+                  p = os.path.join(d, f)
+                  if os.path.islink(p) and not os.path.exists(p):
+                      print(f"plugin {name}: broken symlink {f} -> {os.readlink(p)}")
+                      ok = False
+
+          sys.exit(0 if ok else 1)
+          EOF
+
   test:
     name: Tests (Python ${{ matrix.python-version }})
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
         # spaCy ships compiled wheels; the README recommends 3.11–3.13.
         python-version: ['3.11', '3.12', '3.13']
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
-      # No pip cache: the project is dependency-free by design (no
-      # requirements.txt / pyproject.toml to hash), so setup-python has
-      # nothing to cache against.
-      - uses: actions/setup-python@v5
+      # No pip cache in setup-python: the project is dependency-free by design
+      # (no requirements.txt / pyproject.toml to hash), so we cache the pip
+      # download dir directly instead. spaCy + the en_core_web_sm model wheel
+      # (~150MB) land here, so repeat runs skip the network entirely.
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: ${{ matrix.python-version }}
+
+      - name: Cache pip downloads
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ~/.cache/pip
+          key: pip-${{ runner.os }}-${{ matrix.python-version }}-${{ hashFiles('.github/workflows/ci.yml') }}
+          restore-keys: |
+            pip-${{ runner.os }}-${{ matrix.python-version }}-
 
       - name: Install spaCy + English model
         run: |
