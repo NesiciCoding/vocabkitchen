@@ -155,6 +155,7 @@ jobs:
     permissions:
       pull-requests: write
       contents: write
+      actions: write
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
@@ -211,6 +212,11 @@ jobs:
                   subprocess.run(["git", "commit", "-m", "Update perf baseline"], check=True)
                   subprocess.run(["git", "push"], check=True)
                   print("baseline updated:", json.dumps(measured))
+              # Token-initiated pushes don't trigger workflows (recursion
+              # guard), so re-run CI via workflow_dispatch so the PR gets
+              # fresh checks on the new commit.
+              subprocess.run(["gh", "workflow", "run", "ci.yml", "--ref", os.environ["GITHUB_REF_NAME"]], check=True)
+              print("re-triggered CI on", os.environ["GITHUB_REF_NAME"])
               sys.exit(0)
 
           pr = os.environ["PR_NUMBER"]
