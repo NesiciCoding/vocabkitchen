@@ -1,3 +1,8 @@
+'m
+'re
+'s
+a
+a.m.
 about
 above
 action
@@ -66,6 +71,7 @@ anyone
 anything
 apple
 apples
+april
 apron
 aprons
 are
@@ -114,6 +120,7 @@ august
 augustness
 aunt
 aunts
+autumn
 autumnal
 autumns
 awake
@@ -189,6 +196,7 @@ bedrooms
 beds
 bedsore
 bedsores
+bee
 beef
 beefed
 beefing
@@ -207,6 +215,7 @@ believe
 believed
 believes
 believing
+bell
 belle
 belled
 belles
@@ -394,6 +403,7 @@ building
 buildings
 builds
 built
+burger
 burgers
 bus
 bused
@@ -431,6 +441,7 @@ bye
 byes
 cafe
 cafes
+café
 cake
 caked
 cakes
@@ -527,6 +538,7 @@ cation
 cations
 cats
 caught
+cd
 celebrate
 celebrated
 celebrates
@@ -649,6 +661,7 @@ codes
 coding
 coffee
 coffees
+coke
 coked
 cokes
 coking
@@ -780,8 +793,10 @@ course
 coursed
 courses
 coursing
+cousin
 cousins
 cover
+cow
 cowed
 cower
 cowered
@@ -832,6 +847,7 @@ daughters
 day
 days
 dear
+december
 declassification
 declassified
 declassify
@@ -1001,6 +1017,8 @@ downplaying
 downplays
 downright
 downturns
+dr
+dr.
 drama
 drank
 draw
@@ -1024,6 +1042,8 @@ drums
 dry
 due
 dues
+dvd
+e-mail
 each
 ear
 eared
@@ -1107,6 +1127,7 @@ factory
 fair
 fairies
 fairy
+false
 families
 family
 famous
@@ -1147,6 +1168,8 @@ fatherly
 fathers
 favorite
 favorites
+favourite
+february
 feed
 feel
 feeling
@@ -1275,6 +1298,7 @@ fourth
 fourthly
 fourths
 free
+friday
 friend
 friends
 frog
@@ -1452,6 +1476,7 @@ hairs
 half
 hall
 halls
+hamburger
 hamburgers
 hand
 handsome
@@ -1477,6 +1502,7 @@ hardest
 hardness
 hardnesses
 has
+hat
 hateful
 hatefully
 hatefulness
@@ -1526,6 +1552,7 @@ heaviness
 heaving
 heavy
 heavyset
+hello
 help
 her
 here
@@ -1555,6 +1582,7 @@ his
 histories
 history
 hobbies
+hobby
 hobbyist
 hobbyists
 hold
@@ -1606,6 +1634,7 @@ husband
 husbanded
 husbanding
 husbands
+i
 ice
 iced
 ices
@@ -1699,6 +1728,7 @@ insuperably
 intensifications
 interested
 interesting
+internet
 interplay
 interplays
 interview
@@ -1722,8 +1752,11 @@ itemizes
 itemizing
 items
 its
+jacket
 jacketed
 jackets
+january
+jeans
 jet
 jets
 jetted
@@ -1747,7 +1780,9 @@ juice
 juiced
 juices
 juicing
+july
 jump
+june
 just
 juster
 justest
@@ -1803,6 +1838,7 @@ knows
 ladies
 lading
 ladings
+lady
 ladyship
 ladyships
 language
@@ -1879,6 +1915,7 @@ like
 lilies
 lily
 line
+lion
 lioness
 lionesses
 lionised
@@ -2119,9 +2156,11 @@ momentousness
 moments
 momentum
 momentums
+mommie
 mommies
 mommy
 moms
+monday
 money
 moneyed
 moneys
@@ -2163,6 +2202,10 @@ mouths
 move
 movie
 movies
+mr
+mr.
+mrs
+mrs.
 much
 mum
 mummers
@@ -2290,12 +2333,15 @@ noting
 notional
 notoriety
 notoriously
+november
 now
 number
 numbered
 numbering
 numbers
 nurse
+o'clock
+october
 of
 off
 office
@@ -2305,6 +2351,7 @@ offices
 often
 oftener
 oftenest
+ok
 okay
 okayed
 okays
@@ -2315,6 +2362,7 @@ oldest
 oldish
 oldness
 olds
+olympics
 on
 once
 one
@@ -2327,6 +2375,7 @@ opener
 openers
 openness
 opens
+opera
 operas
 or
 orange
@@ -2432,6 +2481,7 @@ overworking
 own
 owner
 owners
+p.m.
 page
 paged
 pages
@@ -2445,6 +2495,7 @@ pair
 paired
 pairing
 pairs
+palace
 palaces
 pants
 paper
@@ -2592,6 +2643,7 @@ pleasure
 pleasured
 pleasures
 pleasuring
+pm
 pocket
 pocketed
 pocketful
@@ -2618,6 +2670,7 @@ poster
 posters
 postillion
 postwar
+potato
 potatoes
 practice
 practiced
@@ -2659,6 +2712,7 @@ presumptive
 pretty
 prewar
 price
+prince
 princes
 princess
 princesses
@@ -3039,6 +3093,7 @@ sale
 sales
 same
 sameness
+sandwich
 sandwiched
 sandwiches
 sandwiching
@@ -3058,6 +3113,7 @@ saturates
 saturating
 saturation
 saturations
+saturday
 save
 saved
 saver
@@ -3105,6 +3161,7 @@ semidarkness
 semimonthly
 semiweekly
 sentence
+september
 set
 seven
 sevens
@@ -3197,6 +3254,7 @@ singes
 singly
 sings
 singsong
+sir
 sire
 sired
 siren
@@ -3280,6 +3338,7 @@ socialism
 socialization
 socializing
 socials
+sofa
 sofas
 sold
 solder
@@ -3467,6 +3526,7 @@ summers
 summing
 sums
 sun
+sunday
 sung
 sunned
 sunnier
@@ -3500,6 +3560,7 @@ swimming
 swimmingly
 swims
 swum
+t-shirt
 table
 tabled
 tables
@@ -3517,6 +3578,7 @@ taxies
 taxiing
 taxis
 taxying
+tea
 teach
 teachable
 teacher
@@ -3532,6 +3594,7 @@ teasers
 teases
 technologies
 technology
+tee-shirt
 teeth
 teething
 telemeter
@@ -3546,6 +3609,7 @@ tell
 telling
 tellingly
 tells
+temple
 temples
 ten
 tenability
@@ -3560,6 +3624,7 @@ tenanted
 tenants
 tenement
 tenements
+tennis
 tenor
 tenors
 tens
@@ -3660,6 +3725,7 @@ three
 threes
 through
 throw
+thursday
 ticket
 ticketed
 ticketing
@@ -3694,6 +3760,7 @@ top
 topic
 topics
 touch
+towel
 toweled
 toweling
 towelled
@@ -3742,12 +3809,15 @@ tubed
 tubes
 tubing
 tubings
+tuesday
+turkey
 turkeys
 turn
 turned
 turner
 turners
 turns
+tv
 twelve
 twelves
 twenties
@@ -3985,6 +4055,7 @@ weathered
 weathering
 weatherize
 weathers
+wednesday
 week
 weekend
 weekends
@@ -4095,6 +4166,7 @@ yes
 yeses
 yesterday
 yet
+yoghurt
 yoghurts
 yogurt
 yogurts

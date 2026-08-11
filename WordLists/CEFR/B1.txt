@@ -8,6 +8,7 @@ abler
 ablest
 abnormal
 aboard
+aborigine
 aborigines
 absence
 absences
@@ -442,6 +443,7 @@ assuming
 astronomer
 astronomers
 athletic
+atlantic
 atmosphere
 atmospheres
 atmospheric
@@ -489,6 +491,7 @@ autos
 auxiliaries
 auxiliary
 available
+avenue
 avenues
 avert
 aviation
@@ -511,8 +514,10 @@ backpacker
 backpackers
 backpacking
 backpacks
+bacon
 baggage
 baggages
+baker
 bakeries
 bakery
 balance
@@ -535,6 +540,7 @@ bargainers
 bargaining
 bargains
 bark
+barman
 barrel
 barreled
 barreling
@@ -543,6 +549,7 @@ barrelling
 barrels
 basement
 basements
+basin
 basins
 basis
 bathe
@@ -551,6 +558,7 @@ battle
 battled
 battles
 battling
+beard
 bearded
 bearding
 beards
@@ -595,6 +603,7 @@ biassed
 bibliographies
 bibliography
 bilingual
+bin
 binaries
 binned
 binning
@@ -632,6 +641,8 @@ blindest
 blinding
 blindingly
 blinds
+blog
+blogger
 blush
 boast
 boasted
@@ -696,6 +707,7 @@ brainstorming
 braked
 brakes
 braking
+brand-new
 brass
 brasses
 bravely
@@ -719,6 +731,7 @@ breaths
 breed
 breeding
 breedings
+brick
 bricked
 bricking
 brief
@@ -752,6 +765,7 @@ bubbles
 bubbling
 buddies
 budding
+buddy
 budgetary
 budgeted
 budgeting
@@ -765,6 +779,7 @@ bulk
 bulked
 bulking
 bulks
+bull
 bulled
 bullet
 bulletin
@@ -805,6 +820,7 @@ buyer
 buyers
 cabbage
 cabbages
+cabin
 cage
 caged
 cages
@@ -889,6 +905,7 @@ carriages
 carters
 carton
 cartons
+cashpoint
 casual
 casualness
 casuals
@@ -920,6 +937,7 @@ caved
 caves
 caving
 cavings
+cd-rom
 celebrities
 celebrity
 cell
@@ -973,11 +991,14 @@ chariot
 charioteers
 chariots
 charities
+charity
+charm
 charmed
 charmers
 charmingly
 charms
 chase
+check-in
 checkout
 checkouts
 cheerful
@@ -1000,6 +1021,7 @@ choke
 choked
 chokes
 choking
+christian
 chronic
 chronically
 chronological
@@ -1040,6 +1062,7 @@ classical
 classics
 classifies
 classify
+cliff
 cliffs
 climate
 climates
@@ -1077,6 +1100,7 @@ codifying
 cods
 coefficient
 coefficients
+coffin
 coffined
 cognitive
 collapse
@@ -1425,6 +1449,7 @@ county
 courage
 courageous
 courages
+courgette
 craft
 crafted
 crafting
@@ -1521,6 +1546,7 @@ cushioned
 cushioning
 cushions
 customs
+cv
 cycle
 cycled
 cycles
@@ -2098,6 +2124,7 @@ divining
 divisor
 divisors
 divorced
+dj
 doc
 docent
 docents
@@ -2112,6 +2139,7 @@ documentations
 documented
 documenting
 documents
+dolphin
 dolphins
 domain
 domains
@@ -2195,6 +2223,7 @@ dumping
 dumps
 duration
 durations
+dustbin
 dustier
 dustiest
 dustiness
@@ -2205,6 +2234,8 @@ dutiful
 dutifully
 dutifulness
 duty
+duty-free
+duvet
 dynamics
 dynasties
 dynasty
@@ -2218,7 +2249,9 @@ earnestly
 earnestness
 eastern
 easterners
+easy-going
 easygoing
+eco
 ecological
 ecologies
 ecology
@@ -2245,6 +2278,7 @@ efficiencies
 efficiency
 efficient
 eighths
+elbow
 elbowed
 elbowing
 elbows
@@ -2282,6 +2316,7 @@ emotionalism
 emotionalized
 emotionally
 emotions
+emperor
 emperors
 emphases
 emphasis
@@ -2292,6 +2327,7 @@ emphasize
 emphasized
 emphasizes
 emphasizing
+empire
 empires
 empirical
 employment
@@ -2332,6 +2368,7 @@ engine
 engineering
 engineerings
 engines
+englishman
 enjoyable
 enjoyment
 enjoyments
@@ -2504,6 +2541,7 @@ extreme
 extremes
 extremest
 eyesight
+face-to-face
 facility
 fade
 faded
@@ -2532,6 +2570,7 @@ fantasied
 fantasies
 fantasy
 faraway
+farewell
 farewells
 farming
 farmland
@@ -2546,6 +2585,7 @@ fashionable
 fasten
 fastens
 favorable
+favourable
 fax
 faxed
 faxes
@@ -2587,6 +2627,7 @@ fifthly
 fifths
 filling
 fillings
+film-maker
 filter
 filterable
 filtered
@@ -2622,6 +2663,7 @@ firmest
 firming
 firmly
 firms
+first-floor
 fitful
 fitfully
 fitfulness
@@ -2757,11 +2799,13 @@ fostering
 fosters
 foundation
 foundations
+fountain
 fountains
 fraction
 fractional
 fractionally
 fractions
+fragment
 fragmentation
 fragmentations
 fragmented
@@ -2806,6 +2850,7 @@ frostings
 frosts
 frozen
 frustrated
+frustration
 frustrations
 fuel
 fueled
@@ -2813,6 +2858,7 @@ fueling
 fuelled
 fuelling
 fuels
+full-time
 fund
 funded
 funding
@@ -2890,6 +2936,7 @@ genesis
 genetic
 genetically
 genetics
+gentleman
 gentlemanly
 geographical
 geographies
@@ -2912,6 +2959,7 @@ giggling
 ginger
 gingerly
 gingers
+giraffe
 glance
 glanced
 glances
@@ -2946,6 +2994,7 @@ goalkeeper
 goalkeepers
 goddess
 goddesses
+golfer
 golfers
 goodness
 goodnesses
@@ -3059,6 +3108,7 @@ hairdressers
 hairdryer
 hairdryers
 hammer
+hand-held
 handball
 handbook
 handbooks
@@ -3084,6 +3134,7 @@ harbour
 harboured
 harbouring
 harbours
+hard-working
 hardship
 hardships
 harmed
@@ -3130,6 +3181,7 @@ hearing
 hearings
 heartbeat
 heartbeats
+hearted
 heartier
 hearties
 heartiest
@@ -3138,6 +3190,7 @@ heartiness
 hearty
 heater
 heaters
+heaven
 heavenly
 heel
 heeled
@@ -3155,6 +3208,7 @@ helmets
 helpless
 helplessly
 helplessness
+herd
 herded
 herder
 herders
@@ -3183,6 +3237,7 @@ historian
 historians
 historic
 historical
+hiv
 hive
 hived
 hives
@@ -3221,6 +3276,7 @@ hopper
 hoppers
 hopping
 hops
+horizon
 horizons
 horizontal
 horn
@@ -3276,6 +3332,7 @@ hunt
 hunted
 hunts
 hurriedly
+hut
 huts
 hydrogen
 hydrogenate
@@ -3726,6 +3783,7 @@ irrespective
 irrigation
 irritate
 irritates
+isle
 isles
 isolation
 isolationism
@@ -3737,6 +3795,7 @@ ivories
 ivory
 jade
 jaded
+jail
 jailed
 jailer
 jailers
@@ -3745,6 +3804,7 @@ jailors
 jails
 jammed
 jamming
+jar
 jarred
 jarring
 jarringly
@@ -3781,6 +3841,7 @@ juiciness
 juicy
 jumper
 jumpers
+jungle
 justice
 justices
 juveniles
@@ -3815,6 +3876,7 @@ labs
 lacked
 lacking
 lacks
+ladder
 laddered
 laddering
 ladders
@@ -4045,6 +4107,7 @@ lumbered
 lumberers
 lumbering
 lumbers
+lung
 lunge
 lunged
 lunges
@@ -4077,8 +4140,10 @@ majority
 majors
 management
 managements
+mankind
 manuscript
 manuscripts
+maple
 maples
 mar
 marble
@@ -4109,6 +4174,7 @@ matrix
 maxima
 maximum
 maximums
+mayor
 mayors
 meaningful
 meanwhile
@@ -4127,6 +4193,7 @@ meditates
 meditating
 meditation
 meditations
+mediterranean
 medium
 mediums
 melt
@@ -4180,6 +4247,7 @@ messieurs
 messily
 messiness
 messy
+middle-aged
 midstream
 midterm
 midterms
@@ -4305,6 +4373,7 @@ mortality
 mosquito
 mosquitoes
 mosquitos
+moss
 mosses
 motherland
 motherlands
@@ -4408,6 +4477,7 @@ necklace
 necklaces
 nectar
 nectars
+needle
 needled
 needles
 needling
@@ -4420,10 +4490,12 @@ negotiation
 negotiations
 neighborhood
 neighborhoods
+neighbourhood
 nelsons
 nephew
 nephews
 nervousness
+ness
 network
 networked
 networking
@@ -4448,6 +4520,7 @@ newborns
 newcomer
 newcomers
 newly
+next-door
 nickname
 nicknamed
 nicknames
@@ -4518,6 +4591,7 @@ northwest
 northwesterly
 northwestern
 noticeable
+noticeboard
 notion
 notions
 notorious
@@ -4582,6 +4656,7 @@ officially
 officials
 oilier
 oily
+old-fashioned
 oneself
 onstage
 onto
@@ -4621,6 +4696,7 @@ orbiter
 orbiters
 orbiting
 orbits
+orchestra
 orderlies
 orderly
 ordinance
@@ -4650,6 +4726,7 @@ originator
 originators
 origins
 otherwise
+out-of-date
 outbound
 outburst
 outbursts
@@ -4808,6 +4885,7 @@ parables
 parachute
 parachuted
 parachuting
+paradise
 paradises
 parallel
 paralyse
@@ -4847,6 +4925,7 @@ parroted
 parroting
 parrots
 pars
+part-time
 parted
 partial
 partialities
@@ -5462,6 +5541,7 @@ railway
 railways
 rainfall
 rainfalls
+rainforest
 random
 randomization
 randomizations
@@ -5759,6 +5839,7 @@ reloading
 reloads
 rely
 relying
+remainder
 remainders
 remark
 remarkable
@@ -5840,6 +5921,7 @@ reproduces
 reproducing
 reproof
 reproofs
+republic
 reputation
 reputations
 require
@@ -6037,6 +6119,7 @@ roaster
 roasters
 roasting
 roasts
+robot
 robotic
 robotics
 robotized
@@ -6190,6 +6273,7 @@ seasons
 seawater
 seawaters
 seaweed
+second-hand
 secretly
 secure
 secured
@@ -6207,6 +6291,7 @@ seizing
 select
 selection
 selections
+self-service
 selfish
 semi
 semicircular
@@ -6310,6 +6395,7 @@ shelter
 sheltered
 sheltering
 shelters
+sheriff
 sheriffs
 shift
 shinier
@@ -6326,6 +6412,7 @@ shockers
 shocking
 shockingly
 shocks
+shopper
 shoppers
 shortage
 shortages
@@ -6424,6 +6511,7 @@ slotting
 smoker
 smokers
 sneeze
+snowboard
 snowstorm
 snowstorms
 socialisation
@@ -6469,12 +6557,14 @@ soreness
 sorer
 sores
 sorest
+sorrow
 sorrowed
 sorrowful
 sorrowfully
 sorrowing
 sorrows
 sort
+soul
 soulful
 soulfully
 soulfulness
@@ -6505,6 +6595,7 @@ southerner
 southerns
 southwest
 southwesterly
+souvenir
 souvenirs
 sparkle
 sparkled
@@ -6535,6 +6626,7 @@ spectrum
 spectrums
 spelling
 spellings
+sphere
 spheres
 spice
 spiced
@@ -6644,6 +6736,7 @@ steadily
 steadiness
 steady
 steadying
+steam
 steamed
 steamer
 steamers
@@ -6801,6 +6894,7 @@ summarize
 summarized
 summarizes
 summarizing
+summit
 summits
 sunbathe
 sunbathed
@@ -6911,6 +7005,8 @@ synthesise
 systematic
 tablet
 tablets
+take-off
+takeaway
 takeoff
 takeoffs
 tale
@@ -7069,6 +7165,7 @@ threatening
 threats
 threshold
 thresholds
+thriller
 thrillers
 throughout
 thumb
@@ -7079,6 +7176,7 @@ thump
 thumped
 thumping
 thumps
+thunder
 thundered
 thunderers
 thundering
@@ -7103,6 +7201,7 @@ tighten
 tightened
 tightens
 tightly
+tile
 tiled
 tiles
 tiling
@@ -7112,6 +7211,7 @@ timbering
 timbers
 timelier
 timely
+tin
 tine
 tines
 tinier
@@ -7168,6 +7268,7 @@ tracker
 trackers
 tracking
 tracks
+tracksuit
 tract
 tractability
 tractable
@@ -7435,6 +7536,7 @@ unite
 unites
 unities
 unity
+universe
 universes
 unleaded
 unless
@@ -7505,6 +7607,7 @@ unwrapped
 unwrapping
 unwraps
 unwritten
+up-to-date
 update
 uplift
 uplifted
@@ -7551,6 +7654,7 @@ valve
 valved
 valves
 valving
+van
 vane
 vanes
 vanishing
@@ -7565,6 +7669,7 @@ variant
 variants
 varies
 varieties
+variety
 various
 variously
 vary
@@ -7584,10 +7689,12 @@ vegetarianism
 vegetarians
 vehicle
 vehicles
+vein
 veined
 veining
 verdict
 verdicts
+vessel
 vessels
 vet
 vets
@@ -7618,6 +7725,7 @@ violently
 virtual
 virus
 viruses
+visa
 visaed
 visible
 vision
@@ -7679,6 +7787,7 @@ warranties
 warranty
 warrior
 warriors
+washbowl
 washbowls
 waste
 wasted
@@ -7696,11 +7805,13 @@ weakness
 weaknesses
 weapon
 weapons
+webcam
 weird
 weirder
 weirdest
 weirdly
 weirdness
+well-dressed
 westward
 westwards
 wetland
@@ -7724,6 +7835,8 @@ widespread
 wildlife
 wildly
 willingness
+windscreen
+windsurfing
 wing
 winged
 winging

@@ -117,10 +117,12 @@ JSON on stdout. Shape:
 
 ## Pair with the vocabulary profiler
 
-For a fuller analysis, also run the **vocab-profiler** skill: grammar range +
-vocabulary level together describe a text's difficulty far better than either
-alone. A typical combined answer states the CEFR vocabulary band *and* the
-grammatical range, then flags the hardest words and the most advanced structures.
+For a fuller analysis, also run the **vocab-profiler** skill (or better: the
+**text-report** skill, which runs both at once): grammar range + vocabulary
+level together describe a text's difficulty far better than either alone, and
+text-report adds a target-level verdict and coverage figure for teachers. A
+typical combined answer states the CEFR vocabulary band *and* the grammatical
+range, then flags the hardest words and the most advanced structures.
 
 ## Notes
 

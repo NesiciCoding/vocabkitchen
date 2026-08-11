@@ -151,6 +151,7 @@ appareled
 apparelled
 apparels
 appellate
+appliance
 apportionment
 appreciable
 apprehension
@@ -268,6 +269,7 @@ benignly
 benzene
 beverage
 beverages
+billiards
 biochemical
 biochemicals
 biographical
@@ -310,6 +312,7 @@ braced
 braces
 bracing
 brethren
+bribery
 brook
 brooked
 brooking
@@ -328,17 +331,20 @@ buck
 bucked
 bucking
 bucks
+buffoon
 bundle
 bundled
 bundles
 bundling
 bureaucratic
+buzzer
 bypassed
 bypasses
 bypassing
 cadmium
 calculi
 calculus
+calf
 cam
 cams
 cancellation
@@ -408,6 +414,7 @@ changeably
 chaplain
 chaplains
 charcoals
+chauffer
 chestnut
 chestnuts
 chi
@@ -532,6 +539,7 @@ concatenations
 concealable
 concentric
 concentrically
+concerto
 conciliate
 conciliated
 conciliates
@@ -636,6 +644,7 @@ corrals
 cortical
 cosmic
 cosmically
+cost-effective
 counterpart
 counterparts
 coup
@@ -738,6 +747,7 @@ demarcates
 demarcating
 demarcation
 demarcations
+demise
 democratically
 democratization
 democratize
@@ -777,6 +787,7 @@ devise
 devised
 devises
 devising
+devotee
 diagonals
 dialect
 dialectal
@@ -800,6 +811,10 @@ diffuses
 diffusing
 digit
 digitalis
+digitalisation
+digitalise
+digitalization
+digitalize
 digitally
 digitise
 digitised
@@ -903,6 +918,7 @@ efficacies
 efficacious
 efficaciously
 effluents
+ego
 einsteinium
 elasticities
 elasticity
@@ -1007,6 +1023,7 @@ exerting
 exertion
 exertions
 exerts
+exodus
 expedients
 explanatory
 exponential
@@ -1029,6 +1046,7 @@ famines
 fas
 fatty
 fauna
+favourably
 feeble
 feebler
 feeblest
@@ -1046,6 +1064,7 @@ fetus
 fetuses
 feudalism
 fibrous
+fiddly
 fiduciaries
 fiduciary
 filtration
@@ -1131,6 +1150,7 @@ fuzzier
 fuzzily
 fuzziness
 fuzzy
+gadget
 gal
 gale
 galena
@@ -1146,6 +1166,7 @@ garrisoned
 garrisoning
 gastric
 gel
+gem
 genome
 genomes
 gent
@@ -1166,6 +1187,7 @@ glued
 glueing
 glues
 gluing
+goose
 graciously
 graciousness
 graft
@@ -1199,6 +1221,7 @@ guild
 guilder
 guilders
 guilds
+gushingly
 gut
 gutted
 gutter
@@ -1447,6 +1470,7 @@ inmates
 innocence
 innumerable
 inseam
+insightfully
 insofar
 insole
 insolence
@@ -1457,6 +1481,7 @@ insoles
 insoluble
 installments
 instructional
+insubordinately
 integer
 integers
 intellect
@@ -1531,6 +1556,7 @@ java
 jealousies
 jealousy
 jennies
+jersey
 jimmied
 jimmies
 kenned
@@ -1687,6 +1713,7 @@ mantle
 mantled
 mantles
 mantling
+mark-up
 marketplaces
 marrow
 marrows
@@ -1723,6 +1750,7 @@ materialize
 materialized
 materializes
 materializing
+maternalistic
 matrices
 mats
 matt
@@ -1867,6 +1895,7 @@ moths
 mounded
 mounding
 mounds
+mountaineer
 movable
 multinational
 multinationals
@@ -1893,6 +1922,7 @@ nays
 necroses
 necrosis
 negligent
+neutralisation
 newsletter
 newsletters
 nomenclature
@@ -1991,6 +2021,7 @@ pamphlet
 pamphleteer
 pamphleteers
 pamphlets
+panorama
 paradigm
 paradigmatic
 paradigms
@@ -1999,6 +2030,8 @@ parasites
 parole
 parolee
 pathological
+pathos
+paywall
 peat
 peats
 perceptual
@@ -2013,6 +2046,9 @@ perpendiculars
 perpetual
 persecution
 persecutions
+personalisation
+personalise
+personalization
 pest
 pester
 pestered
@@ -2027,12 +2063,14 @@ phi
 phials
 phis
 photons
+physicality
 pierced
 pierces
 piercing
 piked
 pillar
 pillars
+pinnacle
 piously
 piousness
 pistol
@@ -2174,6 +2212,7 @@ pyramiding
 pyramids
 quarried
 quarries
+quarry
 quarrying
 queerly
 quota
@@ -2187,6 +2226,8 @@ raider
 raiders
 raiding
 raids
+rarity
+raunchily
 reaffirm
 reaffirmation
 reaffirmations
@@ -2221,6 +2262,8 @@ recitations
 recitative
 recitatives
 reciters
+recognisable
+recognisably
 reconcile
 reconciled
 reconciles
@@ -2330,6 +2373,7 @@ reside
 resided
 resides
 residing
+resin
 resoled
 resown
 restless
@@ -2441,6 +2485,7 @@ sanctions
 sanctuaries
 sanctuary
 satisfactorily
+sauna
 savannah
 scarcities
 scarcity
@@ -2466,6 +2511,8 @@ seismic
 seismically
 seizure
 seizures
+self-conscious
+self-worth
 semantic
 semantics
 semiarid
@@ -2490,6 +2537,7 @@ sermonizing
 sermons
 serviceability
 serviceable
+settee
 setup
 setups
 seventeenth
@@ -2514,6 +2562,7 @@ shipbuilding
 shit
 shits
 shitting
+shortlist
 shrine
 shrines
 shrinkage
@@ -2532,6 +2581,7 @@ silts
 sinuses
 sinusitis
 skeletal
+sketchbook
 slab
 slabbed
 slabbing
@@ -2553,6 +2603,7 @@ slate
 slated
 slates
 slating
+slob
 sludge
 sludges
 sober
@@ -2582,6 +2633,7 @@ solitary
 sols
 solubilities
 solubility
+sombrely
 somerset
 somersets
 southeastern
@@ -2644,6 +2696,7 @@ starkest
 starkly
 starkness
 startling
+startlingly
 stationery
 steeliness
 steerable
@@ -2662,6 +2715,7 @@ stoutest
 stoutly
 stoutness
 stouts
+stressfully
 stringent
 stringently
 stud
@@ -2678,6 +2732,7 @@ subsistence
 substrata
 subvention
 subventions
+succulently
 suction
 suctions
 suffice
@@ -2687,6 +2742,7 @@ sufficiency
 sufficing
 suffrage
 suffrages
+suitor
 sulfate
 sultan
 sultana
@@ -2712,6 +2768,7 @@ surrealists
 surrey
 susceptibilities
 susceptibility
+sustainably
 swamped
 swamping
 swamps
@@ -2725,6 +2782,7 @@ syrups
 tactical
 tangible
 tar
+tastebud
 technician
 technicians
 tedium
@@ -2782,6 +2840,8 @@ trademarked
 trademarks
 trajectories
 trajectory
+trampoline
+transatlantic
 traumatic
 treatise
 treatises
@@ -2842,6 +2902,7 @@ undesirable
 undiminished
 undue
 unduly
+unenviably
 unequal
 unequaled
 unhindered
@@ -2854,6 +2915,7 @@ universally
 unladen
 unlined
 unmusical
+unmusically
 unnameable
 unnamed
 unprecedented
@@ -2863,17 +2925,20 @@ unreeling
 unrelenting
 unrelentingly
 unrepentant
+unscathing
 unsheathe
 unsheathed
 unsheathes
 unsheathing
 unspecific
 unspecified
+unsustainably
 unused
 unveil
 unveiled
 unveiling
 unveils
+unwaveringly
 uptake
 urgencies
 urgency
@@ -2908,6 +2973,7 @@ vicious
 viciously
 viciousness
 vines
+violet
 violets
 viral
 visage

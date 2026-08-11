@@ -289,6 +289,24 @@ def load_wordlist(base_dir, rel_path):
         raise WordListError(f"Could not read word list '{full}': {ex}")
 
 
+def load_level_index(base_dir):
+    """Load the merged word → level index from WordLists/CEFR/levels.json.
+
+    The index (built by build_wordlists.py from the OLP-EN-CEFRJ profiles; see
+    WORDLISTS.md) maps each surface form to ``{"level": ..., "pos": ...}`` and
+    lets tools answer "what CEFR level is this word?" from bundled data alone
+    — no dictionary API. Returns an empty dict when the index is absent.
+    """
+    path = os.path.join(base_dir, "CEFR", "levels.json")
+    try:
+        with open(path, encoding="utf-8") as f:
+            data = json.load(f)
+        words = data.get("words") if isinstance(data, dict) else None
+        return words if isinstance(words, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
 def profile(text, levels):
     """Run one profiler (list of (level_name, word_set)) over the text.
 
@@ -532,6 +550,29 @@ def render_pretty(source_label, per_type, cefr_levels, text, stream=None):
         out.append("")
 
     stream.write("\n".join(out) + "\n")
+
+
+# ---------------------------------------------------------------------------
+# Public aliases — the names text_report.py and other consumers use. The
+# underscore forms remain as aliases so existing callers keep working.
+# ---------------------------------------------------------------------------
+
+#: Punctuation-placeholder tokens the tokenizer produces (excluded from counts).
+PLACEHOLDERS = _PLACEHOLDERS
+#: CEFR level -> RGB colour for the terminal view.
+LEVEL_RGB = _LEVEL_RGB
+DEFAULT_RGB = _DEFAULT_RGB
+#: The three profilers' (json_key, [(level, wordlist_path), ...]) definitions.
+PROFILERS = _PROFILERS
+CEFR_ORDER = _CEFR_ORDER
+#: Band statistics (level_counts, typical, coverage) from a CEFR ordered result.
+cefr_stats = _cefr_stats
+#: Whether ANSI colour should be used for *stream* (TTY and not NO_COLOR).
+use_colour = _use_colour
+#: Paint *text* in an RGB colour when *enabled*.
+paint = _paint
+#: Bold *text* when *enabled*.
+bold = _bold
 
 
 def resolve_format(explicit, is_tty):

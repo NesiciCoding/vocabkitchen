@@ -92,6 +92,13 @@ JSON on stdout. Shape:
 - The profiler does exact, case-insensitive **surface-form** matching (no
   lemmatization); the lists are pre-expanded to inflected forms.
 
+## Pair with the grammar profiler
+
+For a fuller analysis, also run the **grammar-profiler** skill (or better: the
+**text-report** skill, which runs both at once): vocabulary level + grammatical
+range together describe a text's difficulty far better than either alone, and
+text-report adds a target-level verdict and coverage figure for teachers.
+
 ## Notes
 
 - Verify Python is available with `python3 --version` if a run fails.

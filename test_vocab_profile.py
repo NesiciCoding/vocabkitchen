@@ -42,7 +42,7 @@ def check(name, cond):
 
 
 # --- unit: tokenizer strips punctuation, keeps words & numbers -----------------
-toks = [t for t in vp.tokenize("Hello, world! 42 don't") if t not in vp._PLACEHOLDERS]
+toks = [t for t in vp.tokenize("Hello, world! 42 don't") if t not in vp.PLACEHOLDERS]
 check("tokenizer keeps words+numbers", toks == ["Hello", "world", "42", "don", "t"])
 check("tokenizer empty -> []", vp.tokenize("   ") == [])
 
@@ -123,10 +123,10 @@ except ValueError:
 # --- unit: CEFR typical/coverage verdict ---------------------------------------
 _ord = [("A1", "", [("a", 80)]), ("A2", "", []), ("B1", "", []),
         ("B2", "", []), ("C1", "", []), ("C2", "", [("z", 20)]), ("Off List", "", [])]
-_counts, _typ, _cov = vp._cefr_stats(_ord, 100)
+_counts, _typ, _cov = vp.cefr_stats(_ord, 100)
 check("typical is busiest band (A1)", _typ == "A1")
 check("coverage needs C2 for 90%", _cov == "C2")
-_counts2, _typ2, _cov2 = vp._cefr_stats([("A1", "", []), ("A2", "", []), ("B1", "", []),
+_counts2, _typ2, _cov2 = vp.cefr_stats([("A1", "", []), ("A2", "", []), ("B1", "", []),
                                          ("B2", "", []), ("C1", "", []), ("C2", "", []),
                                          ("Off List", "", [("x", 3)])], 3)
 check("no recognised vocab -> dash", _typ2 == "—" and _cov2 == "—")
@@ -134,7 +134,7 @@ check("no recognised vocab -> dash", _typ2 == "—" and _cov2 == "—")
 # --- unit: pretty rendering (plain, non-tty stream) ----------------------------
 import io  # noqa: E402
 _base = os.path.join(HERE, "WordLists")
-_levels = [(n, vp.load_wordlist(_base, rel)) for n, rel in vp._PROFILERS["cefr"]]
+_levels = [(n, vp.load_wordlist(_base, rel)) for n, rel in vp.PROFILERS["cefr"]]
 _ordc, _totc = vp.profile("The cat sat on the mat.", _levels)
 _buf = io.StringIO()
 vp.render_pretty("essay.txt", {"cefr": (_ordc, _totc)}, _levels, "The cat sat on the mat.", stream=_buf)

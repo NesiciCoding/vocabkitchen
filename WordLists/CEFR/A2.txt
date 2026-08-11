@@ -165,6 +165,7 @@ ancient
 anciently
 ancientness
 ancients
+angel
 angelic
 angelica
 angelical
@@ -270,6 +271,7 @@ assistant
 assistants
 association
 associations
+astronaut
 astronautical
 astronauts
 athlete
@@ -366,6 +368,7 @@ barbecue
 barbecued
 barbecues
 barbecuing
+barber
 barbered
 barbering
 barbers
@@ -397,6 +400,7 @@ basics
 basing
 basket
 baskets
+batch
 batched
 batches
 batching
@@ -570,6 +574,7 @@ bowlers
 bowlful
 bowling
 bowls
+bra
 braes
 brainstorm
 brainstorms
@@ -604,6 +609,7 @@ breaker
 breakers
 breaking
 breaks
+breeze
 breezed
 breezes
 breezing
@@ -669,6 +675,7 @@ butted
 buttes
 butting
 butts
+cab
 cabals
 cabs
 cafeteria
@@ -773,6 +780,7 @@ cents
 centuries
 centurions
 century
+cereal
 cereals
 certain
 certainly
@@ -785,6 +793,7 @@ chairmen
 challenge
 chamber
 chambered
+champagne
 championship
 championships
 chance
@@ -840,6 +849,7 @@ chefs
 chemical
 chemicals
 cheque
+chess
 chest
 chested
 chestful
@@ -941,7 +951,9 @@ coiners
 coining
 coins
 coinsurance
+cola
 colorful
+colourful
 column
 columnar
 columned
@@ -989,6 +1001,7 @@ complete
 completed
 completes
 completing
+composer
 composers
 concentrate
 concentrated
@@ -1036,6 +1049,7 @@ contexts
 contextual
 contextualize
 contextually
+continent
 continentals
 continents
 continue
@@ -1468,6 +1482,7 @@ develops
 devotees
 diagnoses
 diagnosis
+diamond
 diamonds
 diaries
 diary
@@ -1850,6 +1865,7 @@ establish
 established
 establishes
 establishing
+euro
 euros
 even
 evened
@@ -2379,6 +2395,7 @@ golfed
 golfing
 golfs
 gone
+good-looking
 goodish
 goodlier
 goodliest
@@ -2449,6 +2466,7 @@ gunning
 guns
 gunship
 gunships
+half-price
 halves
 ham
 hammed
@@ -2497,6 +2515,7 @@ headphones
 heads
 headship
 headships
+headteacher
 heat
 heated
 heatedly
@@ -2533,6 +2552,8 @@ hiked
 hikes
 hiking
 himself
+hip-hop
+hiphop
 hit
 hits
 hitter
@@ -2592,6 +2613,7 @@ hundred
 hundreds
 hundredth
 hundredths
+hunter
 hunters
 hurried
 hurries
@@ -2961,6 +2983,7 @@ killer
 killers
 kilo
 kilogram
+kilogramme
 kilograms
 kilometer
 kilometers
@@ -3002,6 +3025,7 @@ labouring
 labours
 lack
 lain
+lake
 lakes
 lamp
 lamps
@@ -3046,6 +3070,7 @@ leaved
 leaving
 leavings
 lees
+left-hand
 leftism
 leftist
 leftists
@@ -3242,6 +3267,7 @@ mailings
 mails
 mainly
 major
+make-up
 maker
 makers
 makes
@@ -3250,11 +3276,13 @@ makings
 male
 maleness
 males
+mall
 malls
 manage
 manager
 managers
 manages
+manner
 manners
 march
 marched
@@ -3338,6 +3366,7 @@ methodically
 methods
 metre
 mid
+midday
 midden
 middens
 middling
@@ -3447,9 +3476,12 @@ moods
 mores
 mosque
 mostly
+motorway
 moved
 moves
 movingly
+ms
+ms.
 mug
 mugged
 mugger
@@ -3618,7 +3650,10 @@ oil
 oiled
 oiling
 oils
+olympic
+omelet
 omelets
+omelette
 omelettes
 onces
 onion
@@ -3904,6 +3939,7 @@ path
 paths
 patient
 patients
+pc
 pea
 peaceful
 pear
@@ -3912,6 +3948,7 @@ pears
 peas
 pease
 pence
+penfriend
 pepper
 peppered
 peppering
@@ -4354,6 +4391,7 @@ pushes
 pushing
 qualities
 quality
+queen
 queened
 queening
 queenly
@@ -4884,6 +4922,7 @@ rhythm
 rhythmical
 rhythmically
 rhythms
+right-hand
 ringed
 ringers
 ringing
@@ -4901,6 +4940,7 @@ robbing
 robe
 robed
 robes
+robin
 robing
 robs
 rock
@@ -5355,6 +5395,7 @@ snack
 snacked
 snacking
 snacks
+snowboarding
 snowed
 snowing
 snows
@@ -5382,6 +5423,7 @@ softest
 softly
 software
 softwares
+soldier
 soldiered
 soldiering
 soldierly
@@ -5819,6 +5861,7 @@ therefore
 thereof
 thermally
 thermals
+thief
 thieves
 third
 thirds
@@ -5919,6 +5962,7 @@ touchingly
 tour
 toured
 touring
+tourist
 tourists
 tours
 toward
@@ -5986,6 +6030,7 @@ traveler
 travelers
 traveling
 travelled
+traveller
 travellers
 travelling
 travels
@@ -6314,6 +6359,7 @@ villages
 violation
 violations
 violent
+violin
 violinist
 violinists
 visitor
@@ -6358,6 +6404,7 @@ warming
 warmish
 warmness
 warms
+washing-up
 watered
 watering
 waters
@@ -6383,6 +6430,7 @@ webbed
 webbing
 webbings
 webs
+website
 wedding
 weddings
 weekday
@@ -6405,6 +6453,7 @@ weights
 welcomed
 welcomes
 welcoming
+well-known
 went
 wept
 west
