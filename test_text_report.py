@@ -16,6 +16,7 @@ import http.server
 import io
 import json
 import os
+import re as _re
 import shutil
 import subprocess
 import sys
@@ -390,7 +391,6 @@ check("deck is words only (no structure rows)",
 check("deck enrich=False is a no-op",
       _deck_stats == {"enriched": 0, "missed": 0, "offline": False, "cached": 0})
 # Replicate RubricMaker's cardsFromRows header-skip + drop rules (flashcardImport.ts)
-import re as _re
 _hfront = _re.compile(r"^(front|term|word|question|phrase)$", _re.I)
 _hback = _re.compile(r"^(back|definition|translation|answer|meaning)$", _re.I)
 _cards = []
@@ -637,7 +637,9 @@ try:
         check("pre-enrich: offline stops the pass",
               _ps3["offline"] and _ps3["looked_up"] == 0 and _ps3["missed"] == 0)
 
-        _fresh = lambda w: {"definition": "d", "phonetic": None, "partOfSpeech": None}
+        def _fresh(w):
+            return {"definition": "d", "phonetic": None, "partOfSpeech": None}
+
         check("pre-enrich: limit caps new lookups",
               tr.pre_enrich_words(["fresh1", "fresh2", "fresh3"], lookup=_fresh,
                                   cache_path=os.path.join(_ptmp, "d3.json"),

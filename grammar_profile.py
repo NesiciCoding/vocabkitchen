@@ -650,7 +650,6 @@ def _nonfinite(sent, covered=frozenset()):
 
 def _comparatives(sent):
     found = []
-    seen_as = False
     for t in sent:
         if t.tag_ in ("JJR", "RBR"):
             if t.lower_ in ("more", "less"):
@@ -976,8 +975,8 @@ def profile(text, nlp, cefrj_levels):
     if construction_count == 0:
         typical = reaches = "—"
     else:
-        typical = max(_CEFR_ORDER, key=lambda l: (band_counts[l], -_LEVEL_INDEX[l]))
-        reaches = next((l for l in reversed(_CEFR_ORDER) if band_counts[l] > 0), typical)
+        typical = max(_CEFR_ORDER, key=lambda lvl: (band_counts[lvl], -_LEVEL_INDEX[lvl]))
+        reaches = next((lvl for lvl in reversed(_CEFR_ORDER) if band_counts[lvl] > 0), typical)
 
     meta = {
         "sentenceCount": len(sentences),

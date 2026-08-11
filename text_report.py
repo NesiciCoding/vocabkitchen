@@ -314,7 +314,7 @@ def build_verdict(words, structures, grammar_available=True):
     if n_words == 0 and n_structs == 0:
         return "on level"
     bands = [d["level"] for d in words] + [d["level"] for d in structures]
-    max_band = max(bands, key=lambda l: _LEVEL_INDEX[l])
+    max_band = max(bands, key=lambda lvl: _LEVEL_INDEX[lvl])
     clauses = []
     if n_words:
         clauses.append(_plural(n_words, "word"))
@@ -328,7 +328,7 @@ def blend_level(vocab_coverage, grammar_typical):
     grammar typical band — the level at which most words AND most structures
     sit comfortably. Returns None when neither side has a level."""
     bands = [lvl for lvl in (vocab_coverage, grammar_typical) if lvl in _LEVEL_INDEX]
-    return max(bands, key=lambda l: _LEVEL_INDEX[l]) if bands else None
+    return max(bands, key=lambda lvl: _LEVEL_INDEX[lvl]) if bands else None
 
 
 # ---------------------------------------------------------------------------
@@ -400,7 +400,7 @@ def analyze(text, target_level=None, wordlists_dir=None, grammar_dir=None,
             for d in words:
                 d["context"] = ctx.get(d["word"])
         payload["aboveTarget"] = {
-            "maxLevel": max(bands, key=lambda l: _LEVEL_INDEX[l]) if bands else None,
+            "maxLevel": max(bands, key=lambda lvl: _LEVEL_INDEX[lvl]) if bands else None,
             "words": words,
             "wordCount": len(words),
             "structures": structures,
@@ -429,13 +429,12 @@ def render_pretty(payload, source_label, stream=None):
     """Render the combined summary as a colour-coded terminal view."""
     stream = stream or sys.stdout
     colour = vp.use_colour(stream)
-    try:
-        import shutil
-        width = min(shutil.get_terminal_size((80, 20)).columns, 100)
-    except Exception:
-        width = 80
-    dim = lambda s: vp.paint(_DIM_RGB, s, colour)
-    bold = lambda s: vp.bold(s, colour)
+
+    def dim(s):
+        return vp.paint(_DIM_RGB, s, colour)
+
+    def bold(s):
+        return vp.bold(s, colour)
 
     out = []
     out.append(bold("Text Report"))
