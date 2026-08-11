@@ -15,7 +15,8 @@ profiler's published outputs (and its regression tests) stay stable while
 previously unrecognised words gain a level. Slash-separated spelling variants
 (``adviser/advisor``) are split; multi-word phrases (``according to``) cannot
 be matched by the token profiler, so they land in the machine-readable index
-only.
+only. A small documented drop-list (:data:`_DROPPED`) excludes known
+misspellings / non-words in the upstream profiles.
 
 Outputs:
 
@@ -41,6 +42,12 @@ _DEFAULT_DIR = os.path.join(_HERE, "WordLists", "CEFR")
 _DEFAULT_OLP = os.path.join(_DEFAULT_DIR, "cefrj-vocabulary-profile-1.5.csv")
 _DEFAULT_OCT = os.path.join(_DEFAULT_DIR, "octanove-vocabulary-profile-c1c2-1.0.csv")
 _PREA1 = {"PRE-A1": "A1", "PREA1": "A1"}
+
+# Known misspellings / non-words in the upstream Octanove profile (identified in
+# review; e.g. "misdemanour" for "misdemeanour", "porten" for "portend",
+# "flatout" for the hyphenated "flat-out"). They must not ship in the lists or
+# index; re-running the merge drops them again without manual list surgery.
+_DROPPED = frozenset({"porten", "flatout", "misdemanour"})
 
 
 def load_list(path):
@@ -73,7 +80,7 @@ def parse_profile(path):
                 continue
             pos = (row.get("pos") or "").strip().lower() or None
             for form in (v.strip() for v in head.split("/")):
-                if not form:
+                if not form or form in _DROPPED:
                     continue
                 target = phrases if " " in form else words
                 if form not in target:
@@ -81,17 +88,42 @@ def parse_profile(path):
     return words, phrases
 
 
-def merge(list_dir, write=True):
+def build_index(existing, profile_words, profile_phrases):
+    """Complete word → {level, pos} index from the merged lists + profiles.
+
+    Every list word appears at its (lowest) list level — iterating the lists
+    A1→C2 makes the lowest level win automatically; profile-only words and
+    phrases are added with their profile level, and profile POS enriches list
+    entries that carry none.
+    """
+    index = {}
+    for lvl in _LEVELS:
+        for form in existing[lvl]:
+            index.setdefault(form, {"level": lvl, "pos": None})
+    for form, (level, pos) in {**profile_words, **profile_phrases}.items():
+        entry = index.get(form)
+        if entry is None:
+            index[form] = {"level": level, "pos": pos}
+        elif pos:
+            entry["pos"] = pos
+    return index
+
+
+def merge(list_dir, write=True, olp_csv=_DEFAULT_OLP, octanove_csv=_DEFAULT_OCT):
     """Gap-fill the six CEFR lists with the bundled OLP-EN-CEFRJ profiles.
 
     Returns a stats dict; with ``write=False`` nothing is written (a dry run).
     """
-    existing = {lvl: load_list(os.path.join(list_dir, f"{lvl}.txt"))
-                for lvl in _LEVELS}
+    raw = {lvl: load_list(os.path.join(list_dir, f"{lvl}.txt"))
+           for lvl in _LEVELS}
+    before = {lvl: len(raw[lvl]) for lvl in _LEVELS}
+    # The drop-list applies to the shipped lists too, so re-running the merge
+    # removes previously-imported typos instead of only preventing re-adds.
+    existing = {lvl: raw[lvl] - _DROPPED for lvl in _LEVELS}
     all_known = set().union(*existing.values())
 
-    profile_words, profile_phrases = parse_profile(_DEFAULT_OLP)
-    oct_words, oct_phrases = parse_profile(_DEFAULT_OCT)
+    profile_words, profile_phrases = parse_profile(olp_csv)
+    oct_words, oct_phrases = parse_profile(octanove_csv)
     profile_words.update(oct_words)
     profile_phrases.update(oct_phrases)
 
@@ -111,19 +143,7 @@ def merge(list_dir, write=True):
             with open(path, "w", encoding="utf-8") as f:
                 f.write("".join(w + "\n" for w in sorted(existing[lvl])))
 
-        # Complete index: every list word at its (lowest) list level, plus the
-        # profile's phrases and any POS the lists can't carry. Iterating the
-        # lists A1→C2 makes the lowest level win automatically.
-        index = {}
-        for lvl in _LEVELS:
-            for form in existing[lvl]:
-                index.setdefault(form, {"level": lvl, "pos": None})
-        for form, (level, pos) in {**profile_words, **profile_phrases}.items():
-            entry = index.get(form)
-            if entry is None:
-                index[form] = {"level": level, "pos": pos}
-            elif pos:
-                entry["pos"] = pos
+        index = build_index(existing, profile_words, profile_phrases)
         payload = {
             "version": 1,
             "sources": [
@@ -138,14 +158,14 @@ def merge(list_dir, write=True):
             f.write("\n")
 
     return {
-        "before": {lvl: len(existing[lvl]) - len(added[lvl]) for lvl in _LEVELS},
+        "before": before,
         "added": {lvl: len(added[lvl]) for lvl in _LEVELS},
         "after": {lvl: len(existing[lvl]) for lvl in _LEVELS},
         "phrases_added": len(phrases_added),
     }
 
 
-def check(list_dir):
+def check(list_dir, olp_csv=_DEFAULT_OLP, octanove_csv=_DEFAULT_OCT):
     """Validate the shipped lists and index; report what a merge would change."""
     problems = 0
     for lvl in _LEVELS:
@@ -164,16 +184,45 @@ def check(list_dir):
             problems += 1
         print(f"  {lvl}: {len(words)} words")
 
-    stats = merge(list_dir, write=False)
-    print("  merge would add: "
-          + ", ".join(f"{lvl} +{n}" for lvl, n in stats["added"].items() if n)
-          + (f", {stats['phrases_added']} phrases" if stats["phrases_added"] else ""))
+    stats = merge(list_dir, write=False, olp_csv=olp_csv, octanove_csv=octanove_csv)
+    parts = [f"{lvl} +{n}" for lvl, n in stats["added"].items() if n]
+    if stats["phrases_added"]:
+        parts.append(f"{stats['phrases_added']} phrases")
+    print("  merge would add: " + (", ".join(parts) if parts else "nothing"))
 
+    # levels.json must exist, parse, carry the right schema, and match exactly
+    # what a fresh merge would write — nothing stale, nothing missing.
     index_path = os.path.join(list_dir, "levels.json")
     if os.path.exists(index_path):
-        with open(index_path, encoding="utf-8") as f:
-            payload = json.load(f)
-        print(f"  levels.json: {len(payload.get('words', {}))} index entries")
+        try:
+            with open(index_path, encoding="utf-8") as f:
+                payload = json.load(f)
+        except ValueError as ex:
+            print(f"  ! levels.json is not valid JSON: {ex}")
+            return problems + 1
+        words = payload.get("words") if isinstance(payload, dict) else None
+        if not isinstance(words, dict) or not words:
+            print("  ! levels.json has no (non-empty) words index — run --merge")
+            problems += 1
+        elif payload.get("version") != 1:
+            print(f"  ! levels.json has version {payload.get('version')!r} "
+                  f"(expected 1) — run --merge")
+            problems += 1
+        else:
+            # Rebuild the expected index from the current lists + profiles.
+            existing = {lvl: load_list(os.path.join(list_dir, f"{lvl}.txt"))
+                        for lvl in _LEVELS}
+            pwords, pphrases = parse_profile(olp_csv)
+            ow, op = parse_profile(octanove_csv)
+            pwords.update(ow)
+            pphrases.update(op)
+            expected = dict(sorted(build_index(existing, pwords, pphrases).items()))
+            if words != expected:
+                print("  ! levels.json is stale (differs from a fresh merge) — "
+                      "run --merge")
+                problems += 1
+            else:
+                print(f"  levels.json: {len(words)} index entries (current)")
     else:
         print("  ! levels.json missing — run: python3 build_wordlists.py --merge")
         problems += 1
@@ -193,7 +242,8 @@ def main(argv=None):
     args = parser.parse_args(argv)
 
     if args.merge:
-        stats = merge(args.list_dir, write=True)
+        stats = merge(args.list_dir, write=True,
+                      olp_csv=args.olp_csv, octanove_csv=args.octanove_csv)
         print("CEFR lists rebuilt:")
         for lvl in _LEVELS:
             print(f"  {lvl}: {stats['before'][lvl]} -> {stats['after'][lvl]} "
@@ -201,7 +251,8 @@ def main(argv=None):
         print(f"  phrases in levels.json: +{stats['phrases_added']}")
         return 0
     if args.check:
-        return 1 if check(args.list_dir) else 0
+        return 1 if check(args.list_dir,
+                          olp_csv=args.olp_csv, octanove_csv=args.octanove_csv) else 0
     parser.print_help()
     return 1
 

@@ -11531,7 +11531,6 @@ flatfooted
 flatiron
 flatirons
 flatlands
-flatout
 flatteries
 flattery
 flattop
@@ -18575,7 +18574,6 @@ miscue
 miscues
 misdeed
 misdeeds
-misdemanour
 misdemeanour
 misdiagnose
 misdiagnosed
@@ -22321,7 +22319,6 @@ porridge
 porridges
 porringers
 portcullises
-porten
 portend
 portended
 portending

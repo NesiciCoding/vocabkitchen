@@ -15,6 +15,11 @@
       "name": "grammar-profiler",
       "source": "./plugins/grammar-profiler",
       "description": "Profile the grammar of English text by CEFR level — which constructions it uses (tenses, aspect, passive, modals, relative clauses, conditionals) and what level each maps to. Rule-based over a spaCy parse; uses the CEFR-J Grammar Profile. Requires Python 3, spaCy, and the en_core_web_sm model."
+    },
+    {
+      "name": "text-report",
+      "source": "./plugins/text-report",
+      "description": "One command that runs both profilers and answers \"is this text right for my class?\" — vocabulary band + grammatical range + blended estimated level, with --target-level flags, a coverage figure, and a verdict. Exports pre-teaching handouts, fill-the-gap worksheets, and RubricMaker-importable flashcard decks (enriched with free-dictionary definitions). Requires Python 3; the grammar half needs spaCy and the en_core_web_sm model."
     }
   ]
 }

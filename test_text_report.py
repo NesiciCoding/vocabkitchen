@@ -37,7 +37,7 @@ except Exception:
     HAVE_GRAMMAR = False
 
 _BASE = os.path.join(HERE, "WordLists")
-_LEVELS = [(name, vp.load_wordlist(_BASE, rel)) for name, rel in vp._PROFILERS["cefr"]]
+_LEVELS = [(name, vp.load_wordlist(_BASE, rel)) for name, rel in vp.PROFILERS["cefr"]]
 
 _CAT = "The cat sat on the mat."
 _ACADEMIC = ("If I had known about the circumstances, I would have helped them "
@@ -47,13 +47,13 @@ _ACADEMIC = ("If I had known about the circumstances, I would have helped them "
 passed = failed = skipped = 0
 
 
-def check(name, cond):
+def check(name, cond, detail=None):
     global passed, failed
     if cond:
         passed += 1
     else:
         failed += 1
-        print(f"FAIL: {name}")
+        print(f"FAIL: {name}" + (f" — {detail}" if detail is not None else ""))
 
 
 def run(args, text=""):
@@ -78,7 +78,8 @@ check("sentences empty -> 1", tr.count_sentences("") == 1)
 
 # --- unit: readability (frozen values for the cat sentence) -------------------
 _read = tr.compute_readability(_CAT, 6)
-check("readability fre frozen", _read["fleschReadingEase"] == 116.1)
+check("readability fre frozen", _read["fleschReadingEase"] == 116.1,
+      detail=f"got {_read['fleschReadingEase']}, expected 116.1")
 check("readability fk frozen", _read["fleschKincaidGrade"] == -1.4)
 check("readability description", _read["description"] == "very easy")
 check("readability wordless -> None", tr.compute_readability("!!!", 0) is None)
@@ -93,7 +94,8 @@ check("coverage C2 -> 100", tr.coverage_figure(_ordered, "C2")["knownPercent"] =
 
 # --- unit: words above target -------------------------------------------------
 _above = tr.words_above_target(_ordered, "B1")
-check("mat above B1", _above == [{"word": "mat", "level": "C1", "occurrences": 1}])
+check("mat above B1", _above == [{"word": "mat", "level": "C1", "occurrences": 1}],
+      detail=f"got {_above}")
 check("nothing above C2", tr.words_above_target(_ordered, "C2") == [])
 
 # --- unit: verdict ------------------------------------------------------------
@@ -464,11 +466,17 @@ check("dict parser junk payload -> None",
 
 # Real HTTP path against a local server — hermetic, no external network.
 class _DictHandler(http.server.BaseHTTPRequestHandler):
+    _lock = threading.Lock()
     requests = 0
 
     def do_GET(self):
-        _DictHandler.requests += 1
+        with _DictHandler._lock:
+            _DictHandler.requests += 1
         word = self.path.rsplit("/", 1)[-1]
+        if word == "rate-limited":
+            self.send_response(429)
+            self.end_headers()
+            return
         body = _DICT_PAYLOADS.get(word)
         if body is None:
             self.send_response(404)
@@ -508,6 +516,24 @@ try:
         check("lookup refused raises network error", False)
     except tr._DictNetworkError:
         check("lookup refused raises network error", True)
+    try:
+        tr.lookup_dictionary("rate-limited", base_url=_dict_url)
+        check("lookup 429 raises network error", False)
+    except tr._DictNetworkError:
+        check("lookup 429 raises network error", True)
+    _c429_dir = tempfile.mkdtemp(prefix="textreport_429_")
+    try:
+        _c429 = os.path.join(_c429_dir, "c.json")
+        _s429 = tr.pre_enrich_words(["rate-limited"], base_url=_dict_url,
+                                    cache_path=_c429, delay=0)
+        _cached_429 = {}
+        if os.path.exists(_c429):
+            with open(_c429, encoding="utf-8") as f:
+                _cached_429 = json.load(f)
+        check("lookup 429 is not cached as a miss",
+              _s429["offline"] and "rate-limited" not in json.dumps(_cached_429))
+    finally:
+        shutil.rmtree(_c429_dir, ignore_errors=True)
 
     # --- enriched deck export (stubbed lookup) ------------------------------
     _FAKE = {
@@ -569,9 +595,10 @@ try:
               and _s6 == {"enriched": 2, "missed": 1, "offline": False, "cached": 3})
         check("cache: hits and misses both cached",
               _s6["cached"] == 3 and _s6["missed"] == 1)
+        with open(_cache_file, encoding="utf-8") as _cf:
+            _cache_payload = json.load(_cf)
         check("cache: file written with version",
-              os.path.exists(_cache_file)
-              and json.load(open(_cache_file, encoding="utf-8"))["version"] == 1)
+              os.path.exists(_cache_file) and _cache_payload["version"] == 1)
         check("cache: default path is user-level",
               tr.default_dictionary_cache_path().endswith(
                   os.path.join("vocabkitchen", "dictionary.json")))

@@ -552,6 +552,29 @@ def render_pretty(source_label, per_type, cefr_levels, text, stream=None):
     stream.write("\n".join(out) + "\n")
 
 
+# ---------------------------------------------------------------------------
+# Public aliases — the names text_report.py and other consumers use. The
+# underscore forms remain as aliases so existing callers keep working.
+# ---------------------------------------------------------------------------
+
+#: Punctuation-placeholder tokens the tokenizer produces (excluded from counts).
+PLACEHOLDERS = _PLACEHOLDERS
+#: CEFR level -> RGB colour for the terminal view.
+LEVEL_RGB = _LEVEL_RGB
+DEFAULT_RGB = _DEFAULT_RGB
+#: The three profilers' (json_key, [(level, wordlist_path), ...]) definitions.
+PROFILERS = _PROFILERS
+CEFR_ORDER = _CEFR_ORDER
+#: Band statistics (level_counts, typical, coverage) from a CEFR ordered result.
+cefr_stats = _cefr_stats
+#: Whether ANSI colour should be used for *stream* (TTY and not NO_COLOR).
+use_colour = _use_colour
+#: Paint *text* in an RGB colour when *enabled*.
+paint = _paint
+#: Bold *text* when *enabled*.
+bold = _bold
+
+
 def resolve_format(explicit, is_tty):
     """Resolve --format: explicit value wins, else auto by TTY (pretty) vs pipe (json)."""
     if explicit in (None, "", "auto"):

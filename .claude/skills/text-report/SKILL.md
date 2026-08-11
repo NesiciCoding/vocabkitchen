@@ -94,7 +94,7 @@ Flags:
 | `--no-grammar`      | skip the grammar side even if spaCy is available                        |
 | `--no-readability`  | omit the Flesch–Kincaid / Flesch Reading Ease line                      |
 | `--export`          | `csv`, `md`, or `flashcards` — write the above-target items as a pre-teaching list (requires `--target-level`) |
-| `--cloze`           | render exported examples as `{{...}}` fill-the-gap sentences (RubricMaker syntax; `--export md|csv` only) |
+| `--cloze`           | render exported examples as `{{...}}` fill-the-gap sentences (RubricMaker syntax; `--export md\|csv` only) |
 | `--no-enrich`       | `--export flashcards` only: skip the Free Dictionary API (card backs stay the in-text context sentence) |
 | `--dictionary-url`  | `--export flashcards` only: override the dictionary API base URL (proxy / test server) |
 | `--dictionary-cache`| JSON cache file for lookups (default `~/.cache/vocabkitchen/dictionary.json`) |

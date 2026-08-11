@@ -211,7 +211,7 @@ def compute_readability(text, word_count):
         return None
     sentences = count_sentences(text)
     syllables = sum(count_syllables(t) for t in vp.tokenize(text)
-                    if t not in vp._PLACEHOLDERS)
+                    if t not in vp.PLACEHOLDERS)
     words_per_sentence = word_count / sentences
     syllables_per_word = syllables / word_count
     fre = 206.835 - 1.015 * words_per_sentence - 84.6 * syllables_per_word
@@ -343,9 +343,9 @@ def analyze(text, target_level=None, wordlists_dir=None, grammar_dir=None,
     # Vocabulary (always runs; dependency-free).
     vocab_base = wordlists_dir or os.path.join(script_dir, "WordLists")
     levels = [(name, vp.load_wordlist(vocab_base, rel))
-              for name, rel in vp._PROFILERS["cefr"]]
+              for name, rel in vp.PROFILERS["cefr"]]
     ordered, total = vp.profile(text, levels)
-    counts, typical, coverage = vp._cefr_stats(ordered, total)
+    counts, typical, coverage = vp.cefr_stats(ordered, total)
 
     payload = {
         "totalWordCount": total,
@@ -422,20 +422,20 @@ _DIM_RGB = (136, 136, 136)
 
 
 def _lvl(lvl, colour):
-    return vp._paint(vp._LEVEL_RGB.get(lvl, _DIM_RGB), lvl, colour)
+    return vp.paint(vp.LEVEL_RGB.get(lvl, _DIM_RGB), lvl, colour)
 
 
 def render_pretty(payload, source_label, stream=None):
     """Render the combined summary as a colour-coded terminal view."""
     stream = stream or sys.stdout
-    colour = vp._use_colour(stream)
+    colour = vp.use_colour(stream)
     try:
         import shutil
         width = min(shutil.get_terminal_size((80, 20)).columns, 100)
     except Exception:
         width = 80
-    dim = lambda s: vp._paint(_DIM_RGB, s, colour)
-    bold = lambda s: vp._bold(s, colour)
+    dim = lambda s: vp.paint(_DIM_RGB, s, colour)
+    bold = lambda s: vp.bold(s, colour)
 
     out = []
     out.append(bold("Text Report"))
@@ -576,14 +576,16 @@ def lookup_dictionary(word, base_url=None, timeout=_DICT_TIMEOUT):
     """Look *word* up in the Free Dictionary API (stdlib only).
 
     Returns :func:`parse_dictionary_entry`'s dict on success, None when the
-    API doesn't know the word (HTTP 404/429/5xx), and raises
-    :class:`_DictNetworkError` for network-level failures (offline, DNS,
-    timeout, non-JSON body) so callers can bail out of a doomed batch.
+    API definitively doesn't know the word (HTTP 404), and raises
+    :class:`_DictNetworkError` for network-level failures — offline, DNS,
+    timeout, non-JSON body, rate limits (HTTP 429) and server errors (5xx) —
+    so callers can bail out of a doomed batch instead of caching transient
+    failures as "word not found".
     """
     import urllib.error
     import urllib.parse
     import urllib.request
-    url = f"{(base_url or _DICT_API).rstrip('/')}/{urllib.parse.quote(word.lower())}"
+    url = f"{(base_url or _DICT_API).rstrip('/')}/{urllib.parse.quote(word.lower(), safe='')}"
     req = urllib.request.Request(url, headers={
         "User-Agent": "vocabkitchen-text-report/1.0 (CEFR text report; deck enrichment)",
         "Accept": "application/json",
@@ -591,8 +593,10 @@ def lookup_dictionary(word, base_url=None, timeout=_DICT_TIMEOUT):
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             payload = json.loads(resp.read().decode("utf-8"))
-    except urllib.error.HTTPError:
-        return None  # word not found / rate-limited — skip just this word
+    except urllib.error.HTTPError as ex:
+        if ex.code == 404:
+            return None  # word not found — a definitive miss, safe to cache
+        raise _DictNetworkError(f"HTTP {ex.code}")
     except (urllib.error.URLError, TimeoutError, OSError, ValueError) as ex:
         raise _DictNetworkError(str(ex))
     return parse_dictionary_entry(payload)
@@ -620,12 +624,16 @@ def load_dictionary_cache(path):
 
     A ``None`` entry means the API definitively doesn't know the word (a cached
     miss). Returns an empty dict when the file is absent, unreadable, or
-    malformed — the cache is an optimisation, never a hard dependency.
+    malformed — including a version that doesn't match the writer's
+    :data:`_CACHE_VERSION`, which means the on-disk shape can't be trusted. The
+    cache is an optimisation, never a hard dependency.
     """
     try:
         with open(path, encoding="utf-8") as f:
             data = json.load(f)
-        entries = data.get("entries") if isinstance(data, dict) else None
+        if not isinstance(data, dict) or data.get("version") != _CACHE_VERSION:
+            return {}
+        entries = data.get("entries")
         return entries if isinstance(entries, dict) else {}
     except (OSError, ValueError):
         return {}
@@ -661,8 +669,10 @@ def blank_gap(sentence, target):
     """
     if not sentence or not target:
         return sentence or ""
-    return re.sub(rf"(?i)\b{re.escape(target)}\b", "{{" + target + "}}",
-                  sentence, count=1)
+    # The replacement is a function so backslashes or regex group references in
+    # *target* are inserted literally instead of being interpreted by re.
+    return re.sub(rf"(?i)\b{re.escape(target)}\b",
+                  lambda _m: "{{" + target + "}}", sentence, count=1)
 
 
 def _example_sentence(d):
@@ -823,12 +833,12 @@ def pre_enrich_words(words, base_url=None, lookup=None, cache_path=None,
     cache = load_dictionary_cache(cache_path) if cache_path else {}
     url_key = base_url or _DICT_API
     fetcher = lookup or (lambda wd: lookup_dictionary(wd, base_url))
-    stats = {"requested": 0, "skipped": 0, "looked_up": 0,
+    # requested = the full distinct input count, regardless of --limit.
+    stats = {"requested": len(words), "skipped": 0, "looked_up": 0,
              "found": 0, "missed": 0, "offline": False}
     offline = False
     bucket = cache.setdefault(url_key, {})  # live view; new entries are visible
     for word in words:
-        stats["requested"] += 1
         if limit is not None and stats["looked_up"] >= limit:
             break
         lower = word.lower()
@@ -919,8 +929,11 @@ def export_flashcards(payload, enrich=True, base_url=None, level_index=None,
         if not pos and level_index:
             entry = level_index.get(word.lower()) or {}
             pos = entry.get("pos") or ""
-        if back:
-            w.writerow([word, back, example, phonetic, pos])
+        if not back:
+            # No context sentence and no definition — keep the card findable
+            # rather than silently dropping the row.
+            back = word
+        w.writerow([word, back, example, phonetic, pos])
     if cache_path and cache_dirty:
         save_dictionary_cache(cache_path, cache)
     return buf.getvalue(), stats
@@ -954,6 +967,68 @@ def resolve_format(explicit, is_tty):
     if value in ("pretty", "text"):
         return "pretty"
     raise ValueError(f"Unknown format '{explicit}'. Valid formats: auto, json, pretty.")
+
+
+def _validate_args(args, target):
+    """Validate flag combinations; return an error message or None."""
+    if target is not None and target not in _LEVEL_INDEX:
+        return (f"Invalid target level '{args.target_level}'. "
+                f"Valid: {', '.join(_CEFR_ORDER)}.")
+    if args.pre_enrich and args.export:
+        return ("--pre-enrich primes the dictionary cache and exits; "
+                "it can't be combined with --export.")
+    if args.pre_enrich and args.no_dictionary_cache:
+        return ("--pre-enrich writes the dictionary cache; it can't be combined "
+                "with --no-dictionary-cache.")
+    if args.export is not None and target is None:
+        return ("--export requires --target-level (the pre-teaching list is the "
+                "words and structures above the class's level).")
+    if args.cloze and args.export is None:
+        return ("--cloze requires --export (it renders the exported examples as "
+                "fill-the-gap sentences).")
+    if args.cloze and args.export == "flashcards":
+        return ("--cloze applies to the md/csv exports; --export flashcards "
+                "produces RubricMaker deck cards instead.")
+    return None
+
+
+def _write_export(args, payload, target):
+    """Render and write the --export pre-teaching list; True on success."""
+    if args.export == "csv":
+        content = export_csv(payload, cloze=args.cloze)
+    elif args.export == "flashcards":
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        base_dir = args.wordlists or os.path.join(script_dir, "WordLists")
+        cache_path = None
+        if not args.no_dictionary_cache:
+            cache_path = args.dictionary_cache or default_dictionary_cache_path()
+        content, deck_stats = export_flashcards(
+            payload, enrich=not args.no_enrich, base_url=args.dictionary_url,
+            level_index=vp.load_level_index(base_dir), cache_path=cache_path)
+        if deck_stats["offline"]:
+            sys.stderr.write("Dictionary enrichment unavailable (offline?); "
+                             "the deck shipped with in-context backs. "
+                             "Use --no-enrich to silence this.\n")
+        elif deck_stats["enriched"] or deck_stats["missed"]:
+            cache_clause = (f" ({deck_stats['cached']} from cache)"
+                            if deck_stats["cached"] else "")
+            sys.stderr.write(
+                f"Dictionary enrichment: {deck_stats['enriched']} definition"
+                f"{'s' if deck_stats['enriched'] != 1 else ''} added"
+                f"{cache_clause}, {deck_stats['missed']} word"
+                f"{'s' if deck_stats['missed'] != 1 else ''} not found.\n")
+    else:
+        content = export_markdown(payload, cloze=args.cloze)
+    path = export_path(args.file, args.output, target, args.export)
+    try:
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(content)
+    except OSError as ex:
+        sys.stderr.write(f"Could not write pre-teaching list: {ex}\n")
+        return False
+    # stderr, so --format json stdout stays machine-parseable
+    sys.stderr.write(f"Wrote pre-teaching list to {path}\n")
+    return True
 
 
 def main(argv=None):
@@ -998,41 +1073,9 @@ def main(argv=None):
         return 1
 
     target = args.target_level.strip().upper() if args.target_level else None
-    if target is not None and target not in _LEVEL_INDEX:
-        sys.stderr.write(
-            f"Invalid target level '{args.target_level}'. "
-            f"Valid: {', '.join(_CEFR_ORDER)}.\n"
-        )
-        return 1
-    if args.pre_enrich and args.export:
-        sys.stderr.write(
-            "--pre-enrich primes the dictionary cache and exits; "
-            "it can't be combined with --export.\n"
-        )
-        return 1
-    if args.pre_enrich and args.no_dictionary_cache:
-        sys.stderr.write(
-            "--pre-enrich writes the dictionary cache; it can't be combined "
-            "with --no-dictionary-cache.\n"
-        )
-        return 1
-    if args.export is not None and target is None:
-        sys.stderr.write(
-            "--export requires --target-level (the pre-teaching list is the "
-            "words and structures above the class's level).\n"
-        )
-        return 1
-    if args.cloze and args.export is None:
-        sys.stderr.write(
-            "--cloze requires --export (it renders the exported examples as "
-            "fill-the-gap sentences).\n"
-        )
-        return 1
-    if args.cloze and args.export == "flashcards":
-        sys.stderr.write(
-            "--cloze applies to the md/csv exports; --export flashcards "
-            "produces RubricMaker deck cards instead.\n"
-        )
+    error = _validate_args(args, target)
+    if error:
+        sys.stderr.write(error + "\n")
         return 1
     source_label = None
     text = args.text
@@ -1078,7 +1121,8 @@ def main(argv=None):
         if stats["offline"]:
             tail = " Offline — remaining words left unprimed."
         sys.stderr.write(
-            f"Pre-enriched {stats['looked_up']} words "
+            f"Pre-enriched {stats['looked_up']} word"
+            f"{'s' if stats['looked_up'] != 1 else ''} "
             f"({stats['found']} found, {stats['missed']} not found); "
             f"{stats['skipped']} of {stats['requested']} already cached."
             + tail + "\n")
@@ -1106,44 +1150,8 @@ def main(argv=None):
     else:
         print(json.dumps(payload, indent=2, ensure_ascii=False))
 
-    if args.export:
-        if args.export == "csv":
-            content = export_csv(payload, cloze=args.cloze)
-        elif args.export == "flashcards":
-            script_dir = os.path.dirname(os.path.abspath(__file__))
-            base_dir = args.wordlists or os.path.join(script_dir, "WordLists")
-            cache_path = None
-            if not args.no_dictionary_cache:
-                cache_path = (args.dictionary_cache
-                              or default_dictionary_cache_path())
-            content, deck_stats = export_flashcards(
-                payload, enrich=not args.no_enrich,
-                base_url=args.dictionary_url,
-                level_index=vp.load_level_index(base_dir),
-                cache_path=cache_path)
-            if deck_stats["offline"]:
-                sys.stderr.write("Dictionary enrichment unavailable (offline?); "
-                                 "the deck shipped with in-context backs. "
-                                 "Use --no-enrich to silence this.\n")
-            elif deck_stats["enriched"] or deck_stats["missed"]:
-                cache_clause = (f" ({deck_stats['cached']} from cache)"
-                                if deck_stats["cached"] else "")
-                sys.stderr.write(
-                    f"Dictionary enrichment: {deck_stats['enriched']} definition"
-                    f"{'s' if deck_stats['enriched'] != 1 else ''} added"
-                    f"{cache_clause}, {deck_stats['missed']} word"
-                    f"{'s' if deck_stats['missed'] != 1 else ''} not found.\n")
-        else:
-            content = export_markdown(payload, cloze=args.cloze)
-        path = export_path(args.file, args.output, target, args.export)
-        try:
-            with open(path, "w", encoding="utf-8") as f:
-                f.write(content)
-        except OSError as ex:
-            sys.stderr.write(f"Could not write pre-teaching list: {ex}\n")
-            return 1
-        # stderr, so --format json stdout stays machine-parseable
-        sys.stderr.write(f"Wrote pre-teaching list to {path}\n")
+    if args.export and not _write_export(args, payload, target):
+        return 1
     return 0
 
 

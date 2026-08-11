@@ -126,8 +126,9 @@ Done in the CLI (`vocabkitchen-CLI`):
 
 Not done (deferred):
 
-3. RubricMaker-side `lookupWord` swap — the `{ level, definition }` contract
-   plus phonetic/POS was prototyped conceptually here, but RubricMaker still
-   calls `cambridgeApi.ts`. Its CEFR-J + open-vocab merge already covers level
+1. **RubricMaker-side `lookupWord` swap** — replace `cambridgeApi.lookupWord`
+   with the free stack: the `{ level, definition }` contract plus phonetic/POS
+   was prototyped conceptually here, but RubricMaker still calls
+   `cambridgeApi.ts`. Its CEFR-J + open-vocab merge already covers level
    lookup locally; the definition half is the remaining swap, and the CLI's
    `levels.json`/deck output give it the same data the CLI now uses.
