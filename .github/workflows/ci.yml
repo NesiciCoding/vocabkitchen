@@ -1,0 +1,48 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Tests (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # spaCy ships compiled wheels; the README recommends 3.11–3.13.
+        python-version: ['3.11', '3.12', '3.13']
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install spaCy + English model
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install spacy
+          python -m spacy download en_core_web_sm
+
+      - name: vocab profiler tests
+        run: python3 test_vocab_profile.py
+
+      - name: grammar profiler tests
+        run: python3 test_grammar_profile.py
+
+      - name: text report tests
+        run: python3 test_text_report.py
+
+      - name: wordlist build check
+        run: python3 build_wordlists.py --check
