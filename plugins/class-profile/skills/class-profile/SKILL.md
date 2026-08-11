@@ -69,21 +69,38 @@ needs spaCy exactly like `grammar_profile` and degrades gracefully when it's
 missing — the estimated level then falls back to the vocabulary 90%-coverage
 band. Like the other tools, a sibling `.venv` is auto-detected.
 
-## How to run
+## Requirements
 
-The script is [`class_profile.py`](../../../class_profile.py) at the repo
-root; it finds its word lists and grammar data relative to its own location,
-so it can be run from any directory.
+Same as the text-report plugin: **Python 3** for everything, plus **spaCy**
+and `en_core_web_sm` for the grammar half. The plugin bundles the scripts and
+data (not a Python runtime or spaCy). If the grammar column is blank in a
+run, surface the install guidance to the user and offer to set up the venv:
 
 ```bash
-python3 class_profile.py --file essays/                          # whole folder
-python3 class_profile.py --file "articles/*.txt" --target-level B1
-python3 class_profile.py --file essays/ --format csv             # spreadsheet summary
-python3 class_profile.py --file essays/ --max-level B1           # "which of these suits B1?"
-python3 class_profile.py --file essays/ --targets A2,B1,B2       # fit across classes
-python3 class_profile.py --file essays/ --export-vocab vocab-lists/   # glossaries per band
-python3 class_profile.py --file essays/ --target-level B1 --export md --output pret/  # handouts
-python3 class_profile.py --file essays/ --pre-enrich             # warm the deck cache once
+python3 -m venv .venv
+.venv/bin/python -m pip install spacy
+.venv/bin/python -m spacy download en_core_web_sm
+```
+
+The tool auto-detects a `.venv` next to the bundled script and re-launches
+under it, so the venv setup above makes the grammar half work without the
+user activating anything.
+
+## How to run
+
+This plugin puts a **`class-profile`** command on your PATH — invoke it
+directly; you don't need to know where the script lives. It finds its
+bundled word lists and grammar data automatically.
+
+```bash
+class-profile --file essays/                          # whole folder
+class-profile --file "articles/*.txt" --target-level B1
+class-profile --file essays/ --format csv             # spreadsheet summary
+class-profile --file essays/ --max-level B1           # "which of these suits B1?"
+class-profile --file essays/ --targets A2,B1,B2       # fit across classes
+class-profile --file essays/ --export-vocab vocab-lists/   # glossaries per band
+class-profile --file essays/ --target-level B1 --export md --output pret/  # handouts
+class-profile --file essays/ --pre-enrich             # warm the deck cache once
 ```
 
 Flags:
@@ -193,11 +210,9 @@ JSON on stdout. Shape:
 
 ## Notes
 
-- If a run fails, verify Python with `python3 --version`; if the grammar
-  column is blank, install spaCy (or activate the repo's `.venv`):
-  `pip install spacy && python3 -m spacy download en_core_web_sm`.
+- If `class-profile` is somehow not on PATH, run the bundled script directly:
+  `python3 "${CLAUDE_PLUGIN_ROOT}/class_profile.py" …`.
 - The class profile reuses the three sibling tools verbatim — word-list
-  provenance is in [`WORDLISTS.md`](../../../WORDLISTS.md), the CEFR-J
-  grammar data in [`GRAMMARPROFILE.md`](../../../GRAMMARPROFILE.md).
-- Run the regression tests with `python3 test_class_profile.py` (grammar
-  checks skip automatically if spaCy isn't installed).
+  provenance is in the bundled `WORDLISTS.md`
+  (`${CLAUDE_PLUGIN_ROOT}/WORDLISTS.md`); the CEFR-J grammar data in
+  `GRAMMARPROFILE.md` (`${CLAUDE_PLUGIN_ROOT}/GRAMMARPROFILE.md`).

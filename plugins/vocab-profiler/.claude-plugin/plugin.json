@@ -6,5 +6,11 @@
   },
   "homepage": "https://github.com/NesiciCoding/vocabkitchen-CLI",
   "repository": "https://github.com/NesiciCoding/vocabkitchen-CLI",
+  "commands": [
+    {
+      "name": "vocab-profile",
+      "description": "Profile the vocabulary level of English text — CEFR band (A1–C2) and academic-vocabulary density (Coxhead's AWL and the NAWL)."
+    }
+  ],
   "keywords": ["cefr", "vocabulary", "readability", "academic-word-list", "language-learning", "english"]
 }

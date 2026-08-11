@@ -816,6 +816,23 @@ if os.path.isdir(_sample):
     check("sample: spans the A1 to C2 gradient",
           len(ranks) >= 2 and ranks[0] == 0 and ranks[-1] == 5)
 
+    # Mirror of the CI grammar pass: with spaCy importable in this test
+    # interpreter, every row of the sample run carries a real grammar
+    # typical/reaches range in the CEFR order.
+    if HAVE_GRAMMAR:
+        rc, out, err = run(["--file", _sample])
+        d = json.loads(out)
+        check("sample: grammar-enabled run rc==0", rc == 0)
+        check("sample: grammarError null", d["grammarError"] is None)
+        check("sample: grammar populated on every row",
+              all(r["grammar"] is not None for r in d["rows"]))
+        check("sample: grammar bands valid",
+              all(r["grammar"]["typical"] in vp.CEFR_ORDER
+                  and r["grammar"]["reaches"] in vp.CEFR_ORDER
+                  for r in d["rows"]))
+    else:
+        skipped += 1
+
     # The export pass of the CI golden check: per-text decks + the combined
     # class-wide deck (named after the source folder) and its level-keyed
     # index, in the documented shapes.
@@ -937,6 +954,72 @@ if os.path.isdir(_sample):
               "pre-teach" in _summary_md and "on level" in _summary_md)
     finally:
         shutil.rmtree(_golden_md, ignore_errors=True)
+
+    # The band-export pass of the CI golden check: one CSV per CEFR band
+    # (vocab-<band>.csv, lowercase) with the documented word × occurrences ×
+    # texts shape, cross-checked against the run's own pooled aggregate.
+    _golden_vocab = tempfile.mkdtemp(prefix="classprof_golden_vocab_")
+    try:
+        rc, out, err = run(["--file", _sample, "--no-grammar",
+                            "--export-vocab", _golden_vocab])
+        check("sample vocab export: rc==0", rc == 0)
+        _agg = json.loads(out)["aggregate"]
+        _band_files = [f"vocab-{lvl.lower().replace(' ', '-')}.csv"
+                       for lvl in vp.CEFR_ORDER + ["Off List"]]
+        check("sample vocab export: one CSV per band, lowercase",
+              set(os.listdir(_golden_vocab)) == set(_band_files))
+        _all_words = set()
+        for _fname in _band_files:
+            with open(os.path.join(_golden_vocab, _fname), encoding="utf-8") as f:
+                _rows = list(_csv.reader(f))
+            check(f"sample vocab export: {_fname} has the documented shape",
+                  _rows[0] == ["word", "occurrences", "texts"] and len(_rows) > 1)
+            _words = set()
+            for _r in _rows[1:]:
+                _occ, _texts = int(_r[1]), int(_r[2])
+                check(f"sample vocab export: {_fname} {_r[0]} row valid",
+                      _r[0] and _occ >= 1 and 1 <= _texts <= len(files)
+                      and _occ >= _texts and _r[0] not in _words)
+                _words.add(_r[0])
+            check(f"sample vocab export: {_fname} disjoint from other bands",
+                  not (_all_words & _words))
+            _all_words |= _words
+        for _lvl in vp.CEFR_ORDER + ["Off List"]:
+            _fname = f"vocab-{_lvl.lower().replace(' ', '-')}.csv"
+            with open(os.path.join(_golden_vocab, _fname), encoding="utf-8") as f:
+                _n = len(list(_csv.reader(f))) - 1
+            check(f"sample vocab export: {_fname} matches the aggregate",
+                  _n == _agg["levels"][_lvl]["distinctWordCount"])
+    finally:
+        shutil.rmtree(_golden_vocab, ignore_errors=True)
+else:
+    skipped += 1
+
+# --- unit: the plugin skill stays flavour-consistent with the repo copy -----
+# Mirrors the CI "Skills stay flavour-consistent + plugin.json commands" step
+# for this plugin: the bundled SKILL.md is plugin-flavoured (the `class-profile`
+# command on PATH, ${CLAUDE_PLUGIN_ROOT} references), the repo-local copy is
+# repo-flavoured (../../../ checkout links), and plugin.json declares the
+# command the skill states.
+_skill_local = os.path.join(HERE, ".claude", "skills", "class-profile", "SKILL.md")
+_skill_plugin = os.path.join(HERE, "plugins", "class-profile", "skills",
+                             "class-profile", "SKILL.md")
+_plugin_json = os.path.join(HERE, "plugins", "class-profile", ".claude-plugin",
+                            "plugin.json")
+if all(os.path.isfile(p) for p in (_skill_local, _skill_plugin, _plugin_json)):
+    with open(_skill_local, encoding="utf-8") as f:
+        _sl = f.read()
+    with open(_skill_plugin, encoding="utf-8") as f:
+        _sp = f.read()
+    check("class-profile plugin copy is plugin-flavoured",
+          "`class-profile`" in _sp and "${CLAUDE_PLUGIN_ROOT}" in _sp
+          and "../../../" not in _sp)
+    check("class-profile repo-local copy is repo-flavoured",
+          "../../../" in _sl and "class_profile.py" in _sl)
+    check("class-profile copies are deliberately different flavours", _sl != _sp)
+    _manifest = json.load(open(_plugin_json, encoding="utf-8"))
+    check("class-profile plugin.json declares the command",
+          [c["name"] for c in _manifest.get("commands", [])] == ["class-profile"])
 else:
     skipped += 1
 
