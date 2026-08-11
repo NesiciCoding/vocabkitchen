@@ -24,10 +24,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # No pip cache: the project is dependency-free by design (no
+      # requirements.txt / pyproject.toml to hash), so setup-python has
+      # nothing to cache against.
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
-          cache: pip
 
       - name: Install spaCy + English model
         run: |
