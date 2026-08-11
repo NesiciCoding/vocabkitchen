@@ -1,17 +1,17 @@
 {
   "3.11": {
-    "test_grammar_profile.py": 2.42,
-    "test_text_report.py": 10.33,
-    "test_vocab_profile.py": 0.71
+    "test_grammar_profile.py": 1.76,
+    "test_text_report.py": 7.41,
+    "test_vocab_profile.py": 0.5
   },
   "3.12": {
-    "test_grammar_profile.py": 2.65,
-    "test_text_report.py": 11.48,
-    "test_vocab_profile.py": 0.74
+    "test_grammar_profile.py": 2.66,
+    "test_text_report.py": 11.39,
+    "test_vocab_profile.py": 0.75
   },
   "3.13": {
-    "test_grammar_profile.py": 2.52,
-    "test_text_report.py": 10.68,
-    "test_vocab_profile.py": 0.71
+    "test_grammar_profile.py": 2.58,
+    "test_text_report.py": 10.88,
+    "test_vocab_profile.py": 0.74
   }
 }
