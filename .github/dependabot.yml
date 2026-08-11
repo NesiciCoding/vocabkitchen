@@ -1,0 +1,10 @@
+# Keep GitHub Actions current. No pip ecosystem: the project is
+# dependency-free by design (no requirements.txt / pyproject.toml).
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: 'ci'

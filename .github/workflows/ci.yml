@@ -1,0 +1,303 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      update-perf-baseline:
+        description: 'Recompute and commit the perf baseline from this run (main only)'
+        required: false
+        default: 'false'
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: Lint + plugin integrity
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      # Pinned to SHA for supply-chain safety; Dependabot keeps them current.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.12'
+
+      - name: Install ruff
+        run: python -m pip install ruff==0.16.2
+
+      - name: ruff check
+        run: python -m ruff check .
+
+      - name: Plugin integrity check
+        # Guards the extension surface: every plugins/* dir must be registered
+        # in the marketplace, ship a plugin.json, and have resolvable symlinks.
+        run: |
+          python - <<'EOF'
+          import json, os, sys
+
+          mp = json.load(open(".claude-plugin/marketplace.json"))
+          registered = {p["name"] for p in mp["plugins"]}
+          ok = True
+
+          for name in sorted(os.listdir("plugins")):
+              d = os.path.join("plugins", name)
+              if not os.path.isdir(d):
+                  continue
+              if name not in registered:
+                  print(f"plugin {name}: missing from .claude-plugin/marketplace.json")
+                  ok = False
+              if not os.path.isfile(os.path.join(d, ".claude-plugin", "plugin.json")):
+                  print(f"plugin {name}: missing .claude-plugin/plugin.json")
+                  ok = False
+              for f in os.listdir(d):
+                  p = os.path.join(d, f)
+                  if os.path.islink(p) and not os.path.exists(p):
+                      print(f"plugin {name}: broken symlink {f} -> {os.readlink(p)}")
+                      ok = False
+
+          sys.exit(0 if ok else 1)
+          EOF
+
+  test:
+    name: Tests (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        # spaCy ships compiled wheels; the README recommends 3.11–3.13.
+        python-version: ['3.11', '3.12', '3.13']
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      # No pip cache in setup-python: the project is dependency-free by design
+      # (no requirements.txt / pyproject.toml to hash). Instead we cache the
+      # installed packages themselves (--target dir + PYTHONPATH) so repeat
+      # runs skip both the ~150MB download AND the wheel unpacking, and the
+      # pinned spacy/model versions keep runs deterministic.
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Cache installed spaCy + model
+        id: cache-deps
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: deps
+          key: deps-${{ runner.os }}-${{ matrix.python-version }}-v2
+
+      # Bump the cache key's suffix when changing the pins below.
+      - name: Install spaCy + English model (cache miss only)
+        if: steps.cache-deps.outputs.cache-hit != 'true'
+        run: |
+          python -m pip install --target="$PWD/deps" spacy==3.8.15 click==8.4.2
+          python -m pip install --target="$PWD/deps" https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl
+
+      - name: Point PYTHONPATH at cached deps
+        run: echo "PYTHONPATH=$PWD/deps" >> "$GITHUB_ENV"
+
+      - name: vocab profiler tests
+        run: python3 test_vocab_profile.py
+
+      - name: grammar profiler tests
+        run: python3 test_grammar_profile.py
+
+      - name: text report tests
+        run: python3 test_text_report.py
+
+      - name: wordlist build check
+        run: python3 build_wordlists.py --check
+
+      # One warm run of each suite, wall time to a per-version JSON. Runs
+      # after the real test steps so failures surface there first; this is
+      # purely for the perf-comparison job (regressions surface early).
+      - name: Benchmark suites
+        run: |
+          python - <<'EOF'
+          import json, subprocess, sys, time
+          suites = ["test_vocab_profile.py", "test_grammar_profile.py", "test_text_report.py"]
+          out = {}
+          for s in suites:
+              t0 = time.monotonic()
+              r = subprocess.run([sys.executable, s], capture_output=True, text=True)
+              out[s] = round(time.monotonic() - t0, 2)
+              if r.returncode != 0:
+                  print(r.stdout)
+                  print(r.stderr)
+                  sys.exit(r.returncode)
+          with open(f"perf-{sys.version_info.major}.{sys.version_info.minor}.json", "w") as f:
+              json.dump(out, f)
+          print(json.dumps(out))
+          EOF
+
+      - name: Upload perf results
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: perf-${{ matrix.python-version }}
+          path: perf-*.json
+          if-no-files-found: error
+
+  perf:
+    name: Perf comparison
+    # Baseline rewrites only from a manual dispatch on main; PRs always
+    # compare (never rewrite).
+    if: github.event_name == 'pull_request' || (github.event.inputs.update-perf-baseline == 'true' && github.ref == 'refs/heads/main')
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      pull-requests: write
+      contents: write
+      actions: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          path: perf-artifacts
+          pattern: perf-*
+          merge-multiple: true
+
+      # Compare this run's wall times against the committed baseline and
+      # upsert a PR comment (marker-anchored, so it updates in place). When
+      # run via workflow_dispatch with update-perf-baseline=true on main,
+      # instead recomputes and commits the baseline from the measured values.
+      - name: Compare / update baseline + comment
+        env:
+          GH_TOKEN: ${{ github.token }}
+          UPDATE_BASELINE: ${{ github.event.inputs.update-perf-baseline == 'true' }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          python - <<'EOF'
+          import json, os, subprocess, sys, urllib.request
+
+          repo = os.environ["GITHUB_REPOSITORY"]
+          baseline_path = ".github/perf-baseline.json"
+          baseline = {}
+          if os.path.exists(baseline_path):
+              baseline = json.load(open(baseline_path))
+
+          def _request(method, url, payload=None):
+              req = urllib.request.Request(
+                  f"https://api.github.com{url}", method=method,
+                  headers={"Authorization": f"Bearer {os.environ['GH_TOKEN']}",
+                           "Accept": "application/vnd.github+json",
+                           "X-GitHub-Api-Version": "2022-11-28"})
+              data = json.dumps(payload).encode() if payload is not None else None
+              with urllib.request.urlopen(req, data) as r:
+                  return json.loads(r.read().decode()) if r.status != 204 else None
+
+          def api(method, url, payload=None):
+              return _request(method, url, payload)
+
+          def api_paginated(url):
+              # Follow Link headers across pages (the issue-comments endpoint
+              # caps at 100 per page).
+              out = []
+              while url:
+                  req = urllib.request.Request(
+                      f"https://api.github.com{url}",
+                      headers={"Authorization": f"Bearer {os.environ['GH_TOKEN']}",
+                               "Accept": "application/vnd.github+json",
+                               "X-GitHub-Api-Version": "2022-11-28"})
+                  with urllib.request.urlopen(req) as r:
+                      out += json.loads(r.read().decode())
+                      link = r.headers.get("Link", "")
+                  url = None
+                  for part in link.split(","):
+                      if 'rel="next"' in part:
+                          url = part[part.index("<") + 1:part.index(">")]
+                          url = url.replace("https://api.github.com", "")
+                          break
+              return out
+
+          measured = {}
+          for f in os.listdir("perf-artifacts"):
+              if f.startswith("perf-") and f.endswith(".json"):
+                  ver = f[5:-5]
+                  measured[ver] = json.load(open(os.path.join("perf-artifacts", f)))
+
+          if os.environ["UPDATE_BASELINE"] == "true":
+              json.dump(measured, open(baseline_path, "w"), indent=2, sort_keys=True)
+              subprocess.run(["git", "config", "user.name", "github-actions[bot]"], check=True)
+              subprocess.run(["git", "config", "user.email", "github-actions[bot]@users.noreply.github.com"], check=True)
+              subprocess.run(["git", "add", baseline_path], check=True)
+              # git diff --cached --quiet exits 0 = no changes, 1 = changes
+              if subprocess.run(["git", "diff", "--cached", "--quiet"]).returncode == 0:
+                  print("baseline unchanged; nothing to commit")
+              else:
+                  subprocess.run(["git", "commit", "-m", "Update perf baseline"], check=True)
+                  # persist-credentials is off, so push with an explicit token URL.
+                  push_url = f"https://x-access-token:{os.environ['GH_TOKEN']}@github.com/{repo}.git"
+                  subprocess.run(["git", "push", push_url, "HEAD:" + os.environ["GITHUB_REF_NAME"]], check=True)
+                  print("baseline updated:", json.dumps(measured))
+              # Token-initiated pushes don't trigger workflows (recursion
+              # guard), so re-run CI via workflow_dispatch so the PR gets
+              # fresh checks on the new commit.
+              subprocess.run(["gh", "workflow", "run", "ci.yml", "--ref", os.environ["GITHUB_REF_NAME"]], check=True)
+              print("re-triggered CI on", os.environ["GITHUB_REF_NAME"])
+              sys.exit(0)
+
+          pr = os.environ["PR_NUMBER"]
+          if not pr:
+              print("no PR number; skipping comment")
+              sys.exit(0)
+
+          # regression: >20% slower, with 0.5s headroom for runner noise
+          rows = []
+          regressed = 0
+          for ver in sorted(measured):
+              base = baseline.get(ver, {})
+              for suite, t in sorted(measured[ver].items()):
+                  b = base.get(suite)
+                  if b is None:
+                      rows.append((ver, suite, "—", f"{t:.1f}s", "(new)"))
+                      continue
+                  dt = t - b
+                  if dt > 0.2 * b + 0.5:
+                      regressed += 1
+                      flag = "❗ slower"
+                  elif dt < -0.2 * b - 0.5:
+                      flag = "✅ faster"
+                  else:
+                      flag = "≈"
+                  rows.append((ver, suite, f"{b:.1f}s", f"{t:.1f}s", flag))
+
+          lines = ["<!-- vocabkitchen-perf -->",
+                   "## ⏱ Suite timings (wall time per Python)", "",
+                   "| Python | suite | baseline | this run | delta |",
+                   "|---|---|---|---|---|"]
+          lines += [f"| {v} | {s} | {b} | {t} | {f} |" for v, s, b, t, f in rows]
+          if regressed:
+              lines += ["", f"❗ **{regressed} suite(s) slower than baseline** — worth a look before merging."]
+          else:
+              lines += ["", "✅ All suites within baseline."]
+          body = "\n".join(lines)
+
+          comments = api_paginated(f"/repos/{repo}/issues/{pr}/comments?per_page=100")
+          found = next((c for c in comments
+                        if c.get("user", {}).get("login") == "github-actions[bot]"
+                        and "vocabkitchen-perf" in c.get("body", "")), None)
+          if found:
+              api("PATCH", f"/repos/{repo}/issues/comments/{found['id']}", {"body": body})
+              print("comment updated")
+          else:
+              api("POST", f"/repos/{repo}/issues/{pr}/comments", {"body": body})
+              print("comment created")
+          print(body)
+          EOF
