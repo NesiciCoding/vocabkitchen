@@ -1692,6 +1692,59 @@ if os.path.isdir(_sample):
                           and "## Vocabulary comments"
                           in open(h, encoding="utf-8").read()
                           for h in _handouts))
+            _summary_path = os.path.join(_comments_out,
+                                         "sample-readings-summary-B1.md")
+            check("sample comments: summary carries the demand scan",
+                  os.path.exists(_summary_path)
+                  and "## Demand scan — above B1"
+                  in open(_summary_path, encoding="utf-8").read()
+                  and "| **Total** |"
+                  in open(_summary_path, encoding="utf-8").read())
+            # --targets with --comments: one rubric-comment deck per level, so
+            # the same construction is a pre-teach card above its own level
+            # and a plain rubric card at it.
+            _ladder = tempfile.mkdtemp(prefix="classprof_ladder_")
+            _ladder_out = tempfile.mkdtemp(prefix="classprof_ladder_out_")
+            try:
+                _mod = ("If they had studied harder, they would have passed "
+                        "the exam. They must have left already.")
+                for _nm in ("a.txt", "b.txt"):
+                    with open(os.path.join(_ladder, _nm), "w",
+                              encoding="utf-8") as f:
+                        f.write(_mod)
+                rc, out, err = run(["--file", _ladder, "--targets", "A2,B2",
+                                    "--comments", "--export", "flashcards",
+                                    "--no-enrich", "--output", _ladder_out])
+                _lbase = os.path.basename(_ladder) + "-preteaching"
+                check("ladder: comments decks written per level",
+                      rc == 0
+                      and os.path.exists(os.path.join(
+                          _ladder_out, f"{_lbase}-A2-comments-deck.csv"))
+                      and os.path.exists(os.path.join(
+                          _ladder_out, f"{_lbase}-B2-comments-deck.csv")))
+                _a2 = list(_csv.reader(open(os.path.join(
+                    _ladder_out, f"{_lbase}-A2-comments-deck.csv"),
+                    encoding="utf-8")))
+                _b2 = list(_csv.reader(open(os.path.join(
+                    _ladder_out, f"{_lbase}-B2-comments-deck.csv"),
+                    encoding="utf-8")))
+                check("ladder: RubricMaker shape with the grammar tag",
+                      _a2[0] == ["word", "definition", "example",
+                                 "phonetic", "partOfSpeech"]
+                      and all(r[4] == "grammar" for r in _a2[1:] + _b2[1:]))
+                _mp_a2 = [r for r in _a2[1:] if "Modal + perfect" in r[0]]
+                _mp_b2 = [r for r in _b2[1:] if "Modal + perfect" in r[0]]
+                check("ladder: same construction pre-teach at A2, rubric at B2",
+                      len(_mp_a2) == 1 and len(_mp_b2) == 1
+                      and "pre-teach or rewrite" in _mp_a2[0][1]
+                      and "Rewrite:" in _mp_a2[0][1]
+                      and "pre-teach or rewrite" not in _mp_b2[0][1]
+                      and "Uses the" in _mp_b2[0][1])
+                check("ladder: one card per construction across the set",
+                      "2 of 2 texts" in _mp_a2[0][2])
+            finally:
+                shutil.rmtree(_ladder, ignore_errors=True)
+                shutil.rmtree(_ladder_out, ignore_errors=True)
         finally:
             shutil.rmtree(_comments_out, ignore_errors=True)
     else:

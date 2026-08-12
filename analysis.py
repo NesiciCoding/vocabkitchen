@@ -46,7 +46,8 @@ validated against :func:`payload_schema` (also checked in as
                    a ``targetLevel`` the list is filtered to it — at/below
                    entries keep their pass/fail comments (``kind``
                    ``"rubric"``), used above-target ones become
-                   ``"pre-teach"`` notes, unused above-target ones drop.
+                   ``"pre-teach"`` notes (carrying a curated ``rewrite``
+                   hint when one exists), unused above-target ones drop.
 ``vocabComments``   the vocabulary half of the apply-as-comment pass: one
                    comment per above-target word, or null unless ``comments``
                    is on with a ``targetLevel``.
@@ -70,6 +71,10 @@ validated against :func:`payload_schema` (also checked in as
 Version history
 ~~~~~~~~~~~~~~~
 
+``1.3`` — ``grammarComments`` entries gain ``rewrite``: pre-teach entries
+carry a curated target-level rewording hint (from
+``WordLists/structure-rewrites.csv``) so the "or rewrite" half of the
+note is concrete.
 ``1.2`` — ``grammarComments`` entries gain ``kind`` (``"rubric"`` /
 ``"pre-teach"``) and, under a ``targetLevel``, are filtered to the class
 level: at/below constructions keep their pass/fail comments, used
@@ -91,7 +96,7 @@ import grammar_profile as gp
 
 # The payload contract version. Bump when the payload shape changes
 # incompatibly; RubricMaker and any other consumer should key off this.
-SCHEMA_VERSION = "1.2"
+SCHEMA_VERSION = "1.3"
 
 _CEFR_ORDER = ["A1", "A2", "B1", "B2", "C1", "C2"]
 _LEVEL_INDEX = {lvl: i for i, lvl in enumerate(_CEFR_ORDER)}
@@ -171,6 +176,7 @@ def payload_schema():
                     "status": {"enum": ["used", "not used"]},
                     "pass": {"type": "boolean"},
                     "kind": {"enum": ["rubric", "pre-teach"]},
+                    "rewrite": {"type": ["string", "null"]},
                     "comment": {"type": "string"},
                 }}},
             "vocabComments": {"type": ["array", "null"], "items": {
@@ -413,7 +419,32 @@ def grammar_gap_report(gresults, cefrj_levels, target):
     }
 
 
-def grammar_comments(gc, target_level=None):
+def load_structure_rewrites(path=None):
+    """The curated rewrite guidance: construction id -> simpler phrasing.
+
+    Reads ``WordLists/structure-rewrites.csv`` (columns ``id,simpler``) — the
+    Phase 5 rewriting aid for above-target constructions: each hint is a
+    target-level rewording strategy a teacher can apply to the example
+    sentence. Returns an empty dict when the file is absent, so rewrites are
+    an opt-in enhancement, never a hard dependency. The list is validated by
+    ``build_wordlists.py --check`` against the grammar registry's ids.
+    """
+    if path is None:
+        path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                            "WordLists", "structure-rewrites.csv")
+    out = {}
+    if not os.path.exists(path):
+        return out
+    with open(path, encoding="utf-8") as f:
+        rows = list(csv.reader(f))
+    for row in rows[1:]:
+        if len(row) != 2 or not all(cell.strip() for cell in row):
+            continue
+        out[row[0].strip()] = row[1].strip()
+    return out
+
+
+def grammar_comments(gc, target_level=None, rewrites=None):
     """Turn ``grammarCriteria`` into per-construction rubric comments.
 
     The apply-as-comment reference implementation: one comment per
@@ -434,7 +465,15 @@ def grammar_comments(gc, target_level=None):
     expected to produce C2 structures, so flagging them as gaps would be
     noise. Without a target, every construction keeps its rubric comment
     (``kind`` ``"rubric"``), as before.
+
+    *rewrites* — the :func:`load_structure_rewrites` dict, loaded from
+    ``WordLists/structure-rewrites.csv`` when omitted — adds the rewrite aid:
+    a pre-teach entry whose construction has a curated hint carries it as
+    ``rewrite`` and appends ``Rewrite: …`` to the comment, so the "or
+    rewrite" half of the note is concrete rather than an instruction.
     """
+    if rewrites is None:
+        rewrites = load_structure_rewrites()
     out = []
     tgt = _LEVEL_INDEX.get(target_level) if target_level is not None else None
     for c in (gc or {}).get("criteria") or []:
@@ -447,10 +486,14 @@ def grammar_comments(gc, target_level=None):
             ex = (c.get("examples") or [{}])[0].get("span")
             if ex:
                 comment += f' E.g. "{ex.replace("|", "\\|")}"'
+            rw = rewrites.get(c["id"])
+            if rw:
+                comment += f" Rewrite: {rw}"
             out.append({"id": c["id"], "name": c["name"],
                         "category": c["category"], "level": c["level"],
                         "status": c["status"], "pass": c["pass"],
-                        "kind": "pre-teach", "comment": comment})
+                        "kind": "pre-teach", "rewrite": rw or None,
+                        "comment": comment})
             continue
         if c["pass"]:
             comment = f"Uses the {c['name']} ({c['level']})."
@@ -462,7 +505,8 @@ def grammar_comments(gc, target_level=None):
         out.append({"id": c["id"], "name": c["name"],
                     "category": c["category"], "level": c["level"],
                     "status": c["status"], "pass": c["pass"],
-                    "kind": "rubric", "comment": comment})
+                    "kind": "rubric", "rewrite": None,
+                    "comment": comment})
     return out
 
 

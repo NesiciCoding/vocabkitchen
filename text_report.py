@@ -1148,6 +1148,23 @@ def export_cando_deck(payload):
     return cando_deck_csv(_cando_cards(payload))
 
 
+def comments_deck_csv(cards):
+    """Render rubric-comment *cards* as a RubricMaker deck (same columns
+    as :func:`export_flashcards`: word, definition, example, phonetic,
+    partOfSpeech) so the apply-as-comment output doubles as reference
+    cards; None when there are no cards."""
+    if not cards:
+        return None
+    import csv
+    import io
+    buf = io.StringIO()
+    w = csv.writer(buf, lineterminator="\n")
+    w.writerow(["word", "definition", "example", "phonetic", "partOfSpeech"])
+    for c in cards:
+        w.writerow([c["word"], c["definition"], c["example"], "", "grammar"])
+    return buf.getvalue()
+
+
 def cando_deck_path(word_deck_path):
     """The companion Can-Do deck next to a word deck:
     ``essay-preteaching-B1-deck.csv`` → ``essay-preteaching-B1-cando-deck.csv``
@@ -1157,6 +1174,17 @@ def cando_deck_path(word_deck_path):
     if stem.endswith("-deck"):
         stem = stem[:-len("-deck")]
     return stem + "-cando-deck" + ext
+
+
+def comments_deck_path(word_deck_path):
+    """The companion rubric-comment deck next to a word deck:
+    ``essay-preteaching-B1-deck.csv`` → ``essay-preteaching-B1-comments-deck.csv``
+    (also handles an explicit ``--output`` path without the ``-deck``
+    suffix, e.g. ``out.csv`` → ``out-comments-deck.csv``)."""
+    stem, ext = os.path.splitext(word_deck_path)
+    if stem.endswith("-deck"):
+        stem = stem[:-len("-deck")]
+    return stem + "-comments-deck" + ext
 
 
 def export_path(source_file, output_path, target, fmt):

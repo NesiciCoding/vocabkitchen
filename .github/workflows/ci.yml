@@ -325,10 +325,14 @@ jobs:
           assert all(c["kind"] in ("rubric", "pre-teach")
                      and c["status"] in ("used", "not used")
                      and c["pass"] == (c["status"] == "used")
-                     and ((c["kind"] == "rubric" and idx[c["level"]] <= idx["B1"])
+                     and "rewrite" in c
+                     and ((c["kind"] == "rubric" and idx[c["level"]] <= idx["B1"]
+                           and c["rewrite"] is None)
                           or (c["kind"] == "pre-teach" and c["pass"]
                               and idx[c["level"]] > idx["B1"]
-                              and "pre-teach or rewrite" in c["comment"]))
+                              and c["rewrite"]
+                              and "pre-teach or rewrite" in c["comment"]
+                              and "Rewrite:" in c["comment"]))
                      for c in gcm), gcm
           vcm = cp_pl["vocabComments"]
           above_words = (cp_pl.get("aboveTarget") or {}).get("words") or []
@@ -434,6 +438,32 @@ jobs:
                              and r[0].endswith("demand") and r[4] == "cando"
                              and f"above the {level} target" in r[2]
                              for r in cdrows[1:]), cdrows
+              # --comments on the same run: each level also gets its own
+              # rubric-comment deck — the same construction is a pre-teach
+              # card above its own level and a plain rubric card at it.
+              rc, out, err = run_cli(["--file", "sample-readings/", "--targets", "A2,B1",
+                                      "--comments", "--export", "flashcards",
+                                      "--no-enrich", "--output", outdir])
+              assert rc == 0, err
+              assert {f"{base}-{lvl}-comments-deck.csv" for lvl in ("A2", "B1")} \
+                     <= set(os.listdir(outdir)), os.listdir(outdir)
+              for level in ("A2", "B1"):
+                  cdrows = list(csv.reader(open(
+                      os.path.join(outdir, f"{base}-{level}-comments-deck.csv"),
+                      encoding="utf-8")))
+                  assert cdrows[0] == ["word", "definition", "example", "phonetic",
+                                       "partOfSpeech"], cdrows[0]
+                  assert len(cdrows) > 1, cdrows
+                  assert all(r[4] == "grammar" for r in cdrows[1:]), cdrows
+                  for r in cdrows[1:]:
+                      lvl = r[0].rsplit(" (", 1)[-1].rstrip(")")
+                      assert lvl in analysis._LEVEL_INDEX, (r[0], lvl)
+                      if "pre-teach or rewrite" in r[1]:
+                          assert analysis._LEVEL_INDEX[lvl] \
+                                 > analysis._LEVEL_INDEX[level], r
+                      else:
+                          assert analysis._LEVEL_INDEX[lvl] \
+                                 <= analysis._LEVEL_INDEX[level], r
           finally:
               shutil.rmtree(outdir, ignore_errors=True)
 

@@ -68,7 +68,7 @@ check("engine payload matches text_report's shape",
           tr.analyze(_CAT, with_grammar=False)))
 
 # --- Phase 5: the payload contract (schema version + grammar criteria) --------
-check("SCHEMA_VERSION is 1.2", engine.SCHEMA_VERSION == "1.2")
+check("SCHEMA_VERSION is 1.3", engine.SCHEMA_VERSION == "1.3")
 _schema_doc = json.load(open(os.path.join(HERE, "analysis.schema.json"),
                              encoding="utf-8"))
 check("analysis.schema.json matches payload_schema()",
@@ -121,8 +121,10 @@ if HAVE_GRAMMAR:
     check("grammar_comments one comment per criterion, full shape",
           len(_gcm) == _gc["total"]
           and all(set(c) == {"id", "name", "category", "level", "status",
-                             "pass", "kind", "comment"} for c in _gcm)
-          and all(c["kind"] == "rubric" for c in _gcm))
+                             "pass", "kind", "rewrite", "comment"}
+                  for c in _gcm)
+          and all(c["kind"] == "rubric" and c["rewrite"] is None
+                  for c in _gcm))
     _gcm_used = [c for c in _gcm if c["pass"]]
     check("grammar_comments used comments carry evidence",
           bool(_gcm_used)
@@ -156,12 +158,23 @@ if HAVE_GRAMMAR:
                    and engine._LEVEL_INDEX[c["level"]]
                    > engine._LEVEL_INDEX["B1"])
               for c in _gcm_t))
+    check("pre-teach entries carry the curated rewrite hint",
+          all(c["kind"] == "pre-teach" and c["rewrite"]
+              and "Rewrite:" in c["comment"]
+              for c in _gcm_t if c["kind"] == "pre-teach"))
     _gcm_p = engine.analyze(_ACADEMIC, target_level="B1", comments=True)
     check("payload with comments+target filters grammarComments",
           _gcm_p["grammarComments"] is not None
           and len(_gcm_p["grammarComments"]) < _gc["total"]
           and any(c.get("kind") == "pre-teach"
                   for c in _gcm_p["grammarComments"]))
+    check("pre-teach note ends with the rewrite suggestion",
+          all(c["kind"] == "pre-teach" and c["rewrite"]
+              and c["comment"].startswith("Uses the ")
+              and "pre-teach or rewrite" in c["comment"]
+              and "Rewrite:" in c["comment"]
+              for c in _gcm_p["grammarComments"]
+              if c.get("kind") == "pre-teach"))
     check("payload without comments: grammarComments null",
           _gc_p["grammarComments"] is None)
     check("comments handout renders the Rubric comments section",
@@ -222,6 +235,10 @@ check("--comments CLI: payload renders both rubric halves",
       _rc == 0
       and "## Vocabulary comments" in tr.export_markdown(_pl)
       and "## Rubric comments" in tr.export_markdown(_pl))
+check("--comments CLI: pre-teach notes carry the rewrite suggestion",
+      _rc == 0 and any(c.get("kind") == "pre-teach" and c.get("rewrite")
+                       and "Rewrite:" in c["comment"]
+                       for c in (_pl.get("grammarComments") or [])))
 
 
 # --- unit: the venv re-exec is skipped in vocabulary-only modes -------------

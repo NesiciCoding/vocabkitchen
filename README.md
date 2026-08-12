@@ -417,7 +417,7 @@ Flags:
 | `--curriculum`      | check the text against a curriculum checklist file (`[vocabulary]` + `[grammar]` sections) and report pass/fail coverage; validated before profiling — header typos like `[grammer]` fail fast with a hint, empty sections and unrecognised grammar items (typos like `second conditinal`) warn with a suggestion |
 | `--cambridge`       | map the report's own CEFR bands to the matching Cambridge English Qualification (A2 Key, B1 Preliminary, B2 First, C1 Advanced, C2 Proficiency) |
 | `--cando`           | express the text's demands as CEFR global-scale Can-Do descriptors; with `--target-level`, also list the ones above the target's expectations |
-| `--comments`        | add the full apply-as-comment rubric: one comment per construction (used / not used yet, from `grammarCriteria`; filtered to the class level under `--target-level` — used above-target constructions become "pre-teach or rewrite" notes, unused ones drop) plus one comment per above-target vocabulary word |
+| `--comments`        | add the full apply-as-comment rubric: one comment per construction (used / not used yet, from `grammarCriteria`; filtered to the class level under `--target-level` — used above-target constructions become "pre-teach or rewrite" notes carrying a curated rewrite suggestion, unused ones drop) plus one comment per above-target vocabulary word |
 | `--schema`          | print the versioned analysis payload schema (`analysis.schema.json` — the RubricMaker report contract) as JSON and exit |
 | (stdin)             | if neither `--text` nor `--file` is given, text is read from stdin      |
 
@@ -434,7 +434,7 @@ carries an example sentence from the text (`context` on words, `examples` on
 structures), which the exports use to show every item in context.
 
 **The payload is a versioned contract.** Every payload carries `schemaVersion`
-(currently `1.2`), and the full JSON Schema is checked in at
+(currently `1.3`), and the full JSON Schema is checked in at
 `analysis.schema.json` (kept byte-equal to `analysis.payload_schema()` by the
 tests and CI, and printable with `--schema`). With the grammar side enabled,
 the payload also carries `grammarCriteria`: one entry per registered
@@ -457,6 +457,11 @@ above the target becomes a `"pre-teach"` note instead (`Uses the … — above
 the B1 target: pre-teach or rewrite.`, mirroring the above-target words),
 and unused above-target constructions are dropped — a B1 class isn't
 expected to produce C2 structures, so flagging them as gaps would be noise.
+Every pre-teach note carries a **rewrite suggestion** from the curated
+`WordLists/structure-rewrites.csv` (validated by `build_wordlists.py --check`
+against the construction registry): `Uses the Modal + perfect (B2) — above
+the B1 target: pre-teach or rewrite. E.g. "would have passed" Rewrite: swap
+for a past simple or a present modal ("would have passed" → "passed").`
 Both halves are rendered in `--export md` handouts (as **Rubric comments**
 and **Vocabulary comments** sections) and available per text in folder runs
 via `class_profile.py --comments`.
@@ -617,7 +622,7 @@ Flags:
 | `--cando`           | add each text's CEFR Can-Do descriptors + the ones above the target's expectations to the handouts (md\|csv), or write a combined Can-Do reference deck (flashcards) |
 | `--cando-diff`      | `--export md\|csv` only: add the set-level Can-Do demands section to the summary handout — which above-target descriptors the texts share (implies `--cando`) |
 | `--cando-diff-sort` | `--cando-diff` only: order the demands by text count (`texts`, default) or by the CEFR band ladder ascending (`band`) |
-| `--comments`        | add the full apply-as-comment rubric to each per-text handout: one comment per construction (used / not used yet, filtered to the class level — used above-target constructions become "pre-teach or rewrite" notes) plus one comment per above-target vocabulary word |
+| `--comments`        | add the full apply-as-comment rubric to each per-text handout: one comment per construction (used / not used yet, filtered to the class level — used above-target constructions become "pre-teach or rewrite" notes with a curated rewrite suggestion) plus one comment per above-target vocabulary word; `--export md` also adds a **Demand scan** table to the set summary (per-text above-target word + pre-teach structure counts); `--export flashcards` writes a combined **rubric-comment deck** (one per `--targets` level) |
 | `--schema`          | print the versioned analysis payload schema (`analysis.schema.json` — the RubricMaker report contract) as JSON and exit |
 | `--watch`           | re-profile the `--file` input whenever any text in it changes on disk (edit → re-check loop; optional interval in seconds, default 1) |
 | `--no-enrich`       | `--export flashcards` only: skip the Free Dictionary API               |

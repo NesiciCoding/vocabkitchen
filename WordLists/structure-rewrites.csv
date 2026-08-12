@@ -1,0 +1,19 @@
+id,simpler
+pres_perf_prog,swap for the present perfect simple or the present simple ("has been working" -> "has worked" / "works")
+past_perf_prog,swap for the past perfect or the past simple ("had been working" -> "had worked" / "worked")
+modal_perfect,swap for a past simple or a present modal ("would have passed" -> "passed" / "did not pass" for negatives)
+modal_progressive,swap for a plain modal or a progressive tense ("must be doing" -> "must do" / "is doing")
+had_better,use "should" instead ("had better leave" -> "should leave")
+passive_perfect,swap for the active past simple ("has been written" -> "they wrote")
+passive_progressive,swap for the active past simple or progressive ("was being checked" -> "they checked" / "was checking")
+to_be_done,use a finite active form ("to be checked" -> "to check" or "that we check")
+to_have_done,use a past simple or a finite clause ("to have finished" -> "finished" / "that we finished")
+having_pp,split into a main clause with a conjunction ("having left" -> "after they left")
+being_pp,swap for the active form ("being checked" -> "that is checked" / "they check")
+as_as,use a comparative or a plain adjective ("as tall as" -> "taller than" / "equally tall")
+rel_which,"split the relative clause into its own sentence (""the book, which I read,"" -> ""I read the book."")"
+rel_whom,replace "whom" with "who" or restructure without the relative clause
+wish_clause,use "wish + would" or restructure with "I hope" ("I wish I knew" -> "I hope to know")
+caus_have_pp,use the active form ("had it fixed" -> "fixed it" / "got someone to fix it")
+inversion_neg,drop the inversion ("Never had I seen" -> "I had never seen")
+subjunctive_mandative,use "should" or a to-infinitive ("suggest that he go" -> "suggest he should go" / "suggest him to go")
