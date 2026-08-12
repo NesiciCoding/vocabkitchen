@@ -40,7 +40,15 @@ The vocabulary profiler scores against three word lists:
   plus the grammar engine loaded once, and the one payload builder both CLIs
   call — `text_report.py` and `class_profile.py` import it, so a CEFR level
   means the same thing whether one text or a whole folder is profiled, and
-  RubricMaker gets a single importable entry point.
+  RubricMaker gets a single importable entry point. It is fully
+  self-contained (readability, target flagging, Cambridge/Can-Do mapping and
+  the curriculum checklist all live here; `text_report.py` re-exports them
+  for compatibility) and owns the **versioned report contract**: every
+  payload carries `schemaVersion`, the schema lives at
+  `analysis.schema.json` (also printable via `--schema` on either CLI), and
+  each grammar-enabled payload carries `grammarCriteria` — a per-construction
+  pass/fail over every registered construction, the shape RubricMaker's
+  grammar linker consumes for its apply-as-comment breakdown.
 - **`grammar_profile.py`** — a companion **grammar** profiler. Where the
   vocabulary tool scores *which words* a text uses, this reports *which
   grammatical constructions* it uses — present perfect, the passive, relative
@@ -409,6 +417,7 @@ Flags:
 | `--curriculum`      | check the text against a curriculum checklist file (`[vocabulary]` + `[grammar]` sections) and report pass/fail coverage; validated before profiling — header typos like `[grammer]` fail fast with a hint, empty sections and unrecognised grammar items (typos like `second conditinal`) warn with a suggestion |
 | `--cambridge`       | map the report's own CEFR bands to the matching Cambridge English Qualification (A2 Key, B1 Preliminary, B2 First, C1 Advanced, C2 Proficiency) |
 | `--cando`           | express the text's demands as CEFR global-scale Can-Do descriptors; with `--target-level`, also list the ones above the target's expectations |
+| `--schema`          | print the versioned analysis payload schema (`analysis.schema.json` — the RubricMaker report contract) as JSON and exit |
 | (stdin)             | if neither `--text` nor `--file` is given, text is read from stdin      |
 
 The vocabulary half is dependency-free Python 3. The grammar half needs spaCy
@@ -421,7 +430,20 @@ matches the vocab profiler's `results.cefr` shape and `grammar` is the grammar
 profiler's full payload, plus the unified fields (`estimatedLevel`, `targetLevel`,
 `aboveTarget`, `coverage`, `verdict`, `readability`). Each `aboveTarget` entry
 carries an example sentence from the text (`context` on words, `examples` on
-structures), which the exports use to show every item in context.Run the regression tests with:
+structures), which the exports use to show every item in context.
+
+**The payload is a versioned contract.** Every payload carries `schemaVersion`
+(currently `1.0`), and the full JSON Schema is checked in at
+`analysis.schema.json` (kept byte-equal to `analysis.payload_schema()` by the
+tests and CI, and printable with `--schema`). With the grammar side enabled,
+the payload also carries `grammarCriteria`: one entry per registered
+construction with `id`/`name`/`category`/`level`, a `used`/`not used` status
+and pass/fail, and `count` + up to two `examples` when used — the
+per-criterion shape RubricMaker's grammar linker consumes for its
+apply-as-comment breakdown, so a comment can be attached per criterion
+without re-deriving anything.
+
+Run the regression tests with:
 
 ```bash
 python3 test_text_report.py
@@ -577,6 +599,7 @@ Flags:
 | `--cando`           | add each text's CEFR Can-Do descriptors + the ones above the target's expectations to the handouts (md\|csv), or write a combined Can-Do reference deck (flashcards) |
 | `--cando-diff`      | `--export md\|csv` only: add the set-level Can-Do demands section to the summary handout — which above-target descriptors the texts share (implies `--cando`) |
 | `--cando-diff-sort` | `--cando-diff` only: order the demands by text count (`texts`, default) or by the CEFR band ladder ascending (`band`) |
+| `--schema`          | print the versioned analysis payload schema (`analysis.schema.json` — the RubricMaker report contract) as JSON and exit |
 | `--watch`           | re-profile the `--file` input whenever any text in it changes on disk (edit → re-check loop; optional interval in seconds, default 1) |
 | `--no-enrich`       | `--export flashcards` only: skip the Free Dictionary API               |
 | `--output`          | `--export` only: write all lists into this directory (default: next to each source) |

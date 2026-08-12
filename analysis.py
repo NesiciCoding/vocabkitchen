@@ -1,10 +1,13 @@
-"""VocabKitchen analysis engine — the shared profiling core.
+"""VocabKitchen analysis engine — the shared profiling core and the report contract.
 
 The Phase 5 milestone "one leveling engine, two front ends": both CLIs
 (``text_report.py`` and ``class_profile.py``) import this engine, so a CEFR
 level means exactly the same thing whether one text or a whole folder is
 profiled — and RubricMaker gets a single importable entry point to build on
-instead of a parallel implementation.
+instead of a parallel implementation. This module is fully self-contained:
+every report helper (readability, target flagging, Cambridge / Can-Do
+mapping, the curriculum checklist) lives here, and ``text_report.py``
+re-exports them for backwards compatibility.
 
 * :class:`Engine` — the word lists plus (optionally) the grammar engine,
   loaded **once** (spaCy reloads per call, so a folder or watch run reuses
@@ -17,17 +20,749 @@ instead of a parallel implementation.
   single-text report.
 * :func:`analyze` — the full single-text pipeline (``text_report``'s CLI).
 
-The report helpers (``words_above_target``, ``coverage_figure``, ...) live in
-``text_report.py``; this module imports them lazily inside the functions that
-need them, which keeps the module graph acyclic (``text_report`` imports this
-module at the top).
+.. _payload-schema:
+
+The report payload contract
+---------------------------
+
+Every payload carries ``schemaVersion`` (see :data:`SCHEMA_VERSION`) and is
+validated against :func:`payload_schema` (also checked in as
+``analysis.schema.json``). The top-level keys:
+
+``schemaVersion``  the contract version, e.g. ``"1.0"``.
+``totalWordCount`` the text's running word count (vocab profiler tokens).
+``vocabulary``     ``{"typical", "coverage", "offListPercent", "results"}``
+                   — typical/reached CEFR bands, % of recognised running
+                   words off-list, and the per-band word counts.
+``grammar``        the grammar profile (``sentenceCount``, ``tokenCount``,
+                   ``constructionCount``, ``estimatedLevel``, per-band
+                   ``results``) or null when the grammar side didn't run.
+``grammarCriteria`` per-construction pass/fail over every registered
+                   construction (the shape RubricMaker's grammar linker
+                   consumes for its apply-as-comment breakdown) or null.
+``grammarError``   the reason grammar is missing (install note, "not
+                   analysed", or null).
+``targetLevel``    the class level the report was measured against.
+``aboveTarget``    words/structures above *targetLevel* + ``maxLevel``.
+``coverage``       the teacher number: % of recognised running words the
+                   target learner already knows.
+``estimatedLevel`` the blended estimate (higher of vocab coverage / grammar
+                   typical).
+``verdict``        the one-line "on level" / "reaches X — pre-teach …".
+``grammarGap``     the Phase 3 gap report (target constructions the text
+                   does not use yet).
+``curriculum``     the Phase 4 checklist pass/fail coverage.
+``cambridge``      each shown band mapped to its Cambridge qualification.
+``cando``          each shown band framed as a CEFR Can-Do descriptor.
+``readability``    Flesch Reading Ease + Flesch–Kincaid grade.
+``file``           (class_profile per-text payloads only) the source file.
+
+Version history
+~~~~~~~~~~~~~~~
+
+``1.0`` — initial documented contract: the payload keys above, including the
+``grammarCriteria`` per-construction pass/fail shape and ``schemaVersion``.
 """
 
+import csv
+import difflib
 import os
+import re
 
 import vocab_profile as vp
 import grammar_profile as gp
 
+# The payload contract version. Bump when the payload shape changes
+# incompatibly; RubricMaker and any other consumer should key off this.
+SCHEMA_VERSION = "1.0"
+
+_CEFR_ORDER = ["A1", "A2", "B1", "B2", "C1", "C2"]
+_LEVEL_INDEX = {lvl: i for i, lvl in enumerate(_CEFR_ORDER)}
+
+
+def payload_schema():
+    """The JSON Schema for the report payload — the RubricMaker contract.
+
+    A single source of truth for the shape :func:`payload` produces; kept
+    byte-identical with the checked-in ``analysis.schema.json`` (the test
+    suites assert that, mirroring the skill-copy sync guard). Depth is
+    pragmatic: the top level and each named object are fully specified,
+    deep leaves (word/construction entries) stay open so the schema doesn't
+    need a bump for cosmetic additions.
+    """
+    band = {"type": ["string", "null"],
+            "enum": [None] + _CEFR_ORDER}
+    return {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "https://vocabkitchen.dev/schemas/analysis.schema.json",
+        "title": "VocabKitchen analysis report payload",
+        "description": "The CEFR profile of one text, as produced by "
+                       "text_report.py and class_profile.py per-text exports.",
+        "version": SCHEMA_VERSION,
+        "type": "object",
+        "required": ["schemaVersion", "totalWordCount", "vocabulary",
+                     "grammar", "grammarError", "grammarCriteria",
+                     "targetLevel", "aboveTarget", "coverage",
+                     "estimatedLevel", "verdict", "grammarGap",
+                     "grammarGapError", "curriculum", "curriculumError",
+                     "cambridge", "cando", "readability"],
+        "properties": {
+            "schemaVersion": {"type": "string", "enum": [SCHEMA_VERSION]},
+            "totalWordCount": {"type": "integer", "minimum": 0},
+            "file": {"type": ["string", "null"]},
+            "vocabulary": {"type": ["object", "null"], "required": True,
+                           "properties": {
+                               "typical": band,
+                               "coverage": band,
+                               "offListPercent": {"type": "integer",
+                                                  "minimum": 0,
+                                                  "maximum": 100},
+                               "results": {"type": "object"},
+                           }},
+            "grammar": {"type": ["object", "null"], "properties": {
+                "sentenceCount": {"type": "integer"},
+                "tokenCount": {"type": "integer"},
+                "constructionCount": {"type": "integer"},
+                "estimatedLevel": {"type": "object"},
+                "results": {"type": "object"},
+            }},
+            "grammarError": {"type": ["string", "null"]},
+            "grammarCriteria": {"type": ["object", "null"], "properties": {
+                "targetLevel": band,
+                "criteria": {"type": "array", "items": {"type": "object",
+                                                       "properties": {
+                                                           "id": {"type": "string"},
+                                                           "name": {"type": "string"},
+                                                           "category": {"type": "string"},
+                                                           "level": {"type": "string"},
+                                                           "status": {"enum": ["used", "not used"]},
+                                                           "pass": {"type": "boolean"},
+                                                           "count": {"type": "integer"},
+                                                           "examples": {"type": "array"},
+                                                       }}},
+                "passedCount": {"type": "integer"},
+                "failedCount": {"type": "integer"},
+                "total": {"type": "integer"},
+            }},
+            "targetLevel": band,
+            "aboveTarget": {"type": ["object", "null"], "properties": {
+                "maxLevel": band,
+                "words": {"type": "array"},
+                "wordCount": {"type": "integer"},
+                "structures": {"type": "array"},
+                "structureCount": {"type": "integer"},
+            }},
+            "coverage": {"type": ["object", "null"], "properties": {
+                "targetLevel": band,
+                "knownPercent": {"type": "integer"},
+                "knownWords": {"type": "integer"},
+                "recognisedWords": {"type": "integer"},
+                "sentence": {"type": "string"},
+            }},
+            "estimatedLevel": band,
+            "verdict": {"type": ["string", "null"]},
+            "grammarGap": {"type": ["object", "null"], "properties": {
+                "targetLevel": band,
+                "total": {"type": "integer"},
+                "missingCount": {"type": "integer"},
+                "missing": {"type": "array"},
+            }},
+            "grammarGapError": {"type": ["string", "null"]},
+            "curriculum": {"type": ["object", "null"], "properties": {
+                "vocabulary": {"type": "array"},
+                "grammar": {"type": "array"},
+                "vocabularyCovered": {"type": "string"},
+                "grammarCovered": {"type": "string"},
+                "pass": {"type": "boolean"},
+                "missing": {"type": "array"},
+            }},
+            "curriculumError": {"type": ["string", "null"]},
+            "cambridge": {"type": ["object", "null"]},
+            "cando": {"type": ["object", "null"]},
+            "readability": {"type": ["object", "null"], "properties": {
+                "fleschReadingEase": {"type": "number"},
+                "fleschKincaidGrade": {"type": "number"},
+                "description": {"type": "string"},
+            }},
+        },
+    }
+
+
+# ---------------------------------------------------------------------------
+# Readability — classic indices computed with the stdlib alone (approximate,
+# reported alongside — never instead of — the CEFR bands).
+# ---------------------------------------------------------------------------
+
+_SENT_SPLIT_RE = re.compile(r"[.!?]+(?:\s+|$)")
+
+
+def count_sentences(text):
+    """Approximate sentence count for readability indices (no spaCy needed)."""
+    parts = [p for p in _SENT_SPLIT_RE.split(text) if p.strip()]
+    return max(len(parts), 1)
+
+
+def count_syllables(word):
+    """Approximate syllable count: vowel-group heuristic with silent -e / -ed / -le.
+
+    A standard written-method approximation, not a dictionary: strips a
+    trailing silent -e ("make"), drops the -ed of past tenses unless it follows
+    t/d ("walked" vs "wanted"), and keeps the -e of consonant+le ("table").
+    """
+    w = word.lower()
+    if len(w) <= 3:
+        return 1
+    extra = 0
+    if w.endswith("ed") and len(w) > 3:
+        w = w[:-2]  # walk(ed), want(ed) — drop the -ed ending
+        if w[-1] in "td":  # -ted/-ded keep their own syllable: wanted, needed
+            extra = 1
+    if w.endswith("e") and not (w.endswith("le") and len(w) > 2
+                                 and w[-3] not in "aeiou"):
+        w = w[:-1]  # make -> mak; keep the e in table
+    if not w:
+        return 1
+    count = 0
+    in_vowel = False
+    for ch in w:
+        if ch in "aeiouy":
+            if not in_vowel:
+                count += 1
+            in_vowel = True
+        else:
+            in_vowel = False
+    return max(count + extra, 1)
+
+
+def _flesch_description(fre):
+    if fre >= 90:
+        return "very easy"
+    if fre >= 80:
+        return "easy"
+    if fre >= 70:
+        return "fairly easy"
+    if fre >= 60:
+        return "plain English"
+    if fre >= 50:
+        return "fairly difficult"
+    if fre >= 30:
+        return "difficult"
+    return "very difficult"
+
+
+def compute_readability(text, word_count):
+    """Flesch Reading Ease + Flesch–Kincaid grade, or None when wordless.
+
+    Words are counted with the vocab profiler's tokenizer so the readability
+    figures line up with ``totalWordCount``.
+    """
+    if not word_count:
+        return None
+    sentences = count_sentences(text)
+    syllables = sum(count_syllables(t) for t in vp.tokenize(text)
+                    if t not in vp.PLACEHOLDERS)
+    words_per_sentence = word_count / sentences
+    syllables_per_word = syllables / word_count
+    fre = 206.835 - 1.015 * words_per_sentence - 84.6 * syllables_per_word
+    fk = 0.39 * words_per_sentence + 11.8 * syllables_per_word - 15.59
+    return {
+        "fleschReadingEase": round(fre, 1),
+        "fleschKincaidGrade": round(fk, 1),
+        "description": _flesch_description(fre),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Target-level flagging: coverage figure, words/structures above the level,
+# the grammar gap report, the per-construction pass/fail criteria, and the
+# one-line verdict.
+# ---------------------------------------------------------------------------
+
+def coverage_figure(ordered, target):
+    """Share of recognised running words at/below *target* — the teacher number.
+
+    Off-List tokens (names, typos, jargon) are excluded from both sides: they
+    aren't teachable vocabulary, so they shouldn't drag the figure down.
+    """
+    counts = {name: sum(occ for _w, occ in rows) for name, _pct, rows in ordered}
+    recognised = sum(counts.get(lvl, 0) for lvl in _CEFR_ORDER)
+    known = sum(counts.get(lvl, 0) for lvl in _CEFR_ORDER[:_LEVEL_INDEX[target] + 1])
+    if recognised == 0:
+        return None
+    pct = round(known / recognised * 100)
+    return {
+        "targetLevel": target,
+        "knownPercent": pct,
+        "knownWords": known,
+        "recognisedWords": recognised,
+        "sentence": (f"A {target} learner will already know ~{pct}% of the "
+                     "recognised running words."),
+    }
+
+
+def load_synonyms(path=None):
+    """The curated simpler-synonym list: word -> ``{"word", "level"}``.
+
+    Reads ``WordLists/synonyms.csv`` (columns ``word,simpler,level``) — the
+    Phase 3 rewriting aid. Returns an empty dict when the file is absent, so
+    suggestions are an opt-in enhancement, never a hard dependency. The list
+    is validated by ``build_wordlists.py --check`` against ``levels.json``.
+    """
+    if path is None:
+        path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                            "WordLists", "synonyms.csv")
+    out = {}
+    if not os.path.exists(path):
+        return out
+    with open(path, encoding="utf-8") as f:
+        rows = list(csv.reader(f))
+    for row in rows[1:]:
+        if len(row) != 3 or not all(cell.strip() for cell in row):
+            continue
+        word = row[0].strip().lower()
+        lvl = row[2].strip().upper()
+        if lvl in _LEVEL_INDEX:
+            out[word] = {"word": row[1].strip().lower(), "level": lvl}
+    return out
+
+
+def words_above_target(ordered, target):
+    """Distinct recognised words at a CEFR level above *target*, ranked by use."""
+    out = []
+    for name, _pct, rows in ordered:
+        if name not in _LEVEL_INDEX or _LEVEL_INDEX[name] <= _LEVEL_INDEX[target]:
+            continue
+        for word, occ in rows:
+            out.append({"word": word, "level": name, "occurrences": occ})
+    out.sort(key=lambda d: (-d["occurrences"], d["word"]))
+    return out
+
+
+def structures_above_target(results, target):
+    """Distinct constructions at a CEFR level above *target*, ranked by use.
+
+    Each entry carries up to two ``examples`` (``{"span", "sentence"}`` pairs)
+    from the grammar profiler, so exports can show the construction in context.
+    """
+    out = []
+    for lvl in _CEFR_ORDER:
+        if _LEVEL_INDEX[lvl] <= _LEVEL_INDEX[target]:
+            continue
+        for entry in results.get(lvl, {}).values():
+            out.append({"name": entry["name"], "level": lvl,
+                        "count": entry["count"], "category": entry["category"],
+                        "examples": entry["examples"][:2]})
+    out.sort(key=lambda d: (-d["count"], d["name"]))
+    return out
+
+
+def grammar_gap_report(gresults, cefrj_levels, target):
+    """The Phase 3 grammar gap report: target-level constructions the text
+    does **not** use yet.
+
+    The full set of constructions at *target* (from the grammar profile's
+    registry, resolved exactly like the profiler) minus the ones detected in
+    the text — the "introduce these structures" list for graded-reader
+    authors, the mirror of the above-target "remove these" list.
+    """
+    all_at = gp.constructions_at_level(cefrj_levels, target)
+    used = {e["name"] for e in (gresults or {}).get(target, {}).values()}
+    missing = [c for c in all_at if c["name"] not in used]
+    return {
+        "targetLevel": target,
+        "total": len(all_at),
+        "missingCount": len(missing),
+        "missing": missing,
+    }
+
+
+def grammar_criteria(gresults, cefrj_levels, target_level=None):
+    """Per-construction pass/fail over **every** registered construction.
+
+    The shape RubricMaker's grammar linker consumes for its apply-as-comment
+    breakdown: one entry per construction in the grammar profiler's registry,
+    judged ``used`` (pass, with count + up to two examples) or ``not used``
+    (fail) — so a comment can be attached per criterion without re-deriving
+    anything. Levels resolve exactly like the profiler's
+    (``cefrj_levels.get(code, fallback)``); the list is sorted by band ladder
+    then name.
+    """
+    used = {}
+    for _lvl, entries in (gresults or {}).items():
+        for cid, entry in entries.items():
+            used[cid] = entry
+    criteria = []
+    for cid, (name, category, code, fallback) in gp._CONSTRUCTIONS.items():
+        entry = used.get(cid)
+        level = (entry or {}).get("level") or cefrj_levels.get(code, fallback)
+        criteria.append({
+            "id": cid,
+            "name": name,
+            "category": category,
+            "level": level,
+            "status": "used" if entry else "not used",
+            "pass": entry is not None,
+            "count": entry["count"] if entry else 0,
+            "examples": (entry["examples"][:2] if entry else []),
+        })
+    criteria.sort(key=lambda d: (_LEVEL_INDEX.get(d["level"], 99), d["name"].lower()))
+    passed = sum(1 for c in criteria if c["pass"])
+    return {
+        "targetLevel": target_level,
+        "criteria": criteria,
+        "passedCount": passed,
+        "failedCount": len(criteria) - passed,
+        "total": len(criteria),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Cambridge English Qualifications (Phase 4 exam mapping)
+# ---------------------------------------------------------------------------
+
+_CAMBRIDGE = {
+    "A1": None,                     # below the exam ladder
+    "A2": "A2 Key (KET)",
+    "B1": "B1 Preliminary (PET)",
+    "B2": "B2 First (FCE)",
+    "C1": "C1 Advanced (CAE)",
+    "C2": "C2 Proficiency (CPE)",
+}
+
+
+def cambridge_for(band):
+    """The Cambridge English Qualification matching a CEFR band
+    (None for A1 — below the exam ladder, and for unknown bands)."""
+    return _CAMBRIDGE.get(band)
+
+
+def cambridge_mapping(payload):
+    """The report's own bands, each mapped to its Cambridge qualification.
+
+    Built from the payload so it always matches what the report actually
+    shows: vocabulary typical/reaches, grammar typical/reaches (when
+    analysed), and the blended estimated level. Grammar stays null when the
+    grammar side didn't run.
+    """
+    v = payload.get("vocabulary") or {}
+    g = payload.get("grammar") or {}
+    gl = g.get("estimatedLevel") or {}
+    est = payload.get("estimatedLevel")
+    return {
+        "vocabulary": {"typical": cambridge_for(v.get("typical")),
+                        "reaches": cambridge_for(v.get("coverage"))},
+        "grammar": {"typical": cambridge_for(gl.get("typical")),
+                     "reaches": cambridge_for(gl.get("reaches"))},
+        "estimated": cambridge_for(est),
+    }
+
+
+# CEFR global-scale Can-Do descriptors (condensed from the common reference
+# levels) — what a learner at each band can do, the language rubrics and
+# self-assessment forms already use.
+_CANDO = {
+    "A1": "understand and use familiar everyday expressions and very basic phrases",
+    "A2": "understand sentences and frequently used expressions about areas of "
+          "immediate relevance",
+    "B1": "deal with most situations while travelling; describe experiences, "
+          "events, and opinions",
+    "B2": "understand the main ideas of complex text on both concrete and "
+          "abstract topics",
+    "C1": "understand a wide range of demanding, longer texts and recognise "
+          "implicit meaning",
+    "C2": "understand with ease virtually everything heard or read",
+}
+
+
+def cando_for(band):
+    """The CEFR Can-Do descriptor for a band (None for unknown bands)."""
+    return _CANDO.get(band)
+
+
+def _cando_above(band, target_level):
+    """The Can-Do descriptors a text at *band* demands above *target_level*.
+
+    One entry per level strictly above the target, up to and including the
+    text's own band — everything the class is not expected to do yet but the
+    text asks for. Empty when the text demands nothing beyond the target
+    (or either band is unknown).
+    """
+    if band is None or target_level is None:
+        return []
+    ti = _LEVEL_INDEX.get(target_level)
+    bi = _LEVEL_INDEX.get(band)
+    if ti is None or bi is None or bi <= ti:
+        return []
+    return [{"band": lvl, "descriptor": _CANDO[lvl]}
+            for lvl in _CEFR_ORDER[ti + 1:bi + 1]]
+
+
+def cando_mapping(payload, target_level=None):
+    """The report's own bands, each with its Can-Do descriptor — what a
+    learner at that band can do with the text's demands.
+
+    With *target_level*, each dimension also carries ``aboveTarget``: the
+    Can-Do descriptors the text demands **beyond** what the class is
+    expected to do yet (every level strictly above the target, up to the
+    text's own demand band), and the mapping carries ``targetLevel``.
+    """
+    v = payload.get("vocabulary") or {}
+    g = payload.get("grammar") or {}
+    gl = g.get("estimatedLevel") or {}
+    est = payload.get("estimatedLevel")
+    result = {
+        "vocabulary": {"typical": cando_for(v.get("typical")),
+                        "reaches": cando_for(v.get("coverage"))},
+        "grammar": {"typical": cando_for(gl.get("typical")),
+                     "reaches": cando_for(gl.get("reaches"))},
+        "estimated": cando_for(est),
+    }
+    if target_level is not None:
+        result["targetLevel"] = target_level
+        result["aboveTarget"] = {
+            "vocabulary": _cando_above(v.get("coverage"), target_level),
+            "grammar": _cando_above(gl.get("reaches"), target_level),
+            "estimated": _cando_above(est, target_level),
+        }
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Curriculum checklist (Phase 4) — parse + validate up front, report pass/fail
+# ---------------------------------------------------------------------------
+
+class CurriculumError(Exception):
+    """A problem with the --curriculum checklist file."""
+
+
+_CURRICULUM_HEADERS = (("[vocabulary]", "vocabulary"),
+                       ("[vocab]", "vocabulary"),
+                       ("[grammar]", "grammar"))
+
+
+def _parse_curriculum(path):
+    """Parse the checklist file into sections + non-fatal warnings.
+
+    Section headers are ``[vocabulary]`` (or ``[vocab]``) and ``[grammar]``,
+    one per line; lines before any header count as vocabulary; ``#``/``;``
+    start comments. Raises ``CurriculumError`` for a missing file or a
+    malformed / unknown section header — with a *did you mean* hint for
+    typos — so a typo'd checklist is reported **before** any profiling.
+    Returns ``(sections, warnings)``; warnings are notes that do not stop
+    the run, e.g. an empty required section.
+    """
+    if not os.path.isfile(path):
+        raise CurriculumError(f"curriculum file not found: {path}")
+    sections = {"vocabulary": [], "grammar": []}
+    current = "vocabulary"
+    grammar_lines = []  # (item, lineno) — resolved against the grammar list
+    with open(path, encoding="utf-8") as f:
+        for lineno, raw in enumerate(f, 1):
+            line = raw.strip()
+            if not line or line.startswith(("#", ";")):
+                continue
+            low = line.lower()
+            matched = next((section for header, section in _CURRICULUM_HEADERS
+                            if low == header), None)
+            if matched is not None:
+                current = matched
+            elif low.startswith("["):
+                if low.endswith("]"):
+                    close = difflib.get_close_matches(
+                        low, [h for h, _s in _CURRICULUM_HEADERS], n=1)
+                    hint = f" Did you mean {close[0]}?" if close else ""
+                    raise CurriculumError(
+                        f"unknown curriculum section on line {lineno}: {line}."
+                        + hint)
+                raise CurriculumError(
+                    f"malformed curriculum section header on line {lineno}: "
+                    f"{line!r} — section headers are exactly [vocabulary] or "
+                    "[grammar], alone on their line")
+            else:
+                sections[current].append(line)
+                if current == "grammar":
+                    grammar_lines.append((line, lineno))
+    warnings = [
+        f"curriculum section [{name}] is empty — nothing required from it"
+        for name in ("vocabulary", "grammar") if not sections[name]]
+    # Grammar items resolved against the construction list up front: an
+    # unrecognised or ambiguous entry is flagged here — before any profiling
+    # — with a *did you mean* hint where one exists. (The report would only
+    # show it as unrecognised later, so catching it early saves a run.)
+    candidates = sorted(
+        {cid for cid, (_n, _c, _f, _g) in gp._CONSTRUCTIONS.items()}
+        | {name for _cid, (name, _c, _f, _g) in gp._CONSTRUCTIONS.items()},
+        key=str.lower)
+    for item, lineno in grammar_lines:
+        if _resolve_construction(item) is None:
+            close = difflib.get_close_matches(item.strip().lower(),
+                                              [c.lower() for c in candidates],
+                                              n=1)
+            hint = f" Did you mean '{close[0]}'?" if close else ""
+            tip = ("" if hint else " Check the name or id against "
+                                          "grammar_profile.py --list.")
+            warnings.append(
+                f"curriculum grammar item on line {lineno}: '{item}' is not "
+                f"recognised as a construction.{hint}{tip}")
+    return sections, warnings
+
+
+def load_curriculum(path):
+    """Parse a curriculum checklist file into required vocabulary + grammar.
+
+    Sections ``[vocabulary]`` (one word per line) and ``[grammar]``
+    (construction names as shown by the grammar profiler, e.g. "second
+    conditional", or their ids, e.g. ``cond_second``); lines before any
+    section header count as vocabulary; ``#``/``;`` start comments. Returns
+    ``{"vocabulary": [...], "grammar": [...]}``; raises
+    ``CurriculumError`` for a missing file, a malformed header, or an
+    unknown section (typos get a *did you mean* hint).
+    """
+    sections, _warnings = _parse_curriculum(path)
+    return sections
+
+
+def validate_curriculum(path):
+    """Parse the checklist file and return ``(sections, warnings)``.
+
+    The CLI calls this before profiling so a typo'd section header fails
+    fast; warnings (e.g. an empty required section) print to stderr without
+    stopping the run.
+    """
+    return _parse_curriculum(path)
+
+
+def _resolve_construction(query):
+    """Map a curriculum grammar entry to ``(id, name, category)``.
+
+    Matches by construction id (``cond_second``), by display name
+    (``Second conditional``), or by an unambiguous substring (``past
+    perfect``), case-insensitively; None when unknown or ambiguous — the
+    item then shows as unrecognised, never silently matched.
+    """
+    spec = gp._CONSTRUCTIONS.get(query.strip())
+    if spec:
+        return query.strip(), spec[0], spec[1]
+    q = query.strip().lower()
+    # An exact display-name match wins even when it is also a substring of
+    # another construction's name ("past perfect" vs "past perfect
+    # progressive"); otherwise an unambiguous substring match is used.
+    exact = [(cid, name, category) for cid, (name, category, _c, _f)
+             in gp._CONSTRUCTIONS.items() if name.lower() == q]
+    if len(exact) == 1:
+        return exact[0]
+    hits = [(cid, name, category) for cid, (name, category, _c, _f)
+            in gp._CONSTRUCTIONS.items() if q in name.lower()]
+    if len(hits) == 1:
+        return hits[0]
+    return None
+
+
+def curriculum_report(text, curriculum, ordered=None, gresults=None):
+    """Check *text* against the required vocabulary and grammar.
+
+    Vocabulary items are present when the exact word form appears in the
+    text (the same whole-word, case-insensitive matching the in-text
+    contexts use); each also carries its CEFR band when the profiler
+    recognises it. Grammar items are present when the construction was
+    detected by the grammar profiler (``gresults``; None/empty → not
+    present). ``pass`` is true only when every item is covered — the
+    pass/fail coverage report of the roadmap's curriculum checklist.
+    """
+    word_band = {}
+    if ordered:
+        for name, _pct, rows in ordered:
+            for w, _occ in rows:
+                word_band[w] = name
+    vocabulary = []
+    for w in curriculum["vocabulary"]:
+        present = word_contexts(text, [w]).get(w) is not None
+        vocabulary.append({"word": w, "present": present,
+                           "level": word_band.get(w)})
+    used = set()
+    if gresults:
+        for lvl in gresults.values():
+            for entry in lvl.values():
+                used.add(entry["name"].lower())
+    grammar = []
+    for entry in curriculum["grammar"]:
+        resolved = _resolve_construction(entry)
+        present = resolved is not None and resolved[1].lower() in used
+        grammar.append({"name": resolved[1] if resolved else entry,
+                        "category": resolved[2] if resolved else None,
+                        "present": present})
+    covered_v = sum(1 for d in vocabulary if d["present"])
+    covered_g = sum(1 for d in grammar if d["present"])
+    missing = ([d["word"] for d in vocabulary if not d["present"]]
+               + [d["name"] for d in grammar if not d["present"]])
+    return {
+        "vocabulary": vocabulary,
+        "grammar": grammar,
+        "vocabularyCovered": f"{covered_v} of {len(vocabulary)}",
+        "grammarCovered": f"{covered_g} of {len(grammar)}",
+        "pass": covered_v == len(vocabulary) and covered_g == len(grammar),
+        "missing": missing,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Contexts, the one-line verdict, and the blended estimate
+# ---------------------------------------------------------------------------
+
+def word_contexts(text, word_forms):
+    """First sentence containing each whole-word form, case-insensitive.
+
+    Matches the profiler's exact token forms (already lowercased), so a word
+    that appears at sentence start ('Circumstances ...') is still found.
+    Sentences are split with the same approximation used for readability.
+    """
+    sentences = [s.strip() for s in _SENT_SPLIT_RE.split(text) if s.strip()]
+    contexts = {}
+    for w in word_forms:
+        pat = re.compile(rf"\b{re.escape(w)}\b", re.IGNORECASE)
+        for sent in sentences:
+            if pat.search(sent):
+                contexts[w] = sent
+                break
+    return contexts
+
+
+def _plural(n, noun):
+    return f"{n} {noun}{'' if n == 1 else 's'}"
+
+
+def build_verdict(words, structures, grammar_available=True):
+    """One-line verdict: 'on level' or 'reaches X — pre-teach n words, m structures'.
+
+    Clauses for a zero count are omitted, so a text that only exceeds the
+    target in vocabulary reads 'reaches C1 — pre-teach 1 word', not
+    'pre-teach 1 word, 0 structures'.
+    """
+    n_words = len(words)
+    n_structs = len(structures) if grammar_available else 0
+    if n_words == 0 and n_structs == 0:
+        return "on level"
+    bands = [d["level"] for d in words] + [d["level"] for d in structures]
+    max_band = max(bands, key=lambda lvl: _LEVEL_INDEX[lvl])
+    clauses = []
+    if n_words:
+        clauses.append(_plural(n_words, "word"))
+    if n_structs:
+        clauses.append(_plural(n_structs, "structure"))
+    return f"reaches {max_band} — pre-teach {', '.join(clauses)}"
+
+
+def blend_level(vocab_coverage, grammar_typical):
+    """Blended estimate: the higher of the vocab 90%-coverage band and the
+    grammar typical band — the level at which most words AND most structures
+    sit comfortably. Returns None when neither side has a level."""
+    bands = [lvl for lvl in (vocab_coverage, grammar_typical) if lvl in _LEVEL_INDEX]
+    return max(bands, key=lambda lvl: _LEVEL_INDEX[lvl]) if bands else None
+
+
+# ---------------------------------------------------------------------------
+# The shared engine: word lists + grammar, loaded once
+# ---------------------------------------------------------------------------
 
 class Engine:
     """The profilers' static state: word lists, and — when available — the
@@ -124,7 +859,7 @@ def profile(text, engine, with_grammar=True, with_readability=True):
         "grammar_available": grammar_available,
         "grammar_error": grammar_error,
         "cefrj_levels": engine.cefrj_levels if with_grammar else None,
-        "readability": (_compute_readability(text, total)
+        "readability": (compute_readability(text, total)
                         if with_readability else None),
     }
 
@@ -141,12 +876,6 @@ def payload(pieces, text, vocab_base, target_level=None, suggest=False,
     grammar side neither ran nor failed (``text_report`` says "skipped
     (--no-grammar)", the class profile says "not analysed").
     """
-    from text_report import (  # lazy: text_report imports this module
-        _LEVEL_INDEX, blend_level, build_verdict, cambridge_mapping,
-        cando_mapping, coverage_figure, curriculum_report, grammar_gap_report,
-        load_synonyms, structures_above_target, word_contexts,
-        words_above_target,
-    )
     ordered = pieces["ordered"]
     total = pieces["total"]
     gresults = pieces["grammar_results"]
@@ -155,6 +884,7 @@ def payload(pieces, text, vocab_base, target_level=None, suggest=False,
     grammar_error = pieces["grammar_error"]
 
     payload = {
+        "schemaVersion": SCHEMA_VERSION,
         "totalWordCount": total,
         "vocabulary": {
             "typical": pieces["typical"],
@@ -168,6 +898,10 @@ def payload(pieces, text, vocab_base, target_level=None, suggest=False,
                          if grammar_error
                          else (None if grammar_available
                                else grammar_unavailable_note)),
+        "grammarCriteria": (grammar_criteria(gresults,
+                                             pieces["cefrj_levels"],
+                                             target_level)
+                            if grammar_available else None),
         "targetLevel": target_level,
         "aboveTarget": None,
         "coverage": None,
@@ -262,9 +996,3 @@ def analyze(text, target_level=None, wordlists_dir=None, grammar_dir=None,
         cambridge=cambridge, cando=cando,
         grammar_unavailable_note="skipped (--no-grammar)"
         if not with_grammar else "not analysed")
-
-
-def _compute_readability(text, word_count):
-    """Flesch figures via text_report's helper (lazy import, no cycle)."""
-    from text_report import compute_readability
-    return compute_readability(text, word_count)

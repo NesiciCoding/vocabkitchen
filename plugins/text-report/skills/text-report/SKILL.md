@@ -168,6 +168,7 @@ Flags:
 | `--curriculum`      | check the text against a curriculum checklist file (`[vocabulary]` + `[grammar]` sections) and report pass/fail coverage; validated before profiling — header typos like `[grammer]` fail fast with a hint, empty sections and unrecognised grammar items (typos like `second conditinal`) warn with a suggestion |
 | `--cambridge`       | map the report's own CEFR bands to the matching Cambridge English Qualification (A2 Key, B1 Preliminary, B2 First, C1 Advanced, C2 Proficiency) |
 | `--cando`           | express the text's demands as CEFR global-scale Can-Do descriptors; with `--target-level`, also list the ones above the target's expectations |
+| `--schema`          | print the versioned analysis payload schema (`analysis.schema.json` — the RubricMaker report contract, currently 1.0) as JSON and exit |
 | (stdin)             | if neither `--text` nor `--file` is given, text is read from stdin      |
 
 **Choosing input mode:** `--text` for a snippet, `--file` for a document on

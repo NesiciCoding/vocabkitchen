@@ -39,6 +39,33 @@ jobs:
       - name: ruff check
         run: python -m ruff check .
 
+      - name: Analysis payload schema stays in sync
+        # The report contract: the checked-in analysis.schema.json must be
+        # byte-equal to analysis.payload_schema() (the test suites mirror
+        # this), both CLIs must print it via --schema, and the version the
+        # CLI ships must be the version a real payload carries.
+        run: |
+          python - <<'EOF'
+          import json, subprocess, sys
+          import analysis
+
+          checked_in = json.load(open("analysis.schema.json", encoding="utf-8"))
+          assert checked_in == analysis.payload_schema(), (
+              "analysis.schema.json drifted from analysis.payload_schema()")
+          assert checked_in["version"] == analysis.SCHEMA_VERSION
+          for script in ("text_report.py", "class_profile.py"):
+              p = subprocess.run([sys.executable, script, "--schema"],
+                                 capture_output=True, text=True)
+              assert p.returncode == 0, p.stderr
+              assert json.loads(p.stdout) == analysis.payload_schema(), script
+          p = subprocess.run([sys.executable, "text_report.py", "--no-grammar"],
+                             input="The cat sat on the mat.",
+                             capture_output=True, text=True)
+          assert p.returncode == 0, p.stderr
+          assert json.loads(p.stdout)["schemaVersion"] == analysis.SCHEMA_VERSION
+          print("analysis schema: in sync, --schema on both CLIs, version in payload")
+          EOF
+
       - name: Plugin integrity check
         # Guards the extension surface: every plugins/* dir must be registered
         # in the marketplace, ship a plugin.json, and have resolvable symlinks.
@@ -87,9 +114,10 @@ jobs:
               "class-profile": ["--gap-report", "--interleave",
                                 "--new-words-per-reading", "--curriculum",
                                 "--watch", "--cando", "--cando-diff",
-                                "--cando-diff-sort"],
+                                "--cando-diff-sort", "--schema"],
               "text-report": ["--suggest", "--gap-report", "--watch",
-                              "--curriculum", "--cambridge", "--cando"],
+                              "--curriculum", "--cambridge", "--cando",
+                              "--schema"],
           }
           for name in sorted(os.listdir("plugins")):
               d = os.path.join("plugins", name)
@@ -215,9 +243,10 @@ jobs:
         run: |
           python - <<'EOF'
           import csv, io, json, os, shutil, subprocess, sys, tempfile
+          import analysis  # the shared engine: SCHEMA_VERSION / payload_schema
 
-          def run_cli(args):
-              p = subprocess.run([sys.executable, "class_profile.py"] + args,
+          def run_cli(args, script="class_profile.py"):
+              p = subprocess.run([sys.executable, script] + args,
                                  capture_output=True, text=True)
               return p.returncode, p.stdout, p.stderr
 
@@ -238,10 +267,12 @@ jobs:
           assert all(int(r[1]) >= 5 for r in rows[1:]), rows
 
           # JSON: nothing skipped, aggregate = sum of the rows, ranked by level
-          # with the sample folder spanning the A1 → C2 gradient.
+          # with the sample folder spanning the A1 → C2 gradient, and the
+          # folder payload carries the versioned report contract.
           rc, out, err = run_cli(["--file", "sample-readings/", "--no-grammar"])
           assert rc == 0, err
           d = json.loads(out)
+          assert d["schemaVersion"] == analysis.SCHEMA_VERSION, d["schemaVersion"]
           assert d["texts"] == len(files) and d["skipped"] == [], (d["texts"], d["skipped"])
           assert sum(r["totalWordCount"] for r in d["rows"]) == d["aggregate"]["totalWordCount"]
           levels = ["A1", "A2", "B1", "B2", "C1", "C2"]
@@ -260,6 +291,23 @@ jobs:
           assert all(r["grammar"]["typical"] in levels
                      and r["grammar"]["reaches"] in levels
                      for r in d["rows"]), [r["grammar"] for r in d["rows"]]
+
+          # The single-text report contract (text_report.py --format json): the
+          # same engine, so the payload carries schemaVersion + the per-
+          # construction grammar pass/fail shape RubricMaker's linker consumes.
+          rc, out, err = run_cli(["--file", os.path.join("sample-readings", files[0]),
+                                  "--target-level", "B1", "--format", "json"],
+                                 script="text_report.py")
+          assert rc == 0, err
+          tp = json.loads(out)
+          assert tp["schemaVersion"] == analysis.SCHEMA_VERSION, tp["schemaVersion"]
+          gc = tp["grammarCriteria"]
+          assert gc is not None and gc["total"] == len(analysis.gp._CONSTRUCTIONS), gc
+          assert gc["passedCount"] + gc["failedCount"] == gc["total"], gc
+          assert all(c["status"] in ("used", "not used") and c["pass"] == (c["status"] == "used")
+                     for c in gc["criteria"]), gc
+          assert all(c["count"] >= 1 and isinstance(c["examples"], list)
+                     for c in gc["criteria"] if c["pass"]), gc
 
           # Pre-teaching export: per-text decks + the combined class-wide deck
           # (named after the source folder) and its level-keyed index, in the

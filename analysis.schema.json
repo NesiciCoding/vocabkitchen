@@ -1,0 +1,394 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://vocabkitchen.dev/schemas/analysis.schema.json",
+  "title": "VocabKitchen analysis report payload",
+  "description": "The CEFR profile of one text, as produced by text_report.py and class_profile.py per-text exports.",
+  "version": "1.0",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "totalWordCount",
+    "vocabulary",
+    "grammar",
+    "grammarError",
+    "grammarCriteria",
+    "targetLevel",
+    "aboveTarget",
+    "coverage",
+    "estimatedLevel",
+    "verdict",
+    "grammarGap",
+    "grammarGapError",
+    "curriculum",
+    "curriculumError",
+    "cambridge",
+    "cando",
+    "readability"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "type": "string",
+      "enum": [
+        "1.0"
+      ]
+    },
+    "totalWordCount": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "file": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "vocabulary": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "required": true,
+      "properties": {
+        "typical": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            null,
+            "A1",
+            "A2",
+            "B1",
+            "B2",
+            "C1",
+            "C2"
+          ]
+        },
+        "coverage": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            null,
+            "A1",
+            "A2",
+            "B1",
+            "B2",
+            "C1",
+            "C2"
+          ]
+        },
+        "offListPercent": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "results": {
+          "type": "object"
+        }
+      }
+    },
+    "grammar": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "properties": {
+        "sentenceCount": {
+          "type": "integer"
+        },
+        "tokenCount": {
+          "type": "integer"
+        },
+        "constructionCount": {
+          "type": "integer"
+        },
+        "estimatedLevel": {
+          "type": "object"
+        },
+        "results": {
+          "type": "object"
+        }
+      }
+    },
+    "grammarError": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "grammarCriteria": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "properties": {
+        "targetLevel": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            null,
+            "A1",
+            "A2",
+            "B1",
+            "B2",
+            "C1",
+            "C2"
+          ]
+        },
+        "criteria": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "category": {
+                "type": "string"
+              },
+              "level": {
+                "type": "string"
+              },
+              "status": {
+                "enum": [
+                  "used",
+                  "not used"
+                ]
+              },
+              "pass": {
+                "type": "boolean"
+              },
+              "count": {
+                "type": "integer"
+              },
+              "examples": {
+                "type": "array"
+              }
+            }
+          }
+        },
+        "passedCount": {
+          "type": "integer"
+        },
+        "failedCount": {
+          "type": "integer"
+        },
+        "total": {
+          "type": "integer"
+        }
+      }
+    },
+    "targetLevel": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "enum": [
+        null,
+        "A1",
+        "A2",
+        "B1",
+        "B2",
+        "C1",
+        "C2"
+      ]
+    },
+    "aboveTarget": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "properties": {
+        "maxLevel": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            null,
+            "A1",
+            "A2",
+            "B1",
+            "B2",
+            "C1",
+            "C2"
+          ]
+        },
+        "words": {
+          "type": "array"
+        },
+        "wordCount": {
+          "type": "integer"
+        },
+        "structures": {
+          "type": "array"
+        },
+        "structureCount": {
+          "type": "integer"
+        }
+      }
+    },
+    "coverage": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "properties": {
+        "targetLevel": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            null,
+            "A1",
+            "A2",
+            "B1",
+            "B2",
+            "C1",
+            "C2"
+          ]
+        },
+        "knownPercent": {
+          "type": "integer"
+        },
+        "knownWords": {
+          "type": "integer"
+        },
+        "recognisedWords": {
+          "type": "integer"
+        },
+        "sentence": {
+          "type": "string"
+        }
+      }
+    },
+    "estimatedLevel": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "enum": [
+        null,
+        "A1",
+        "A2",
+        "B1",
+        "B2",
+        "C1",
+        "C2"
+      ]
+    },
+    "verdict": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "grammarGap": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "properties": {
+        "targetLevel": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            null,
+            "A1",
+            "A2",
+            "B1",
+            "B2",
+            "C1",
+            "C2"
+          ]
+        },
+        "total": {
+          "type": "integer"
+        },
+        "missingCount": {
+          "type": "integer"
+        },
+        "missing": {
+          "type": "array"
+        }
+      }
+    },
+    "grammarGapError": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "curriculum": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "properties": {
+        "vocabulary": {
+          "type": "array"
+        },
+        "grammar": {
+          "type": "array"
+        },
+        "vocabularyCovered": {
+          "type": "string"
+        },
+        "grammarCovered": {
+          "type": "string"
+        },
+        "pass": {
+          "type": "boolean"
+        },
+        "missing": {
+          "type": "array"
+        }
+      }
+    },
+    "curriculumError": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "cambridge": {
+      "type": [
+        "object",
+        "null"
+      ]
+    },
+    "cando": {
+      "type": [
+        "object",
+        "null"
+      ]
+    },
+    "readability": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "properties": {
+        "fleschReadingEase": {
+          "type": "number"
+        },
+        "fleschKincaidGrade": {
+          "type": "number"
+        },
+        "description": {
+          "type": "string"
+        }
+      }
+    }
+  }
+}

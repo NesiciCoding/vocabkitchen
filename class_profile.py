@@ -1643,7 +1643,14 @@ def main(argv=None):
     parser.add_argument("--no-grammar", action="store_true")
     parser.add_argument("--wordlists", default=None)
     parser.add_argument("--grammar-profile", dest="grammar_profile", default=None)
+    parser.add_argument("--schema", action="store_true",
+                        help="print the analysis report payload schema (the RubricMaker "
+                             "contract, version " + engine.SCHEMA_VERSION + ") as JSON and exit")
     args = parser.parse_args(argv)
+
+    if args.schema:
+        print(json.dumps(engine.payload_schema(), indent=2, ensure_ascii=False))
+        return 0
 
     try:
         out_format = resolve_format(args.format, sys.stdout.isatty())
@@ -1966,6 +1973,7 @@ def main(argv=None):
         else:
             fits_count = None
         payload = {
+            "schemaVersion": engine.SCHEMA_VERSION,
             "source": source_label,
             "texts": len(all_rows),
             "skipped": skipped,

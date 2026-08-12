@@ -317,6 +317,10 @@ try:
           isinstance(payload["verdict"], str) and payload["verdict"] != "")
     check("export payload coverage figure", payload["coverage"]["knownPercent"] == 92)
     check("export payload grammar null w/o engine", payload["grammar"] is None)
+    check("export payload carries the contract schemaVersion",
+          payload["schemaVersion"] == engine.SCHEMA_VERSION)
+    check("export payload grammarCriteria null w/o engine",
+          payload["grammarCriteria"] is None)
     check("export payload above-target words have context",
           all(d.get("context") for d in payload["aboveTarget"]["words"]))
     check("export payload above-target nonempty", payload["aboveTarget"]["wordCount"] >= 1)
@@ -356,6 +360,21 @@ try:
               all(set(d) == {"name", "category"} for d in _gap["missing"]))
         check("gap handout renders the constructions-to-introduce section",
               "## Constructions to introduce at B1" in tr.export_markdown(_gap_pf))
+        # grammarCriteria rides in the same payload: one entry per registered
+        # construction, ladder-ordered, used entries with count + examples.
+        _gc_full = _gap_pf["grammarCriteria"]
+        check("export payload grammarCriteria covers the registry",
+              _gc_full is not None
+              and _gc_full["total"] == len(gp._CONSTRUCTIONS)
+              and _gc_full["passedCount"] + _gc_full["failedCount"]
+              == _gc_full["total"])
+        check("export payload grammarCriteria ladder-ordered",
+              [engine._LEVEL_INDEX.get(c["level"], 99) for c in _gc_full["criteria"]]
+              == sorted(engine._LEVEL_INDEX.get(c["level"], 99)
+                        for c in _gc_full["criteria"]))
+        check("export payload grammarCriteria used entries have examples",
+              all(c["count"] >= 1 and isinstance(c["examples"], list)
+                  for c in _gc_full["criteria"] if c["pass"]))
     else:
         skipped += 1
 
@@ -1602,10 +1621,19 @@ if os.path.isdir(_sample):
     check("sample: nothing skipped", d["texts"] == len(files) and d["skipped"] == [])
     check("sample: aggregate equals the sum of the rows",
           sum(r["totalWordCount"] for r in d["rows"]) == d["aggregate"]["totalWordCount"])
+    check("sample: folder payload carries the contract schemaVersion",
+          d["schemaVersion"] == engine.SCHEMA_VERSION)
     ranks = [_GRADES.get(r["estimatedLevel"], 99) for r in d["rows"]]
     check("sample: ranked by level, A1 first", ranks == sorted(ranks))
     check("sample: spans the A1 to C2 gradient",
           len(ranks) >= 2 and ranks[0] == 0 and ranks[-1] == 5)
+
+    # --schema prints the versioned contract without touching the folder.
+    _rc, _out, _err = run(["--schema"])
+    check("sample: --schema prints the payload schema",
+          _rc == 0 and json.loads(_out) == engine.payload_schema())
+    check("sample: --schema is independent of --no-grammar",
+          run(["--schema", "--no-grammar"])[0] == 0)
 
     # Mirror of the CI grammar pass: with spaCy importable in this test
     # interpreter, every row of the sample run carries a real grammar
@@ -2009,7 +2037,7 @@ if all(os.path.isfile(p) for p in (_skill_local, _skill_plugin, _plugin_json)):
     check("class-profile copies are deliberately different flavours", _sl != _sp)
     for _flag in ("--gap-report", "--interleave", "--new-words-per-reading",
                   "--curriculum", "--watch", "--cando", "--cando-diff",
-                  "--cando-diff-sort"):
+                  "--cando-diff-sort", "--schema"):
         check(f"class-profile skill documents {_flag} in both copies",
               _flag in _sl and _flag in _sp)
     with open(os.path.join(HERE, ".claude", "skills", "text-report", "SKILL.md"),
@@ -2018,7 +2046,7 @@ if all(os.path.isfile(p) for p in (_skill_local, _skill_plugin, _plugin_json)):
     with open(os.path.join(HERE, "plugins", "text-report", "skills",
                            "text-report", "SKILL.md"), encoding="utf-8") as f:
         _tp = f.read()
-    for _flag in ("--cambridge", "--cando"):
+    for _flag in ("--cambridge", "--cando", "--schema"):
         check(f"text-report skill documents {_flag} in both copies",
               _flag in _tl and _flag in _tp)
     _manifest = json.load(open(_plugin_json, encoding="utf-8"))

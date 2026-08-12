@@ -67,11 +67,70 @@ check("engine payload matches text_report's shape",
       set(engine.analyze(_CAT, with_grammar=False)) == set(
           tr.analyze(_CAT, with_grammar=False)))
 
+# --- Phase 5: the payload contract (schema version + grammar criteria) --------
+check("SCHEMA_VERSION is 1.0", engine.SCHEMA_VERSION == "1.0")
+_schema_doc = json.load(open(os.path.join(HERE, "analysis.schema.json"),
+                             encoding="utf-8"))
+check("analysis.schema.json matches payload_schema()",
+      _schema_doc == engine.payload_schema())
+_schema_pl = engine.analyze(_CAT, with_grammar=False)
+check("payload carries schemaVersion",
+      _schema_pl["schemaVersion"] == engine.SCHEMA_VERSION)
+check("schema required keys are all present in the payload",
+      set(_schema_doc["required"]) <= set(_schema_pl))
+check("grammarCriteria null without the grammar side",
+      _schema_pl["grammarCriteria"] is None)
+check("analysis module is self-contained (no text_report import)",
+      "import text_report" not in open(os.path.join(HERE, "analysis.py"),
+                                        encoding="utf-8").read())
+check("text_report re-exports the engine's helpers",
+      tr.compute_readability is engine.compute_readability
+      and tr.grammar_criteria is engine.grammar_criteria
+      and tr.curriculum_report is engine.curriculum_report
+      and tr.CurriculumError is engine.CurriculumError
+      and tr.SCHEMA_VERSION == engine.SCHEMA_VERSION)
+
+# grammarCriteria: the per-construction pass/fail shape RubricMaker's grammar
+# linker consumes (statuses, counts, examples, ladder-ordered criteria).
+if HAVE_GRAMMAR:
+    _gc_p = engine.analyze(_ACADEMIC, target_level="B1")
+    _gc = _gc_p["grammarCriteria"]
+    check("grammarCriteria covers every registered construction",
+          _gc is not None and _gc["total"] == len(gp._CONSTRUCTIONS)
+          and _gc["passedCount"] + _gc["failedCount"] == _gc["total"])
+    check("grammarCriteria statuses match pass and count",
+          all(c["status"] in ("used", "not used")
+              and c["pass"] == (c["status"] == "used")
+              and (c["count"] == 0) == (not c["pass"])
+              for c in _gc["criteria"]))
+    check("grammarCriteria used entries carry count + examples",
+          _gc["passedCount"] >= 1
+          and all(c["count"] >= 1 and isinstance(c["examples"], list)
+                  for c in _gc["criteria"] if c["pass"]))
+    check("grammarCriteria flags the passive as used",
+          any(c["id"] == "passive_past" and c["pass"]
+              for c in _gc["criteria"]))
+    _ladder = ["A1", "A2", "B1", "B2", "C1", "C2"]
+    _gc_levels = [_ladder.index(c["level"]) if c["level"] in _ladder else 99
+                  for c in _gc["criteria"]]
+    check("grammarCriteria sorted by band ladder then name",
+          _gc_levels == sorted(_gc_levels))
+else:
+    skipped += 1
+
 
 def run(args, text=""):
     p = subprocess.run([sys.executable, SCRIPT] + args,
                        input=text, capture_output=True, text=True)
     return p.returncode, p.stdout, p.stderr
+
+
+# --- Phase 5: --schema prints the report contract ----------------------------
+_rc, _out, _err = run(["--schema"])
+check("--schema prints the payload schema",
+      _rc == 0 and json.loads(_out) == engine.payload_schema())
+check("--schema works with --no-grammar (no engine load)",
+      run(["--schema", "--no-grammar"])[0] == 0)
 
 
 # --- unit: the venv re-exec is skipped in vocabulary-only modes -------------
