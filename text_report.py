@@ -97,6 +97,18 @@ Flags:
                       <stem>-preteaching-<LEVEL>.<ext> next to the source;
                       otherwise preteaching-<LEVEL>.<ext> in the cwd; decks
                       get a -deck suffix)
+    --watch [SECONDS] the Phase 3 edit → re-check loop: keep re-profiling the
+                      --file input whenever it changes on disk (polling every
+                      SECONDS, default 1) until Ctrl-C — for tightening a
+                      graded reader while the report updates on each save
+    --curriculum FILE the Phase 4 curriculum checklist: check the text against
+                      a file with sections [vocabulary] (one word per line)
+                      and [grammar] (construction names as shown by the
+                      grammar profiler, or their ids) and report pass/fail
+                      coverage — vocabulary items also carry their CEFR band
+                      when recognised. Grammar items are unchecked when the
+                      grammar side is off. Carried in JSON as `curriculum` and
+                      rendered in pretty mode and the --export md handout.
     (stdin)           if neither --text nor --file is given, text is read from stdin
 
 Output: with --format json, a JSON object that is a superset of both profilers'
@@ -349,6 +361,114 @@ def grammar_gap_report(gresults, cefrj_levels, target):
     }
 
 
+class CurriculumError(Exception):
+    """A problem with the --curriculum checklist file."""
+
+
+def load_curriculum(path):
+    """Parse a curriculum checklist file into required vocabulary + grammar.
+
+    Sections ``[vocabulary]`` (one word per line) and ``[grammar]``
+    (construction names as shown by the grammar profiler, e.g. "second
+    conditional", or their ids, e.g. ``cond_second``); lines before any
+    section header count as vocabulary; ``#``/``;`` start comments. Returns
+    ``{"vocabulary": [...], "grammar": [...]}``; raises
+    ``CurriculumError`` for a missing file or an unknown section.
+    """
+    if not os.path.isfile(path):
+        raise CurriculumError(f"curriculum file not found: {path}")
+    sections = {"vocabulary": [], "grammar": []}
+    current = "vocabulary"
+    with open(path, encoding="utf-8") as f:
+        for raw in f:
+            line = raw.strip()
+            if not line or line.startswith(("#", ";")):
+                continue
+            low = line.lower()
+            if low in ("[vocabulary]", "[vocab]"):
+                current = "vocabulary"
+            elif low == "[grammar]":
+                current = "grammar"
+            elif low.startswith("[") and low.endswith("]"):
+                raise CurriculumError(f"unknown curriculum section: {line}")
+            else:
+                sections[current].append(line)
+    return sections
+
+
+def _resolve_construction(query):
+    """Map a curriculum grammar entry to ``(id, name, category)``.
+
+    Matches by construction id (``cond_second``), by display name
+    (``Second conditional``), or by an unambiguous substring (``past
+    perfect``), case-insensitively; None when unknown or ambiguous — the
+    item then shows as unrecognised, never silently matched.
+    """
+    spec = gp._CONSTRUCTIONS.get(query.strip())
+    if spec:
+        return query.strip(), spec[0], spec[1]
+    q = query.strip().lower()
+    # An exact display-name match wins even when it is also a substring of
+    # another construction's name ("past perfect" vs "past perfect
+    # progressive"); otherwise an unambiguous substring match is used.
+    exact = [(cid, name, category) for cid, (name, category, _c, _f)
+             in gp._CONSTRUCTIONS.items() if name.lower() == q]
+    if len(exact) == 1:
+        return exact[0]
+    hits = [(cid, name, category) for cid, (name, category, _c, _f)
+            in gp._CONSTRUCTIONS.items() if q in name.lower()]
+    if len(hits) == 1:
+        return hits[0]
+    return None
+
+
+def curriculum_report(text, curriculum, ordered=None, gresults=None):
+    """Check *text* against the required vocabulary and grammar.
+
+    Vocabulary items are present when the exact word form appears in the
+    text (the same whole-word, case-insensitive matching the in-text
+    contexts use); each also carries its CEFR band when the profiler
+    recognises it. Grammar items are present when the construction was
+    detected by the grammar profiler (``gresults``; None/empty → not
+    present). ``pass`` is true only when every item is covered — the
+    pass/fail coverage report of the roadmap's curriculum checklist.
+    """
+    word_band = {}
+    if ordered:
+        for name, _pct, rows in ordered:
+            for w, _occ in rows:
+                word_band[w] = name
+    vocabulary = []
+    for w in curriculum["vocabulary"]:
+        present = word_contexts(text, [w]).get(w) is not None
+        vocabulary.append({"word": w, "present": present,
+                           "level": word_band.get(w)})
+    used = set()
+    if gresults:
+        for lvl in gresults.values():
+            for entry in lvl.values():
+                used.add(entry["name"].lower())
+    grammar = []
+    for entry in curriculum["grammar"]:
+        resolved = _resolve_construction(entry)
+        present = resolved is not None and resolved[1].lower() in used
+        grammar.append({"name": resolved[1] if resolved else entry,
+                        "category": resolved[2] if resolved else None,
+                        "present": present})
+    covered_v = sum(1 for d in vocabulary if d["present"])
+    covered_g = sum(1 for d in grammar if d["present"])
+    missing = ([d["word"] for d in vocabulary if not d["present"]]
+               + [d["name"] for d in grammar if not d["present"]])
+    return {
+        "vocabulary": vocabulary,
+        "grammar": grammar,
+        "vocabularyCovered": f"{covered_v} of {len(vocabulary)}",
+        "grammarCovered": f"{covered_g} of {len(grammar)}",
+        "pass": covered_v == len(vocabulary) and covered_g == len(grammar),
+        "missing": missing,
+    }
+
+
 def word_contexts(text, word_forms):
     """First sentence containing each whole-word form, case-insensitive.
 
@@ -406,14 +526,15 @@ def blend_level(vocab_coverage, grammar_typical):
 
 def analyze(text, target_level=None, wordlists_dir=None, grammar_dir=None,
             with_grammar=True, with_readability=True, suggest=False,
-            gap_report=False):
+            gap_report=False, curriculum=None):
     """Run both profilers and readability over *text*; return the report payload.
 
     With ``suggest=True`` (and a *target_level*), each above-target word that
     has an entry in the bundled synonyms list carries a ``suggestion`` — the
     simpler alternative to rewrite it with. With ``gap_report=True`` (and a
     *target_level*), ``grammarGap`` lists the target-level constructions the
-    text does not use yet.
+    text does not use yet. With ``curriculum`` (a parsed checklist), the
+    payload carries a ``curriculum`` pass/fail coverage report.
     """
     script_dir = os.path.dirname(os.path.abspath(__file__))
 
@@ -442,6 +563,8 @@ def analyze(text, target_level=None, wordlists_dir=None, grammar_dir=None,
         "verdict": None,
         "grammarGap": None,
         "grammarGapError": None,
+        "curriculum": None,
+        "curriculumError": None,
         "readability": compute_readability(text, total) if with_readability else None,
     }
 
@@ -506,6 +629,18 @@ def analyze(text, target_level=None, wordlists_dir=None, grammar_dir=None,
 
     grammar_typical = gmeta["estimatedLevel"]["typical"] if gmeta else None
     payload["estimatedLevel"] = blend_level(coverage, grammar_typical)
+
+    if curriculum:
+        # Re-run the checklist with the grammar results now that the grammar
+        # side has (or hasn't) run; vocabulary presence needs `ordered`.
+        payload["curriculum"] = curriculum_report(
+            text, curriculum, ordered, gresults)
+        if curriculum and not grammar_available:
+            payload["curriculum"]["grammarAvailable"] = False
+            payload["curriculumError"] = (
+                payload["grammarError"] or "grammar not analysed")
+        else:
+            payload["curriculum"]["grammarAvailable"] = True
     return payload
 
 
@@ -624,6 +759,26 @@ def render_pretty(payload, source_label, stream=None):
             out.append(bold("Gap report"))
             out.append(dim("  unavailable — "
                            + payload["grammarGapError"].splitlines()[0]))
+
+    curr = payload.get("curriculum")
+    if curr is not None:
+        out.append("")
+        ok = curr["pass"]
+        mark = "✓" if ok else "✗"
+        out.append(bold(f"Curriculum checklist — "
+                        f"{curr['vocabularyCovered']} vocabulary, "
+                        f"{curr['grammarCovered']} grammar {mark}"))
+        for d in curr["vocabulary"]:
+            state = "✓" if d["present"] else "✗"
+            lvl = f" ({d['level']})" if d.get("level") else ""
+            out.append(f"  {state} {d['word']}{lvl}")
+        for d in curr["grammar"]:
+            state = "✓" if d["present"] else "✗"
+            out.append(f"  {state} {d['name']}")
+        if not ok:
+            out.append(dim("  missing: " + ", ".join(curr["missing"])))
+        if curr.get("grammarAvailable") is False:
+            out.append(dim("  (grammar not analysed — grammar items unchecked)"))
 
     read = payload["readability"]
     if read:
@@ -913,6 +1068,28 @@ def export_markdown(payload, cloze=False):
         for d in gap["missing"]:
             lines.append(f"- **{d['name']}** ({d['category']})")
         lines.append("")
+    curr = payload.get("curriculum")
+    if curr is not None:
+        mark = "✅ covered" if curr["pass"] else "❌ missing items"
+        lines.append(f"## Curriculum checklist — {mark}")
+        lines.append("")
+        lines.append(f"Vocabulary {curr['vocabularyCovered']} · "
+                     f"grammar {curr['grammarCovered']} covered.")
+        lines.append("")
+        lines.append("| Item | Kind | Status | Level |")
+        lines.append("|---|---|---|---|")
+        for d in curr["vocabulary"]:
+            lines.append(f"| {d['word']} | vocabulary | "
+                         f"{'present' if d['present'] else 'missing'} "
+                         f"| {d.get('level') or '—'} |")
+        for d in curr["grammar"]:
+            lines.append(f"| {d['name']} | grammar | "
+                         f"{'used' if d['present'] else 'not used'} | — |")
+        lines.append("")
+        if curr.get("grammarAvailable") is False:
+            lines.append("_Grammar items unchecked — the grammar side was not "
+                         "available._")
+            lines.append("")
     read = payload.get("readability")
     if read:
         lines.append(f"Readability: Flesch–Kincaid grade "
@@ -1132,6 +1309,14 @@ def _validate_args(args, target):
     if args.gap_report and args.no_grammar:
         return ("--gap-report needs the grammar side; it can't be combined "
                 "with --no-grammar.")
+    if args.curriculum and not os.path.isfile(args.curriculum):
+        return f"curriculum file not found: {args.curriculum}"
+    if args.watch is not None and not args.file:
+        return ("--watch re-profiles a file on save; it requires --file "
+                "(the file to watch).")
+    if args.watch is not None and args.pre_enrich:
+        return ("--watch and --pre-enrich don't combine (--pre-enrich primes "
+                "the dictionary cache and exits).")
     if args.cloze and args.export is None:
         return ("--cloze requires --export (it renders the exported examples as "
                 "fill-the-gap sentences).")
@@ -1180,6 +1365,40 @@ def _write_export(args, payload, target):
     return True
 
 
+def _file_snapshot(path):
+    """(mtime_ns, size) of *path* for change detection; None if gone."""
+    try:
+        st = os.stat(path)
+    except OSError:
+        return None
+    return (st.st_mtime_ns, st.st_size)
+
+
+def watch_file(path, interval, callback, timeout=None):
+    """Re-run ``callback()`` whenever ``path`` changes on disk.
+
+    The Phase 3 watch mode: a dependency-free edit → re-check loop that polls
+    the file's mtime/size every ``interval`` seconds (default 1.0) and re-runs
+    the report on each save. Stops when the file disappears (or after
+    ``timeout`` seconds, for tests) and returns the number of re-runs.
+    """
+    last = _file_snapshot(path)
+    runs = 0
+    deadline = (time.monotonic() + timeout) if timeout else None
+    while True:
+        if deadline is not None and time.monotonic() >= deadline:
+            return runs
+        time.sleep(interval)
+        snap = _file_snapshot(path)
+        if snap is None:
+            sys.stderr.write(f"Watched file {path} disappeared — stopping.\n")
+            return runs
+        if snap != last:
+            last = snap
+            callback()
+            runs += 1
+
+
 def main(argv=None):
     _maybe_reexec_in_venv()
     parser = argparse.ArgumentParser(add_help=True, description="VocabKitchen unified text report")
@@ -1218,6 +1437,14 @@ def main(argv=None):
     parser.add_argument("--limit", type=int, default=None,
                         help="--pre-enrich only: cap the number of new lookups")
     parser.add_argument("--output", default=None)
+    parser.add_argument("--watch", nargs="?", const=1.0, type=float, default=None,
+                        help="re-profile the --file input whenever it changes on disk "
+                             "(the Phase 3 edit → re-check loop; interval in seconds, "
+                             "default 1)")
+    parser.add_argument("--curriculum", default=None,
+                        help="check the text against a curriculum checklist file "
+                             "(sections [vocabulary] and [grammar]) and report pass/fail "
+                             "coverage of the required words and constructions")
     parser.add_argument("positional", nargs="*", help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
 
@@ -1283,32 +1510,61 @@ def main(argv=None):
             + tail + "\n")
         return 0
 
-    try:
-        payload = analyze(
-            text,
-            target_level=target,
-            wordlists_dir=args.wordlists,
-            grammar_dir=args.grammar_profile,
-            with_grammar=not args.no_grammar,
-            with_readability=not args.no_readability,
-            suggest=args.suggest,
-            gap_report=args.gap_report,
-        )
-    except vp.WordListError as ex:
-        sys.stderr.write(str(ex) + "\n")
-        return 1
+    curriculum = None
+    if args.curriculum:
+        try:
+            curriculum = load_curriculum(args.curriculum)
+        except CurriculumError as ex:
+            sys.stderr.write(str(ex) + "\n")
+            return 1
 
-    if payload["totalWordCount"] == 0:
-        sys.stderr.write("No analysable words found in the input.\n")
-        return 1
+    def _run_once():
+        nonlocal text
+        if args.watch is not None and args.file:
+            try:
+                text = vp.extract_text(args.file)
+            except vp.DocumentError as ex:
+                sys.stderr.write(str(ex) + "\n")
+                return 1
+        try:
+            payload = analyze(
+                text,
+                target_level=target,
+                wordlists_dir=args.wordlists,
+                grammar_dir=args.grammar_profile,
+                with_grammar=not args.no_grammar,
+                with_readability=not args.no_readability,
+                suggest=args.suggest,
+                gap_report=args.gap_report,
+                curriculum=curriculum,
+            )
+        except vp.WordListError as ex:
+            sys.stderr.write(str(ex) + "\n")
+            return 1
 
-    if out_format == "pretty":
-        render_pretty(payload, source_label)
-    else:
-        print(json.dumps(payload, indent=2, ensure_ascii=False))
+        if payload["totalWordCount"] == 0:
+            sys.stderr.write("No analysable words found in the input.\n")
+            return 1
 
-    if args.export and not _write_export(args, payload, target):
-        return 1
+        if out_format == "pretty":
+            render_pretty(payload, source_label)
+        else:
+            print(json.dumps(payload, indent=2, ensure_ascii=False))
+
+        if args.export and not _write_export(args, payload, target):
+            return 1
+        return 0
+
+    rc = _run_once()
+    if rc:
+        return rc
+    if args.watch is not None:
+        sys.stderr.write(
+            f"Watching {args.file} (re-profile on save; Ctrl-C to stop)\n")
+        try:
+            watch_file(args.file, args.watch, _run_once)
+        except KeyboardInterrupt:
+            sys.stderr.write("\nStopped.\n")
     return 0
 
 

@@ -22,6 +22,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SCRIPT = os.path.join(HERE, "text_report.py")
@@ -250,6 +251,153 @@ if _dg["grammarGap"] is not None:
           and 0 <= _dg["grammarGap"]["missingCount"] <= _dg["grammarGap"]["total"])
 else:
     check("cli gap report degraded gracefully", _dg["grammarGapError"] is not None)
+
+# --- unit: curriculum checklist (--curriculum) --------------------------------
+_curr_dir = tempfile.mkdtemp(prefix="tr_curriculum_")
+_curr_path = os.path.join(_curr_dir, "unit3.txt")
+with open(_curr_path, "w", encoding="utf-8") as f:
+    f.write("# Unit 3 checklist\n"
+            "; bare lines before any section header count as vocabulary\n"
+            "mat\n"
+            "[vocabulary]\npurchase\ncircumstances\n\n"
+            "[grammar]\nsecond conditional\ncond_second\npast perfect\n")
+
+
+def _raises_curriculum(fn):
+    try:
+        fn()
+    except tr.CurriculumError:
+        return True
+    return False
+
+
+_curr = tr.load_curriculum(_curr_path)
+check("curriculum: both sections parsed",
+      _curr["vocabulary"] == ["mat", "purchase", "circumstances"]
+      and _curr["grammar"] == ["second conditional", "cond_second", "past perfect"])
+check("curriculum: missing file raises CurriculumError",
+      _raises_curriculum(lambda: tr.load_curriculum(
+          os.path.join(_curr_dir, "nope.txt"))))
+with open(os.path.join(_curr_dir, "bad.txt"), "w", encoding="utf-8") as f:
+    f.write("[unknown]\nx\n")
+check("curriculum: unknown section raises CurriculumError",
+      _raises_curriculum(lambda: tr.load_curriculum(
+          os.path.join(_curr_dir, "bad.txt"))))
+
+check("curriculum resolver: by construction id",
+      tr._resolve_construction("cond_second")[0] == "cond_second")
+check("curriculum resolver: by display name (case-insensitive)",
+      tr._resolve_construction("Second Conditional")
+      == ("cond_second", "Second conditional", "Conditionals"))
+check("curriculum resolver: exact name wins over its substring",
+      tr._resolve_construction("past perfect") == ("past_perf", "Past perfect", "Tense & aspect"))
+check("curriculum resolver: unambiguous substring",
+      tr._resolve_construction("gerund") is not None)
+check("curriculum resolver: ambiguous stays unresolved",
+      tr._resolve_construction("passive") is None)
+check("curriculum resolver: unknown stays unresolved",
+      tr._resolve_construction("floob") is None)
+
+_c_ordered, _ = vp.profile("We must purchase the equipment. Circumstances matter.", _LEVELS)
+_fake_gres = {"B1": {"cond_second": {"name": "Second conditional",
+                                      "category": "Conditionals",
+                                      "count": 1, "examples": []}}}
+_cr = tr.curriculum_report(
+    "We must purchase the equipment. Circumstances matter.",
+    {"vocabulary": ["purchase", "mat"],
+     "grammar": ["second conditional", "Passive (present)"]},
+    ordered=_c_ordered, gresults=_fake_gres)
+check("curriculum report: vocabulary presence + band",
+      [(d["word"], d["present"], d["level"]) for d in _cr["vocabulary"]]
+      == [("purchase", True, "B2"), ("mat", False, None)])
+check("curriculum report: grammar presence and pass verdict",
+      [(d["name"], d["present"]) for d in _cr["grammar"]]
+      == [("Second conditional", True), ("Passive (present)", False)]
+      and _cr["pass"] is False
+      and _cr["missing"] == ["mat", "Passive (present)"])
+_cr_all = tr.curriculum_report(
+    "We must purchase the equipment. Circumstances matter.",
+    {"vocabulary": ["purchase", "circumstances"],
+     "grammar": ["second conditional"]},
+    ordered=_c_ordered, gresults=_fake_gres)
+check("curriculum report: all covered -> pass",
+      _cr_all["pass"] is True and _cr_all["missing"] == [])
+_cr_nog = tr.curriculum_report("mat", {"vocabulary": ["purchase"],
+                                        "grammar": ["second conditional"]},
+                               ordered=_c_ordered, gresults=None)
+check("curriculum report: no grammar results -> grammar unchecked",
+      _cr_nog["grammar"][0]["present"] is False)
+
+_pc = tr.analyze("We must purchase the equipment.", target_level="B1",
+                 with_grammar=False, curriculum=_curr)
+check("analyze carries the curriculum checklist",
+      _pc["curriculum"] is not None
+      and _pc["curriculum"]["grammarAvailable"] is False
+      and _pc["curriculumError"] is not None)
+_pc2 = tr.analyze("The cat sat on the mat.", with_grammar=False,
+                   curriculum=_curr)
+check("curriculum works without --target-level",
+      _pc2["curriculum"] is not None)
+_bufc = io.StringIO()
+tr.render_pretty(_pc, "c.txt", stream=_bufc)
+check("pretty shows the curriculum checklist",
+      "Curriculum checklist" in _bufc.getvalue())
+_md_curr = tr.export_markdown(_pc)
+check("md gains the curriculum checklist section",
+      "## Curriculum checklist" in _md_curr
+      and "| Item | Kind | Status | Level |" in _md_curr)
+check("md without curriculum has no checklist section",
+      "Curriculum checklist" not in tr.export_markdown(_p2))
+rc, out, err = run(["--curriculum", _curr_path, "--text",
+                    "We must purchase the equipment. Circumstances matter."])
+_dc = json.loads(out)
+check("cli --curriculum carries the checklist",
+      rc == 0 and _dc["curriculum"] is not None
+      and _dc["curriculum"]["pass"] is False
+      and any(d["word"] == "purchase" and d["present"] is True
+              for d in _dc["curriculum"]["vocabulary"]))
+rc, _, err = run(["--curriculum", os.path.join(_curr_dir, "nope.txt"),
+                  "--text", "hi"])
+check("cli --curriculum missing file rc==1",
+      rc == 1 and "curriculum file not found" in err)
+
+# --- unit: watch mode (--watch, the edit -> re-check loop) --------------------
+_wf = os.path.join(_curr_dir, "watch.txt")
+with open(_wf, "w", encoding="utf-8") as f:
+    f.write("v1")
+_s1 = tr._file_snapshot(_wf)
+time.sleep(0.02)
+with open(_wf, "w", encoding="utf-8") as f:
+    f.write("v2 with more words")
+_s2 = tr._file_snapshot(_wf)
+check("watch: snapshot detects a change",
+      _s1 is not None and _s2 is not None and _s1 != _s2)
+check("watch: snapshot of a missing file is None",
+      tr._file_snapshot(os.path.join(_curr_dir, "gone.txt")) is None)
+_watch_runs = []
+
+
+def _watch_cb():
+    _watch_runs.append(tr._file_snapshot(_wf))
+
+
+_tw = threading.Thread(target=lambda: tr.watch_file(_wf, 0.01, _watch_cb,
+                                                    timeout=2), daemon=True)
+_tw.start()
+time.sleep(0.1)
+with open(_wf, "w", encoding="utf-8") as f:
+    f.write("v3 changed again")
+time.sleep(0.1)
+os.remove(_wf)
+_tw.join(3)
+check("watch: re-runs on change and stops when the file disappears",
+      len(_watch_runs) >= 1)
+rc, _, err = run(["--watch", "--text", "hi"])
+check("cli --watch requires --file",
+      rc == 1 and "--watch re-profiles a file on save" in err)
+rc, _, err = run(["--watch", "--pre-enrich", "--file", _wf, "--text", "hi"])
+check("cli --watch rejects --pre-enrich",
+      rc == 1 and "--watch and --pre-enrich don't combine" in err)
 
 # --- in-process analyze with grammar (needs spaCy) ----------------------------
 if HAVE_GRAMMAR:

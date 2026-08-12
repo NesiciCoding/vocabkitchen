@@ -342,6 +342,19 @@ It reports:
   JSON as `grammarGap.missing`, and added as a **Constructions to introduce**
   section in the `--export md` handout. Requires `--target-level` and the
   grammar side (spaCy).
+- **Watch mode** — `--watch` keeps re-profiling a `--file` input whenever
+  it changes on disk (polling every second, `--watch 0.2` for faster), for a
+  tight **edit → re-check loop**: save the graded reader and the report
+  updates on the spot, until Ctrl-C.
+- **Curriculum checklist** — `--curriculum FILE` checks the text against a
+  checklist file (sections `[vocabulary]`, one word per line, and
+  `[grammar]`, construction names as shown by the grammar profiler or their
+  ids) and reports **pass/fail coverage**: each required word's presence
+  plus its CEFR band when recognised, each required construction used or
+  not, and a `pass` verdict when everything is covered. Carried in JSON as
+  `curriculum`, shown in the terminal, and rendered as a **Curriculum
+  checklist** section in the `--export md` handout. Grammar items are
+  flagged unchecked when the grammar side is off.
 
 Flags:
 
@@ -367,6 +380,8 @@ Flags:
 | `--delay`          | `--pre-enrich` only: seconds between requests (default 0.25; `0` for none) |
 | `--limit`          | `--pre-enrich` only: cap the number of new lookups |
 | `--output`          | where the `--export` file goes (default: `<stem>-preteaching-<LEVEL>.<ext>` next to the input, or `preteaching-<LEVEL>.<ext>` in the cwd; decks get a `-deck` suffix) |
+| `--watch`           | re-profile the `--file` input whenever it changes on disk (edit → re-check loop; optional interval in seconds, default 1) |
+| `--curriculum`      | check the text against a curriculum checklist file (`[vocabulary]` + `[grammar]` sections) and report pass/fail coverage |
 | (stdin)             | if neither `--text` nor `--file` is given, text is read from stdin      |
 
 The vocabulary half is dependency-free Python 3. The grammar half needs spaCy
@@ -467,7 +482,17 @@ It reports:
   **spaced review**, and words absent for two or more readings are marked
   **due**. With `--export md|csv` it writes a `<set>-interleave-<LEVEL>.md|csv`
   schedule next to the handouts — the teacher's plan for introducing a
-  folder's vocabulary at a controlled rate across repeated readings.
+  folder's vocabulary at a controlled rate across repeated readings. With
+  `--export md` it also writes **one printable handout per reading**
+  (`essays-interleave-B1-reading-2.md`) listing that reading's Introduce /
+  Review / Due words with the sentence each appears in — for printing and
+  handing out.
+- **Curriculum checklist** — `--curriculum FILE` adds a **Curriculum
+  checklist** section to each per-text `--export md` handout: the required
+  words and constructions from the checklist file (`[vocabulary]` +
+  `[grammar]` sections, same format as the text report), marked present /
+  missing per text — a folder run shows which texts cover the unit's
+  requirements.
 - **`--pre-enrich`** — prime the dictionary cache from the **whole folder's
   distinct vocabulary** in one polite, rate-limited pass, then exit:
   subsequent `--export flashcards` runs answer from the cache with zero
@@ -493,6 +518,7 @@ Flags:
 | `--gap-report`      | `--export md\|csv` only: list the target-level constructions each text does not use yet, per handout |
 | `--interleave`      | build a spaced-introduction schedule across the set (new words per reading, review + due flags) |
 | `--new-words-per-reading` | `--interleave` only: max new words introduced per reading (default 5) |
+| `--curriculum`      | `--export md` only: check every text against a curriculum checklist file and add a pass/fail coverage section to each handout |
 | `--no-enrich`       | `--export flashcards` only: skip the Free Dictionary API               |
 | `--output`          | `--export` only: write all lists into this directory (default: next to each source) |
 | `--pre-enrich`      | prime the dictionary cache from the whole folder's distinct vocabulary in one rate-limited pass, then exit |

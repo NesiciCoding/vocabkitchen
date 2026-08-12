@@ -62,6 +62,18 @@ hand:
   in the terminal, carried in JSON as `grammarGap.missing`, and added as a
   **Constructions to introduce** section in the `--export md` handout. Needs
   the grammar side (spaCy); incompatible with `--no-grammar`.
+- **`--watch`** — the edit → re-check loop: keep re-profiling the `--file`
+  input whenever it changes on disk (polls every second; `--watch 0.2` for
+  faster) until Ctrl-C — tighten a graded reader while the report updates on
+  each save.
+- **`--curriculum`** — the curriculum checklist: check the text against a
+  checklist file (sections `[vocabulary]`, one word per line, and
+  `[grammar]`, construction names as shown by the grammar profiler or their
+  ids) and report **pass/fail coverage** — each required word present or
+  missing (with its CEFR band when recognised), each required construction
+  used or not, `curriculum.pass` in JSON, and a **Curriculum checklist**
+  section in the `--export md` handout. Grammar items are flagged unchecked
+  when the grammar side is off.
 - **`--pre-enrich`** — prime the dictionary cache for a whole class in one
   polite, rate-limited pass: point it at a word list (one word per line) or
   an essay (`--file`/`--text`/stdin), it looks each distinct word up against
@@ -117,6 +129,8 @@ Flags:
 | `--delay`          | `--pre-enrich` only: seconds between requests (default 0.25; `0` for none) |
 | `--limit`          | `--pre-enrich` only: cap the number of new lookups |
 | `--output`          | where the `--export` file goes (default: `<stem>-preteaching-<LEVEL>.<ext>` next to the input, or `preteaching-<LEVEL>.<ext>` in the cwd; decks get a `-deck` suffix) |
+| `--watch`           | re-profile the `--file` input whenever it changes on disk (edit → re-check loop; optional interval in seconds, default 1) |
+| `--curriculum`      | check the text against a curriculum checklist file (`[vocabulary]` + `[grammar]` sections) and report pass/fail coverage |
 | (stdin)             | if neither `--text` nor `--file` is given, text is read from stdin      |
 
 **Choosing input mode:** `--text` for a snippet, `--file` for a document on

@@ -68,7 +68,15 @@ doesn't have.
   **spaced review**, and words absent for two or more readings are marked
   **due**. With `--export md|csv` it writes a `<set>-interleave-<LEVEL>.md|csv`
   schedule next to the handouts — the plan for introducing the folder's
-  vocabulary at a controlled rate across repeated readings.
+  vocabulary at a controlled rate across repeated readings. With `--export
+  md` it also writes **one printable handout per reading**
+  (`essays-interleave-B1-reading-2.md`) listing that reading's Introduce /
+  Review / Due words with the sentence each appears in, for printing.
+- **`--curriculum`** — with `--export md`, check every text against a
+  curriculum checklist file (`[vocabulary]` + `[grammar]` sections, same
+  format as the text report) and add a pass/fail **Curriculum checklist**
+  section to each per-text handout — which texts cover the unit's
+  requirements at a glance.
 - **`--pre-enrich`** — prime the dictionary cache from the **whole folder's
   distinct vocabulary** in one polite, rate-limited pass, then exit, so
   subsequent `--export flashcards` runs answer from the cache with zero
@@ -119,6 +127,7 @@ Flags:
 | `--gap-report`      | `--export md\|csv` only: list the target-level constructions each text does not use yet, per handout |
 | `--interleave`      | build a spaced-introduction schedule across the set (new words per reading, review + due flags) |
 | `--new-words-per-reading` | `--interleave` only: max new words introduced per reading (default 5) |
+| `--curriculum`      | `--export md` only: check every text against a curriculum checklist file and add a pass/fail coverage section to each handout |
 | `--no-enrich`       | `--export flashcards` only: skip the Free Dictionary API               |
 | `--output`          | `--export` only: write all lists into this directory (default: next to each source) |
 | `--pre-enrich`      | prime the dictionary cache from the whole folder's distinct vocabulary in one rate-limited pass, then exit |

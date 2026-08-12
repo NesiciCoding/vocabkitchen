@@ -484,6 +484,63 @@ try:
           and "Reading 1 (r1.txt):" in _il_pretty[1]
           and "1 deferred from earlier reading(s)" in _il_pretty[2])
 
+    # --- unit: per-reading interleave handouts -------------------------------
+    _il_rprof = [
+        ({"file": "r1.txt"}, _ord(b2=("alpha", "bravo")),
+         {"text": "The alpha result is bravo news."}),
+        ({"file": "r2.txt"}, _ord(b2=("delta",)),
+         {"text": "We need a delta plan."}),
+        ({"file": "r3.txt"}, _ord(),
+         {"text": "Nothing above target here."}),
+    ]
+    _ils = cp.interleave_schedule(_il_rprof, "B1", budget=5)
+    _rmd = cp.interleave_reading_markdown(_ils, _ils["readings"][0], _il_rprof)
+    check("reading handout names the reading and its source",
+          "# Reading 1 — r1.txt" in _rmd)
+    check("reading handout defines introduced words in context",
+          "| `alpha` | B2 | The alpha result is bravo news |" in _rmd
+          and "| `bravo` | B2 | The alpha result is bravo news |" in _rmd)
+    check("reading handout carries review and due sections",
+          "## Review (0)" in _rmd
+          and "## Due for review (not seen for 2+ readings) (0)" in _rmd
+          and "_None._" in _rmd)
+    _rmd3 = cp.interleave_reading_markdown(_ils, _ils["readings"][2], _il_rprof)
+    check("due words are defined from their last-seen reading",
+          "## Due for review (not seen for 2+ readings) (2)" in _rmd3
+          and "| `alpha` | B2 | The alpha result is bravo news |" in _rmd3
+          and "| `bravo` | B2 | The alpha result is bravo news |" in _rmd3)
+    check("reading handout path named after source folder",
+          cp.interleave_reading_path(_tmp, "B1", 1, None)
+          == os.path.join(_tmp, os.path.basename(_tmp)
+                          + "-interleave-B1-reading-1.md"))
+    check("reading handout path into --output dir",
+          cp.interleave_reading_path(None, "B1", 2, os.path.join(_tmp, "decks"))
+          == os.path.join(_tmp, "decks", "class-interleave-B1-reading-2.md"))
+
+    # --- unit: --curriculum wires the checklist per text ----------------------
+    _curr_dir2 = tempfile.mkdtemp(prefix="classprof_curr_")
+    _curr_path2 = os.path.join(_curr_dir2, "unit.txt")
+    with open(_curr_path2, "w", encoding="utf-8") as f:
+        f.write("[vocabulary]\npurchase\nmat\n\n[grammar]\npassive_present\n")
+    _curriculum2 = tr.load_curriculum(_curr_path2)
+    _prof_cc = cp.build_row("We purchase the equipment daily.", "c.txt", _LEVELS,
+                            None, None, False, "B1")
+    _cc = cp.export_payload(_prof_cc[0], _prof_cc[1], _prof_cc[2], "B1",
+                            curriculum=_curriculum2)
+    check("export payload carries the curriculum checklist",
+          _cc.get("curriculum") is not None
+          and _cc["curriculum"]["grammarAvailable"] is False)
+    check("curriculum marks presence per text with the band",
+          any(d["word"] == "purchase" and d["present"] is True
+              and d["level"] == "B2" for d in _cc["curriculum"]["vocabulary"])
+          and any(d["word"] == "mat" and d["present"] is False
+                  for d in _cc["curriculum"]["vocabulary"]))
+    check("per-text handout renders the curriculum checklist section",
+          "## Curriculum checklist" in tr.export_markdown(_cc))
+    check("export payload without curriculum: no checklist",
+          cp.export_payload(_prof_cc[0], _prof_cc[1], _prof_cc[2], "B1")
+          .get("curriculum") is None)
+
     rows = []
     for label, text in [("b", _EASY), ("a", _HARD)]:
         _r, _o, _c = cp.build_row(text, label, _LEVELS, None, None, False, None)
@@ -758,6 +815,42 @@ try:
     check("class --gap-report with flashcards rc==1",
           rc == 1 and "applies to the md/csv" in err)
 
+    # --- integration: --curriculum in the per-text handouts -------------------
+    _curr_in = tempfile.mkdtemp(prefix="classprof_currcli_")
+    try:
+        with open(os.path.join(_curr_in, "unit.txt"), "w",
+                  encoding="utf-8") as f:
+            f.write("[vocabulary]\npurchase\nmat\n\n[grammar]\npassive_present\n")
+        with open(os.path.join(_curr_in, "purchase.txt"), "w",
+                  encoding="utf-8") as f:
+            f.write("We purchase fresh bread daily.")
+        _curr_out = os.path.join(_curr_in, "out")
+        rc, out, err = run(["--file", _curr_in, "--target-level", "B1",
+                            "--no-grammar", "--export", "md", "--curriculum",
+                            os.path.join(_curr_in, "unit.txt"), "--output", _curr_out])
+        check("class --curriculum rc==0", rc == 0)
+        with open(os.path.join(_curr_out, "purchase-preteaching-B1.md"),
+                  encoding="utf-8") as f:
+            _cc_md = f.read()
+        check("class --curriculum handout carries the checklist",
+              "## Curriculum checklist" in _cc_md
+              and "| purchase | vocabulary | present | B2 |" in _cc_md
+              and "| mat | vocabulary | missing | — |" in _cc_md)
+        rc, _, err = run(["--file", _curr_in, "--target-level", "B1",
+                          "--curriculum", os.path.join(_curr_in, "unit.txt")])
+        check("class --curriculum without --export rc==1",
+              rc == 1 and "requires --export md" in err)
+        rc, _, err = run(["--file", _curr_in, "--target-level", "B1", "--export", "csv",
+                          "--curriculum", os.path.join(_curr_in, "unit.txt")])
+        check("class --curriculum with csv rc==1",
+              rc == 1 and "requires --export md" in err)
+        rc, _, err = run(["--file", _curr_in, "--target-level", "B1", "--export", "md",
+                          "--curriculum", os.path.join(_curr_in, "nope.txt")])
+        check("class --curriculum missing file rc==1",
+              rc == 1 and "curriculum file not found" in err)
+    finally:
+        shutil.rmtree(_curr_in, ignore_errors=True)
+
     # --- integration: --interleave spaced introduction schedule ---------------
     _il_in = tempfile.mkdtemp(prefix="classprof_il_")
     try:
@@ -783,6 +876,19 @@ try:
               and "## Reading 1 — a.txt" in _il_md
               and "## Reading 2 — b.txt" in _il_md
               and "## Word index" in _il_md)
+        # One printable handout per reading: that reading's introduce words
+        # with the in-text sentence each appears in (the definition back).
+        _r1_md = os.path.join(_il_out, os.path.basename(_il_in)
+                              + "-interleave-B1-reading-1.md")
+        with open(_r1_md, encoding="utf-8") as f:
+            _rmd = f.read()
+        check("reading handout written with introduce definitions",
+              "# Reading 1 — a.txt" in _rmd
+              and "## Introduce (" in _rmd
+              and "| Word | Level | Definition (in this text) |" in _rmd
+              and "| `purchase` | B2 |" in _rmd
+              and "| `circumstances` | B2 |" in _rmd
+              and "We purchase fresh bread and the circumstances matter" in _rmd)
         rc, out, err = run(["--file", _il_in, "--target-level", "B1",
                             "--no-grammar", "--interleave", "--format", "json"])
         d = json.loads(out)
@@ -1239,10 +1345,13 @@ if os.path.isdir(_sample):
                             "--export", "md", "--output", _golden_il])
         check("sample interleave: rc==0", rc == 0)
         _stems = [os.path.splitext(f)[0] for f in files]
-        check("sample interleave: per-text handouts + summary + schedule",
+        _reading_files = [f"sample-readings-interleave-B1-reading-{i}.md"
+                          for i in range(1, len(files) + 1)]
+        check("sample interleave: handouts + summary + schedule + reading handouts",
               set(os.listdir(_golden_il))
               == {f"{s}-preteaching-B1.md" for s in _stems}
-              | {"sample-readings-summary-B1.md", "sample-readings-interleave-B1.md"})
+              | {"sample-readings-summary-B1.md", "sample-readings-interleave-B1.md"}
+              | set(_reading_files))
         _il = json.loads(out)["interleave"]
         check("sample interleave: target and budget in the payload",
               _il["targetLevel"] == "B1" and _il["budget"] == 4)
@@ -1284,6 +1393,18 @@ if os.path.isdir(_sample):
               len(_il_rows) == len(_il["words"])
               and all(ln.split("|")[2].strip() in ("B2", "C1", "C2")
                       for ln in _il_rows))
+        for _i, _r in enumerate(_il["readings"], start=1):
+            with open(os.path.join(_golden_il, _reading_files[_i - 1]),
+                      encoding="utf-8") as f:
+                _rmd = f.read()
+            check(f"sample interleave: reading {_i} handout shape",
+                  f"# Reading {_i} — {os.path.basename(_r['file'])}" in _rmd
+                  and "| Word | Level | Definition (in this text) |" in _rmd
+                  and "## Introduce" in _rmd and "## Review" in _rmd
+                  and "## Due for review" in _rmd)
+            check(f"sample interleave: reading {_i} introduces its words",
+                  all(f"`{d['word']}`" in _rmd and f"| {d['level']} |" in _rmd
+                      for d in _r["introduce"]))
         rc, out, err = run(["--file", _sample, "--target-level", "B1", "--no-grammar",
                             "--interleave", "--new-words-per-reading", "4",
                             "--export", "csv", "--output", _golden_il])
@@ -1327,6 +1448,9 @@ if all(os.path.isfile(p) for p in (_skill_local, _skill_plugin, _plugin_json)):
     check("class-profile repo-local copy is repo-flavoured",
           "../../../" in _sl and "class_profile.py" in _sl)
     check("class-profile copies are deliberately different flavours", _sl != _sp)
+    for _flag in ("--gap-report", "--interleave", "--new-words-per-reading"):
+        check(f"class-profile skill documents {_flag} in both copies",
+              _flag in _sl and _flag in _sp)
     _manifest = json.load(open(_plugin_json, encoding="utf-8"))
     check("class-profile plugin.json declares the command",
           [c["name"] for c in _manifest.get("commands", [])] == ["class-profile"])

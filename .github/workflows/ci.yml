@@ -74,12 +74,19 @@ jobs:
         # (checkout script, ../../../ links) in .claude/skills/. Both must
         # exist and each must carry its own markers — an accidental copy of
         # one over the other loses the destination's markers and fails here.
-        # plugin.json must also declare the command the skill states.
+        # plugin.json must also declare the command the skill states, and
+        # both SKILL.md copies must document the flags the CLI ships for that
+        # skill (the plugin surface stays in step with the command line).
         run: |
           python - <<'EOF'
           import json, os, sys
 
           ok = True
+          required_flags = {
+              "class-profile": ["--gap-report", "--interleave",
+                                "--new-words-per-reading"],
+              "text-report": ["--suggest", "--gap-report"],
+          }
           for name in sorted(os.listdir("plugins")):
               d = os.path.join("plugins", name)
               if not os.path.isdir(d):
@@ -129,6 +136,11 @@ jobs:
                       print(f"skill {name}: copies are identical — they are "
                             "deliberately different flavours")
                       ok = False
+                  for flag in required_flags.get(name, []):
+                      if flag not in plugin_md or flag not in local_md:
+                          print(f"skill {name}: {flag} missing from a SKILL.md copy "
+                                "(the plugin surface must stay in step with the CLI)")
+                          ok = False
 
           sys.exit(0 if ok else 1)
           EOF
@@ -391,11 +403,25 @@ jobs:
                                       "--export", "md", "--output", outdir])
               assert rc == 0, err
               stems = [os.path.splitext(f)[0] for f in files]
+              reading_files = [f"sample-readings-interleave-B1-reading-{i}.md"
+                               for i in range(1, len(files) + 1)]
               assert set(os.listdir(outdir)) == {f"{s}-preteaching-B1.md" for s in stems} \
                                                  | {"sample-readings-summary-B1.md",
-                                                    "sample-readings-interleave-B1.md"}, \
-                  os.listdir(outdir)
+                                                    "sample-readings-interleave-B1.md"} \
+                                                 | set(reading_files), os.listdir(outdir)
               il = json.loads(out)["interleave"]
+              # one printable handout per reading: its Introduce/Review/Due
+              # words, each with the in-text sentence it appears in.
+              for i, r in enumerate(il["readings"], start=1):
+                  rmd = open(os.path.join(outdir, reading_files[i - 1]),
+                             encoding="utf-8").read()
+                  assert f"# Reading {i} — {os.path.basename(r['file'])}" in rmd, rmd
+                  assert "| Word | Level | Definition (in this text) |" in rmd, rmd
+                  assert "## Introduce" in rmd and "## Review" in rmd \
+                         and "## Due for review" in rmd, rmd
+                  for d in r["introduce"]:
+                      assert f"`{d['word']}`" in rmd \
+                             and f"| {d['level']} |" in rmd, (i, d)
               assert il["targetLevel"] == "B1" and il["budget"] == 4, il
               assert len(il["readings"]) == len(files), il  # one reading per text
               assert all(os.path.basename(r["file"]) in files for r in il["readings"]), il["readings"]
