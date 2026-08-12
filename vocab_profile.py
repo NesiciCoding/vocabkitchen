@@ -307,6 +307,79 @@ def load_level_index(base_dir):
         return {}
 
 
+# ---------------------------------------------------------------------------
+# Pluggable vocabulary profiles — swap the bundled CEFR lists for a
+# team-standardised licensed list (Oxford 3000/5000, a licensed profile, the
+# Octanove C1/C2 export, ...) in the tool's existing one-word-per-line format.
+# ---------------------------------------------------------------------------
+
+def load_plain_list(path):
+    """Read a one-word-per-line file into a set of lowercase words.
+
+    The profile format: plain UTF-8, one word per line (the same shape the
+    bundled ``WordLists/CEFR/*.txt`` lists use). Blank lines and surrounding
+    whitespace are ignored; words are lowercased, exactly like
+    :func:`load_wordlist`. Raises :class:`WordListError` when unreadable.
+    """
+    try:
+        with open(path, encoding="utf-8") as f:
+            return {line.rstrip("\r\n").strip().lower() for line in f
+                    if line.strip()}
+    except UnicodeDecodeError as ex:
+        raise WordListError(f"Profile '{path}' is not valid UTF-8: {ex}")
+    except OSError as ex:
+        raise WordListError(f"Could not read profile '{path}': {ex}")
+
+
+def load_profile(path, level_index=None, fallback_level="B1"):
+    """Load a pluggable vocabulary profile into the CEFR profiler's shape.
+
+    *path* is either
+
+    - a **directory** holding ``A1.txt``..``C2.txt`` (one word per line
+      each): the file a word appears in is its level — the directory
+      **replaces** the bundled CEFR lists entirely (missing level files are
+      simply empty); or
+    - a **single file** (one word per line): the file is the team's
+      **recognition list** — every word in it is recognised, at the level
+      the bundled ``levels.json`` index assigns it where available, falling
+      back to *fallback_level* (default ``B1``) for words the index doesn't
+      know; words **outside** the file are off-list, because a team
+      standardised on a licensed list wants the distribution over *their*
+      list.
+
+    Returns ``(levels, label, meta)``: *levels* is the
+    ``[(level, wordset), ...]`` list :func:`profile` scores against (A1→C2
+    order, so the lowest level wins per word), *label* is the profile's
+    display name, and *meta* carries ``kind`` (``"directory"`` /
+    ``"list"``) plus ``levelFallback`` for reports.
+    """
+    if os.path.isdir(path):
+        levels = []
+        label = os.path.basename(os.path.normpath(path))
+        for lvl in _CEFR_ORDER:
+            full = os.path.join(path, f"{lvl}.txt")
+            levels.append((lvl, load_plain_list(full) if os.path.isfile(full)
+                          else set()))
+        return (levels, label,
+                {"name": label, "kind": "directory", "levelFallback": None})
+    fallback = (fallback_level or "B1").strip().upper()
+    if fallback not in _CEFR_ORDER:
+        raise WordListError(
+            f"Invalid profile fallback level '{fallback_level}'. "
+            f"Valid: {', '.join(_CEFR_ORDER)}.")
+    index = level_index or {}
+    by_level = {lvl: set() for lvl in _CEFR_ORDER}
+    for w in load_plain_list(path):
+        lvl = (index.get(w) or {}).get("level") or fallback
+        if lvl in by_level:
+            by_level[lvl].add(w)
+    label = os.path.basename(path)
+    return ([(lvl, by_level[lvl]) for lvl in _CEFR_ORDER],
+            label, {"name": label, "kind": "list",
+                    "levelFallback": fallback})
+
+
 def profile(text, levels):
     """Run one profiler (list of (level_name, word_set)) over the text.
 
@@ -475,8 +548,13 @@ def _render_highlight(text, cefr_levels, width, colour):
     return lines
 
 
-def render_pretty(source_label, per_type, cefr_levels, text, stream=None):
-    """Render a colour-coded CEFR view. *per_type* maps type -> (ordered, total)."""
+def render_pretty(source_label, per_type, cefr_levels, text, stream=None,
+                  profile=None):
+    """Render a colour-coded CEFR view. *per_type* maps type -> (ordered, total).
+
+    *profile* (when set) is the pluggable vocabulary profile's display name;
+    it's shown so the reader knows which word lists produced the bands.
+    """
     stream = stream or sys.stdout
     colour = _use_colour(stream)
     try:
@@ -489,6 +567,8 @@ def render_pretty(source_label, per_type, cefr_levels, text, stream=None):
     out.append(_bold("Vocabulary Profile", colour))
     if source_label:
         out.append(_paint(_LEVEL_RGB["Off List"], f"Source: {source_label}", colour))
+    if profile:
+        out.append(_paint(_LEVEL_RGB["Off List"], f"Profile: {profile}", colour))
     out.append("")
 
     if "cefr" in per_type:
@@ -594,6 +674,16 @@ def main(argv=None):
     parser.add_argument("--text", default=None)
     parser.add_argument("--file", default=None)
     parser.add_argument("--wordlists", default=None)
+    parser.add_argument("--profile", default=None,
+                        help="swap the bundled CEFR lists for a pluggable "
+                             "vocabulary profile: a directory of A1.txt..C2.txt "
+                             "(one word per line each) or a single one-word-per-line "
+                             "list whose words are the recognition list (levels from "
+                             "the bundled levels.json index, --profile-level otherwise; "
+                             "words outside it are off-list)")
+    parser.add_argument("--profile-level", dest="profile_level", default="B1",
+                        help="--profile single-file lists only: the CEFR level for "
+                             "words the bundled index doesn't know (default: B1)")
     # Allow a bare positional text argument, matching the C# fallback.
     parser.add_argument("positional", nargs="*", help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
@@ -632,6 +722,7 @@ def main(argv=None):
     requested = args.type.lower()
     types = list(_PROFILERS.keys()) if requested == "all" else [t.strip() for t in requested.split(",")]
 
+    profile_label = None
     results = {}
     per_type = {}
     cefr_levels = None
@@ -641,7 +732,13 @@ def main(argv=None):
             sys.stderr.write(f"Unknown profiler type '{t}'. Valid types: cefr, awl, nawl, all.\n")
             return 1
         try:
-            levels = [(name, load_wordlist(base_dir, rel)) for name, rel in _PROFILERS[t]]
+            if t == "cefr" and args.profile:
+                levels, profile_label, _meta = load_profile(
+                    args.profile, level_index=load_level_index(base_dir),
+                    fallback_level=args.profile_level)
+            else:
+                levels = [(name, load_wordlist(base_dir, rel))
+                          for name, rel in _PROFILERS[t]]
         except WordListError as ex:
             sys.stderr.write(str(ex) + "\n")
             return 1
@@ -654,9 +751,12 @@ def main(argv=None):
             cefr_levels = levels
 
     if out_format == "pretty":
-        render_pretty(source_label, per_type, cefr_levels, text)
+        render_pretty(source_label, per_type, cefr_levels, text, profile=profile_label)
     else:
-        print(json.dumps({"totalWordCount": total_word_count, "results": results}, indent=2, ensure_ascii=False))
+        out = {"totalWordCount": total_word_count, "results": results}
+        if profile_label:
+            out["profile"] = profile_label
+        print(json.dumps(out, indent=2, ensure_ascii=False))
     return 0
 
 

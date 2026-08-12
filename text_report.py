@@ -219,7 +219,7 @@ def _maybe_reexec_in_venv():
 def analyze(text, target_level=None, wordlists_dir=None, grammar_dir=None,
             with_grammar=True, with_readability=True, suggest=False,
             gap_report=False, curriculum=None, cambridge=False, cando=False,
-            comments=False):
+            comments=False, profile=None, profile_level="B1"):
     """Run both profilers and readability over *text*; return the report payload.
 
     The Phase 5 shared engine: this is the analysis module's pipeline (word
@@ -238,13 +238,17 @@ def analyze(text, target_level=None, wordlists_dir=None, grammar_dir=None,
     exam-mapping and Can-Do-framing items). With ``comments=True`` (and the
     grammar side), the payload carries ``grammarComments`` — the per-
     construction rubric comments for RubricMaker's apply-as-comment.
+    *profile* swaps the bundled CEFR lists for a pluggable vocabulary
+    profile (a directory of ``A1.txt``..``C2.txt`` or a single
+    one-word-per-line list); ``profile_level`` is its fallback band.
     """
     return engine.analyze(
         text, target_level=target_level, wordlists_dir=wordlists_dir,
         grammar_dir=grammar_dir, with_grammar=with_grammar,
         with_readability=with_readability, suggest=suggest,
         gap_report=gap_report, curriculum=curriculum, cambridge=cambridge,
-        cando=cando, comments=comments)
+        cando=cando, comments=comments, profile_path=profile,
+        profile_level=profile_level)
 
 
 # ---------------------------------------------------------------------------
@@ -608,7 +612,9 @@ def load_dictionary_cache(path):
 def save_dictionary_cache(path, cache):
     """Atomically write the cache file (temp + rename). Never raises."""
     try:
-        os.makedirs(os.path.dirname(path), exist_ok=True)
+        parent = os.path.dirname(path)
+        if parent:
+            os.makedirs(parent, exist_ok=True)
         tmp = path + ".tmp"
         with open(tmp, "w", encoding="utf-8") as f:
             json.dump({"version": _CACHE_VERSION, "entries": cache},
@@ -925,32 +931,46 @@ def cached_definitions(cache_path, base_url=None):
             if e and e.get("definition")}
 
 
-def _lookup_with_cache(word, url_key, cache, fetcher, offline):
+def _lookup_with_cache(word, url_key, cache, fetcher, offline,
+                       offline_fallback=None):
     """One cache-aware lookup, shared by deck export and pre-enrichment.
 
     Returns ``(result, source)`` where *source* is ``"cache"`` (answered from
     *cache* without a request), ``"network"`` (fetched just now; the learned
-    entry — definition or definitive miss — is stored into *cache*), or
-    ``"offline"`` (network failure; nothing cached). When *offline* is already
-    True, only cached answers are returned.
+    entry — definition or definitive miss — is stored into *cache*),
+    ``"wordnet"`` (answered by *offline_fallback* — the bundled Open English
+    WordNet — when the API is unreachable or doesn't know the word), or
+    ``"offline"`` (network failure with no fallback answer; nothing cached).
+    When *offline* is already True, only cached and fallback answers are
+    returned. The learned entry (definition, definitive miss, or WordNet
+    gloss) is always stored into *cache* so repeat runs answer from it.
     """
     lower = word.lower()
     bucket = cache.get(url_key)
     if bucket is not None and lower in bucket:
         return bucket[lower], "cache"
-    if offline:
-        return None, "offline"
-    try:
-        result = fetcher(word)
-    except _DictNetworkError:
-        return None, "offline"
+    result = None
+    source = "offline" if offline else "network"
+    if not offline:
+        try:
+            result = fetcher(word)
+        except _DictNetworkError:
+            result = None
+            source = "offline"
+    if result is None or not result.get("definition"):
+        if offline_fallback is not None:
+            fb = offline_fallback(word)
+            if fb and fb.get("definition"):
+                result = fb
+                source = "wordnet"
     cache.setdefault(url_key, {})[lower] = (
         result if result and result.get("definition") else None)
-    return result, "network"
+    return result, source
 
 
 def pre_enrich_words(words, base_url=None, lookup=None, cache_path=None,
-                     delay=0.25, limit=None, on_progress=None):
+                     delay=0.25, limit=None, on_progress=None,
+                     offline_fallback=None):
     """Prime the dictionary cache for *words* in one polite, rate-limited pass.
 
     Each word is looked up against the Free Dictionary API (skipping words
@@ -959,18 +979,23 @@ def pre_enrich_words(words, base_url=None, lookup=None, cache_path=None,
     are slept between requests (politeness to the hobby-host API); *limit*
     caps the number of **new** lookups (None = no cap); *on_progress* is
     called with the stats dict after every 25 new lookups so a caller can
-    print progress.
+    print progress. *offline_fallback* (e.g. the bundled WordNet's
+    :func:`dictionary.wordnet_fallback`) answers words the API misses or an
+    offline network can't reach — so ``--pre-enrich`` still fills the cache
+    when the API is down.
 
     Returns ``{"requested": int, "skipped": int, "looked_up": int,
-    "found": int, "missed": int, "offline": bool}`` — ``requested`` is the
-    number of distinct words passed in, ``skipped`` were already cached.
+    "found": int, "missed": int, "offline": bool, "fallback": int}`` —
+    ``requested`` is the number of distinct words passed in, ``skipped``
+    were already cached, and ``fallback`` counts answers that came from
+    *offline_fallback* rather than the API.
     """
     cache = load_dictionary_cache(cache_path) if cache_path else {}
     url_key = base_url or _DICT_API
     fetcher = lookup or (lambda wd: lookup_dictionary(wd, base_url))
     # requested = the full distinct input count, regardless of --limit.
     stats = {"requested": len(words), "skipped": 0, "looked_up": 0,
-             "found": 0, "missed": 0, "offline": False}
+             "found": 0, "missed": 0, "offline": False, "fallback": 0}
     offline = False
     bucket = cache.setdefault(url_key, {})  # live view; new entries are visible
     for word in words:
@@ -980,13 +1005,16 @@ def pre_enrich_words(words, base_url=None, lookup=None, cache_path=None,
         if lower in bucket:
             stats["skipped"] += 1
             continue
-        result, source = _lookup_with_cache(lower, url_key, cache, fetcher, offline)
+        result, source = _lookup_with_cache(lower, url_key, cache, fetcher,
+                                            offline, offline_fallback)
         if source == "offline":
             stats["offline"] = True
             offline = True
             continue
-        if source == "network":
+        if source in ("network", "wordnet"):
             stats["looked_up"] += 1
+            if source == "wordnet":
+                stats["fallback"] += 1
             if result is not None and result.get("definition"):
                 stats["found"] += 1
             else:
@@ -1001,7 +1029,7 @@ def pre_enrich_words(words, base_url=None, lookup=None, cache_path=None,
 
 
 def export_flashcards(payload, enrich=True, base_url=None, level_index=None,
-                      lookup=None, cache_path=None):
+                      lookup=None, cache_path=None, offline_fallback=None):
     """The above-target words as a flashcard deck in RubricMaker's import shape.
 
     Exactly the columns RubricMaker's deck importer reads
@@ -1011,9 +1039,11 @@ def export_flashcards(payload, enrich=True, base_url=None, level_index=None,
     plain definition, the in-text context sentence moves to ``example``, and
     ``phonetic``/``partOfSpeech`` are filled from the API (partOfSpeech falls
     back to the bundled OLP-EN-CEFRJ index's POS when the API misses). When
-    the API is offline or doesn't know a word, the back falls back to the
-    in-text context sentence, so a deck always ships usable cards. Structures
-    stay in the Markdown/CSV exports; a deck is a vocabulary artefact.
+    the API is offline or doesn't know a word, *offline_fallback* (e.g. the
+    bundled WordNet's :func:`dictionary.wordnet_fallback`) supplies a gloss
+    first; failing that, the back falls back to the in-text context sentence,
+    so a deck always ships usable cards. Structures stay in the
+    Markdown/CSV exports; a deck is a vocabulary artefact.
 
     With *cache_path*, lookups are persisted between runs: a JSON file keyed
     by (base URL, word) that stores successful results and definitive misses,
@@ -1046,7 +1076,8 @@ def export_flashcards(payload, enrich=True, base_url=None, level_index=None,
         back, example, phonetic, pos = context, context, "", ""
         if enrich:
             result, source = _lookup_with_cache(
-                word, url_key, cache, fetcher, stats["offline"])
+                word, url_key, cache, fetcher, stats["offline"],
+                offline_fallback)
             if source == "offline":
                 stats["offline"] = True
             elif source == "cache":
@@ -1276,9 +1307,14 @@ def _write_export(args, payload, target):
         cache_path = None
         if not args.no_dictionary_cache:
             cache_path = args.dictionary_cache or default_dictionary_cache_path()
+        # The bundled Open English WordNet is the offline definition layer:
+        # when the Free Dictionary API is unreachable or misses, the back
+        # still ships a real gloss instead of the in-text sentence.
+        import dictionary
         content, deck_stats = export_flashcards(
             payload, enrich=not args.no_enrich, base_url=args.dictionary_url,
-            level_index=vp.load_level_index(base_dir), cache_path=cache_path)
+            level_index=vp.load_level_index(base_dir), cache_path=cache_path,
+            offline_fallback=dictionary.wordnet_fallback())
         if deck_stats["offline"]:
             sys.stderr.write("Dictionary enrichment unavailable (offline?); "
                              "the deck shipped with in-context backs. "
@@ -1361,6 +1397,15 @@ def main(argv=None):
     parser.add_argument("--text", default=None)
     parser.add_argument("--file", default=None)
     parser.add_argument("--wordlists", default=None)
+    parser.add_argument("--profile", default=None,
+                        help="swap the bundled CEFR lists for a pluggable "
+                             "vocabulary profile: a directory of A1.txt..C2.txt "
+                             "(one word per line each) or a single one-word-per-line "
+                             "list (levels from the bundled levels.json index, "
+                             "--profile-level otherwise; words outside it are off-list)")
+    parser.add_argument("--profile-level", dest="profile_level", default="B1",
+                        help="--profile single-file lists only: the CEFR level for "
+                             "words the bundled index doesn't know (default: B1)")
     parser.add_argument("--grammar-profile", dest="grammar_profile", default=None)
     parser.add_argument("--no-grammar", action="store_true")
     parser.add_argument("--no-readability", action="store_true")
@@ -1452,18 +1497,28 @@ def main(argv=None):
         sys.stderr.write(
             "Usage: text_report.py [--target-level A1|A2|B1|B2|C1|C2] "
             "[--format auto|json|pretty] "
-            "[--text \"...\" | --file path{.txt|.md|.docx|.pdf} | < stdin] "
+            "[--text \"...\" | --file path{.txt|.md|.docx|.pdf|.csv|.json} | < stdin] "
             "[--no-grammar] [--no-readability] "
             "[--export csv|md|flashcards [--cloze] [--no-enrich] "
             "[--dictionary-cache PATH|--no-dictionary-cache] [--output PATH]] "
-            "[--pre-enrich [--delay SECONDS] [--limit N]]\n"
+            "[--pre-enrich [--delay SECONDS] [--limit N]] "
+            "[--profile PATH [--profile-level LEVEL]]\n"
         )
         return 1
 
     if args.pre_enrich:
-        tokens = [t.lower() for t in vp.tokenize(text)
-                  if t not in vp._PLACEHOLDERS]
-        words = sorted({t for t in tokens if any(c.isalpha() for c in t)})
+        # A class's vocabulary-list export (RubricMaker CSV/JSON) imports
+        # directly — the cache is primed from the app's own data without
+        # reformatting; .txt essays still go through the tokenizer.
+        import dictionary
+        if args.file and os.path.splitext(args.file)[1].lower() \
+                in (".csv", ".json"):
+            words = dictionary.read_word_list(args.file)
+        else:
+            tokens = [t.lower() for t in vp.tokenize(text)
+                      if t not in vp._PLACEHOLDERS]
+            words = sorted({t for t in tokens
+                            if any(c.isalpha() for c in t)})
         cache_path = args.dictionary_cache or default_dictionary_cache_path()
 
         def _progress(s):
@@ -1473,10 +1528,18 @@ def main(argv=None):
 
         stats = pre_enrich_words(
             words, base_url=args.dictionary_url, cache_path=cache_path,
-            delay=args.delay, limit=args.limit, on_progress=_progress)
+            delay=args.delay, limit=args.limit, on_progress=_progress,
+            offline_fallback=dictionary.wordnet_fallback())
         tail = ""
         if stats["offline"]:
-            tail = " Offline — remaining words left unprimed."
+            if stats["fallback"]:
+                tail = (f" Offline — {stats['fallback']} answered from the "
+                        "bundled WordNet; remaining words left unprimed.")
+            else:
+                tail = " Offline — remaining words left unprimed."
+        elif stats["fallback"]:
+            tail = (f" {stats['fallback']} answered from the bundled "
+                    "WordNet (offline-safe).")
         sys.stderr.write(
             f"Pre-enriched {stats['looked_up']} word"
             f"{'s' if stats['looked_up'] != 1 else ''} "
@@ -1519,6 +1582,8 @@ def main(argv=None):
                 cambridge=args.cambridge,
                 cando=args.cando,
                 comments=args.comments,
+                profile=args.profile,
+                profile_level=args.profile_level,
             )
         except vp.WordListError as ex:
             sys.stderr.write(str(ex) + "\n")

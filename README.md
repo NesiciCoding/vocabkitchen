@@ -54,7 +54,18 @@ The vocabulary profiler scores against three word lists:
   grammatical constructions* it uses — present perfect, the passive, relative
   clauses, conditionals, modals, and ~70 more — and maps each to a CEFR level
   using the **CEFR-J Grammar Profile**. Detection is rule-based over a spaCy
-  parse. See [Grammar profiler](#grammar-profiler).
+  parse. It is also the **single source of truth for grammar**: the
+  construction registry exports as the shared taxonomy both tools cite
+  (`GrammarProfile/taxonomy.json`, printable via `--taxonomy`), so a
+  construction is levelled the same way whether it's detected in a reading
+  (CLI) or an essay (app). See [Grammar profiler](#grammar-profiler).
+- **`dictionary.py`** — the **shared dictionary stack** (the Phase 5 free
+  lookup swap): CEFR levels from the bundled `levels.json` index, definitions
+  + phonetics + POS from the Free Dictionary API, and the bundled Open
+  English WordNet as the **offline fallback** — all through one cache, the
+  replacement for the paid Cambridge Dictionary API's `lookupWord` (see
+  [`DICTIONARY-SOURCES.md`](DICTIONARY-SOURCES.md)). `build_dictionary.py`
+  (re)builds the bundled WordNet from the upstream CC BY 4.0 JSON.
 - **`text_report.py`** — a **unified difficulty report** that runs both
   profilers and prints one combined summary: vocabulary band + grammatical
   range + a blended estimated level, plus (with `--target-level`) what exceeds
@@ -111,6 +122,8 @@ Options:
 | `--text`      | inline text to analyse                                                  |
 | `--file`      | path to a `.txt`, `.md`, `.docx`, or `.pdf` file to analyse            |
 | `--wordlists` | override the word-list directory (defaults to the bundled lists)        |
+| `--profile`   | swap the bundled CEFR lists for a pluggable vocabulary profile — a directory of `A1.txt`..`C2.txt` (one word per line each) or a single one-word-per-line list (see [Pluggable vocabulary profiles](#pluggable-vocabulary-profiles)) |
+| `--profile-level` | `--profile` single-file lists only: the CEFR level for words the bundled index doesn't know (default `B1`) |
 | (stdin)       | if neither `--text` nor `--file` is given, text is read from stdin      |
 
 ### Input formats
@@ -148,6 +161,35 @@ Selected by `--format`:
 terminal and `json` when stdout is piped or redirected, so downstream tools keep
 receiving JSON automatically. Pass `--format json`/`--format pretty` to force
 either. See [`WORDLISTS.md`](WORDLISTS.md) for data provenance and accuracy notes.
+
+### Pluggable vocabulary profiles
+
+A team standardised on a **licensed list** (Oxford 3000/5000, a licensed
+profile, the Octanove C1/C2 export, …) can swap the bundled CEFR lists for it
+in the tool's existing **one-word-per-line** format:
+
+```bash
+python3 vocab_profile.py --type cefr --profile oxford3000.txt --text essay.txt
+python3 text_report.py --file essay.txt --target-level B1 --profile octanove/ --profile-level C2
+python3 class_profile.py --file essays/ --profile oxford3000.txt --no-grammar
+```
+
+`--profile PATH` accepts either:
+
+- a **directory** holding `A1.txt`..`C2.txt` (one word per line each) — the
+  file a word appears in is its level, and the directory **replaces** the
+  bundled CEFR lists entirely (missing level files are just empty); or
+- a **single file** (one word per line) — the file is the team's
+  **recognition list**: every word in it is recognised, at the level the
+  bundled `levels.json` index assigns it where available, else
+  `--profile-level` (default `B1`). Words **outside** the file are off-list,
+  because a team standardised on a licensed list wants the distribution over
+  *their* list.
+
+The active profile is shown in the pretty view (`Profile: …`), carried as
+`profile` in the vocab profiler's JSON, and rides in the report payload as
+`vocabulary.profile` (`{name, kind, levelFallback}` — the dashboard knows
+which word lists produced the bands). See [`WORDLISTS.md`](WORDLISTS.md).
 
 ### Planned / future ideas
 
@@ -234,12 +276,26 @@ echo "The results were analysed by the team." | python3 grammar_profile.py
 | `--text`            | inline text to analyse                                                   |
 | `--file`            | path to a `.txt`, `.md`, `.docx`, or `.pdf` file (PDF needs `pypdf`)     |
 | `--grammar-profile` | override the CEFR-J data directory (defaults to the bundled profile)     |
+| `--taxonomy`        | print the full construction registry as JSON — the **shared CEFR-J
+  grammar taxonomy** (every construction, its category, its level, its
+  CEFR-J code, levelled exactly like the profiler) — and exit (no spaCy
+  needed). The same document is checked in at
+  `GrammarProfile/taxonomy.json`, so both the CLI and the app cite one
+  taxonomy |
 | (stdin)             | if neither `--text` nor `--file` is given, text is read from stdin       |
 
 The same `--format auto` rule applies: a colour-coded terminal view when stdout is
 a TTY, JSON when piped or redirected. The JSON has sentence/token counts, an
 `estimatedLevel` (`typical` = busiest band, `reaches` = highest band present), and
 every detected construction banded by CEFR level with counts and example spans.
+
+The profiler is also the **single source of truth for grammar**: its
+construction registry (id → name/category/CEFR-J code, with levels resolved
+from the bundled CEFR-J Grammar Profile exactly as detection does) is exported
+as the shared taxonomy both tools cite — `python3 grammar_profile.py
+--taxonomy`, or the checked-in `GrammarProfile/taxonomy.json` a consumer can
+bundle without running anything. A construction is therefore levelled the same
+way whether it's detected in a reading (the CLI) or an essay (the app).
 
 ### Output
 
@@ -311,29 +367,41 @@ It reports:
   by default: the back becomes the **Free Dictionary API's** plain definition
   (`dictionaryapi.dev`, free, no key), the in-text context sentence moves to
   the `example` column, and `phonetic` / `partOfSpeech` are filled in (POS
-  falls back to the bundled word-list index). Offline or on a miss, the back
-  gracefully falls back to the in-text sentence, so a deck always imports.
-  CEFR levels never come from the API — they come from the bundled
-  OLP-EN-CEFRJ word lists. `--no-enrich` skips the network entirely;
-  `--dictionary-url` points at a proxy/test server.
+  falls back to the bundled word-list index). **Offline dictionary
+  fallback:** when the API is unreachable or doesn't know a word, the back
+  becomes a gloss from the **bundled Open English WordNet**
+  (`WordLists/dictionary/wordnet.json`, CC BY 4.0, built by
+  `build_dictionary.py`) — definitions ship even with no network — and only
+  then falls back to the in-text sentence, so a deck always imports. CEFR
+  levels never come from the API — they come from the bundled OLP-EN-CEFRJ
+  word lists. `--no-enrich` skips the network entirely; `--dictionary-url`
+  points at a proxy/test server.
 - **Lookups are cached between runs** — successful lookups *and* definitive
   misses are stored in a small JSON cache (default
   `~/.cache/vocabkitchen/dictionary.json`, keyed by API URL and word), so
   repeat exports make **no repeat requests** — fast, and polite to the hobby
-  API. `--dictionary-cache PATH` overrides the file, `--no-dictionary-cache`
-  disables it.
+  API. WordNet-sourced results are stored in the **same cache** (tagged
+  `source: "wordnet"`), so one warmed cache serves both deck exports and
+  teacher lookups (the shared stack in [`dictionary.py`](dictionary.py) — the
+  `cambridgeApi.lookupWord` replacement — reads and writes it; see
+  [`DICTIONARY-SOURCES.md`](DICTIONARY-SOURCES.md)). `--dictionary-cache
+  PATH` overrides the file, `--no-dictionary-cache` disables it.
 - **Pre-enrich a whole class in one pass** — `--pre-enrich` primes that cache
-  from a word list (one word per line) or an essay in a single polite,
+  from a word list (one word per line), an essay, **or a class's
+  vocabulary-list export** (RubricMaker CSV/JSON — the `word` column or
+  `words` array is read directly, no reformatting) in a single polite,
   rate-limited pass, then exits (no report, no export):
 
   ```bash
   python3 text_report.py --pre-enrich --file class_vocab.txt
+  python3 text_report.py --pre-enrich --file class-vocab.csv
   python3 text_report.py --pre-enrich --text "the whole essay…" --delay 0.5
   ```
 
   Words already cached (hits and misses) are skipped; `--delay SECONDS`
   spaces requests out (default 0.25, `0` for none); `--limit N` caps new
-  lookups. Subsequent `--export flashcards` runs then answer from the cache.
+  lookups; offline or on API misses, the bundled WordNet still fills the
+  cache. Subsequent `--export flashcards` runs then answer from the cache.
 - **`--cloze`** — render the exported examples as **fill-the-gap sentences**:
   each target word (or construction span) becomes `{{...}}` — RubricMaker's
   native fill-the-gap syntax. Paste a sentence into a RubricMaker fill-the-gap
@@ -398,6 +466,8 @@ Flags:
 | `--text`            | inline text to analyse                                                   |
 | `--file`            | path to a `.txt`, `.md`, `.docx`, or `.pdf` file (PDF needs `pypdf`)     |
 | `--wordlists`       | override the vocabulary word-list directory                              |
+| `--profile`         | swap the bundled CEFR lists for a pluggable vocabulary profile (directory of `A1.txt`..`C2.txt` or a single one-word-per-line list; see [Pluggable vocabulary profiles](#pluggable-vocabulary-profiles)) |
+| `--profile-level`   | `--profile` single-file lists only: the CEFR level for words the bundled index doesn't know (default `B1`) |
 | `--grammar-profile` | override the CEFR-J data directory                                      |
 | `--no-grammar`      | skip the grammar side even if spaCy is available                        |
 | `--no-readability`  | omit the readability line                                               |
@@ -434,7 +504,7 @@ carries an example sentence from the text (`context` on words, `examples` on
 structures), which the exports use to show every item in context.
 
 **The payload is a versioned contract.** Every payload carries `schemaVersion`
-(currently `1.3`), and the full JSON Schema is checked in at
+(currently `1.4`), and the full JSON Schema is checked in at
 `analysis.schema.json` (kept byte-equal to `analysis.payload_schema()` by the
 tests and CI, and printable with `--schema`). With the grammar side enabled,
 the payload also carries `grammarCriteria`: one entry per registered
@@ -505,7 +575,11 @@ It reports:
   and — with `--target-level` — the **percentage of recognised running words
   above the class's level** (the same coverage figure `text_report.py`
   reports, flipped) and a fits/no-fits verdict. `--format csv` prints it
-  ready for a spreadsheet.
+  ready for a spreadsheet. Each JSON row also carries the **per-student CEFR
+  distribution** (`distribution`: per-level counts + percentages, total,
+  typical, coverage) — the feed the Vocabulary Profile dashboard renders,
+  so a class's essays become per-student distributions without re-deriving
+  anything from the pooled aggregate.
 - **Rank & filter** — `--sort` ranks the set by estimated level (default) or
   by vocabulary typical / reached band, word count, or filename; `--min-level`
   / `--max-level` keep only the texts whose estimated level is in the band —
@@ -516,7 +590,8 @@ It reports:
   set can be split across classes in a single table.
 - **Aggregate distribution** — the pooled CEFR distribution over the whole
   set (typical band, 90%-coverage band, off-list share, a coloured bar in the
-  terminal view) — the dashboard's headline chart, from the command line.
+  terminal view) — the dashboard's headline chart, from the command line —
+  while each row's `distribution` is its student's own band spread.
 - **`--export-vocab DIR`** — dump the **distinct words in each CEFR band to
   CSV** (`vocab-A1.csv` … `vocab-C2.csv`, plus `vocab-off-list.csv` for the
   unrecognised words) over the selected set: each row is a word, its running
@@ -635,6 +710,8 @@ Flags:
 | `--dictionary-url`  | override the dictionary API base URL (proxy / test server)            |
 | `--no-grammar`      | skip the grammar side even if spaCy is available                       |
 | `--wordlists`       | override the vocabulary word-list directory                             |
+| `--profile`         | swap the bundled CEFR lists for a pluggable vocabulary profile (directory of `A1.txt`..`C2.txt` or a single one-word-per-line list; see [Pluggable vocabulary profiles](#pluggable-vocabulary-profiles)) |
+| `--profile-level`   | `--profile` single-file lists only: the CEFR level for words the bundled index doesn't know (default `B1`) |
 | `--grammar-profile` | override the CEFR-J data directory                                     |
 | (stdin)             | if neither `--file` nor `--text` is given, text is read from stdin     |
 

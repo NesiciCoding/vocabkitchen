@@ -200,5 +200,67 @@ try:
 finally:
     shutil.rmtree(_tmp2, ignore_errors=True)
 
+# --- pluggable vocabulary profiles --------------------------------------------
+_tmp3 = tempfile.mkdtemp(prefix="vocabtest_profile_")
+try:
+    # Single-file profile: the file is the recognition list; words outside it
+    # are off-list, and per-word levels come from the bundled index (the
+    # levels.json fallback applies to words the index doesn't know).
+    prof = os.path.join(_tmp3, "core.txt")
+    with open(prof, "w", encoding="utf-8") as f:
+        f.write("cat\nmat\n")
+    rc, out, err = run(["--type", "cefr", "--profile", prof,
+                        "--text", "The cat sat on the mat."], "")
+    check("profile single-file rc==0", rc == 0)
+    dp = json.loads(out)
+    check("profile carried in json", dp.get("profile") == "core.txt")
+    cefr_p = dp["results"]["cefr"]
+    check("profile: only listed words recognised",
+          cefr_p["A1"]["wordCount"] + cefr_p["C1"]["wordCount"] == 2
+          and cefr_p["Off List"]["wordCount"] == 4)
+    check("profile: listed words keep index levels",
+          {w["word"] for w in cefr_p["A1"]["words"]} == {"cat"}
+          and {w["word"] for w in cefr_p["C1"]["words"]} == {"mat"})
+
+    # Directory profile: per-level files replace the CEFR lists entirely.
+    pdir = os.path.join(_tmp3, "levels")
+    os.makedirs(pdir)
+    with open(os.path.join(pdir, "A1.txt"), "w", encoding="utf-8") as f:
+        f.write("cat\n")
+    with open(os.path.join(pdir, "B1.txt"), "w", encoding="utf-8") as f:
+        f.write("mat\n")
+    rc, out, _ = run(["--type", "cefr", "--profile", pdir,
+                      "--text", "The cat sat on the mat."], "")
+    check("profile dir rc==0", rc == 0)
+    dpd = json.loads(out)
+    check("profile dir label is the folder name", dpd.get("profile") == "levels")
+    cefr_pd = dpd["results"]["cefr"]
+    check("profile dir: file level wins (cat=A1)",
+          {w["word"] for w in cefr_pd["A1"]["words"]} == {"cat"})
+    check("profile dir: mat=B1 from its file",
+          {w["word"] for w in cefr_pd["B1"]["words"]} == {"mat"})
+    check("profile dir: unlisted words off-list",
+          cefr_pd["Off List"]["wordCount"] == 4)
+
+    # --profile-level fallback for words the index doesn't know.
+    prof2 = os.path.join(_tmp3, "rare.txt")
+    with open(prof2, "w", encoding="utf-8") as f:
+        f.write("cat\nzzzznotaword\n")
+    rc, out, _ = run(["--type", "cefr", "--profile", prof2,
+                      "--profile-level", "C2",
+                      "--text", "cat zzzznotaword"], "")
+    check("profile-level fallback applies",
+          json.loads(out)["results"]["cefr"]["C2"]["words"]
+          == [{"word": "zzzznotaword", "occurrences": 1}])
+
+    rc, out, err = run(["--type", "cefr", "--profile",
+                        os.path.join(_tmp3, "missing.txt"), "--text", "hi"], "")
+    check("profile unreadable errors rc==1", rc == 1 and "Could not read profile" in err)
+    rc, out, err = run(["--type", "cefr", "--profile", prof2,
+                        "--profile-level", "bogus", "--text", "cat"], "")
+    check("profile-level bogus errors rc==1", rc == 1 and "Invalid profile fallback" in err)
+finally:
+    shutil.rmtree(_tmp3, ignore_errors=True)
+
 print(f"\n{passed} passed, {failed} failed")
 sys.exit(1 if failed else 0)

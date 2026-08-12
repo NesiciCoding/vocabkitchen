@@ -289,6 +289,24 @@ try:
     check("row hard estimated C2", row2["estimatedLevel"] == "C2")
     check("row hard does not fit B1", row2["fits"] is False)
 
+    # --- unit: the per-student CEFR distribution (the dashboard feed) --------
+    _ladder = vp.CEFR_ORDER
+    dist = row["distribution"]
+    _ladder_bands = _ladder + ["Off List"]
+    check("row distribution: per-level counts + percent + totals",
+          isinstance(dist, dict) and dist["total"] == row["totalWordCount"]
+          and dist["typical"] == "A1"
+          and sum(dist[band]["count"] for band in _ladder_bands)
+          == dist["total"]
+          and all(0 <= dist[band]["percent"] <= 100
+                  for band in _ladder_bands))
+    check("row distribution: percentages sum to 100 (recognised + off-list)",
+          sum(dist[band]["percent"] for band in _ladder_bands) == 100)
+    check("row distribution: matches the pooled fold source",
+          dist["A1"]["count"] == sum(o for _w, o in ordered[0][2]))
+    check("row distribution: off-list words carried",
+          dist["Off List"]["count"] >= 0)
+
     row3, _o3, _c3 = cp.build_row(_EASY, "x.txt", _ENG, False, None)
     check("row without target: above/fits null",
           row3["aboveTargetPercent"] is None and row3["fits"] is None)
@@ -310,6 +328,33 @@ try:
     check("multi-target: above pct per level",
           isinstance(rowm2["targets"]["A2"]["aboveTargetPercent"], int)
           and isinstance(rowm2["targets"]["B1"]["aboveTargetPercent"], int))
+
+    # --- unit: the shared engine's profile threading --------------------------
+    import tempfile as _tf
+    import shutil as _sh
+    _pdir = _tf.mkdtemp(prefix="classprof_profile_")
+    try:
+        with open(os.path.join(_pdir, "A1.txt"), "w", encoding="utf-8") as f:
+            f.write("the\n")
+        with open(os.path.join(_pdir, "C2.txt"), "w", encoding="utf-8") as f:
+            f.write("zzqnotaword\n")
+        _engp = engine.load_engine(profile=_pdir, with_grammar=False)
+        rowp, _op, _ctxp = cp.build_row("the zzqnotaword", "p.txt", _engp,
+                                        False, None)
+        check("profile: row vocabulary.profile carries the meta",
+              (rowp["vocabulary"]["profile"] or {}).get("name")
+              == os.path.basename(_pdir)
+              and (rowp["vocabulary"]["profile"] or {}).get("kind")
+              == "directory")
+        check("profile: distribution reflects the profile bands",
+              rowp["distribution"]["A1"]["count"] == 1
+              and rowp["distribution"]["C2"]["count"] == 1
+              and rowp["distribution"]["Off List"]["count"] == 0)
+        pp = cp.export_payload(rowp, _op, _ctxp, "B1", vocab_base=_BASE)
+        check("profile: export payload vocabulary.profile carried",
+              (pp["vocabulary"]["profile"] or {}).get("kind") == "directory")
+    finally:
+        _sh.rmtree(_pdir, ignore_errors=True)
 
     # --- unit: per-text export payload (text_report's writers' input) ---------
     payload = cp.export_payload(row, ordered, _ctx, "B1")
@@ -1515,9 +1560,12 @@ try:
                             "--dictionary-url", _dict_url,
                             "--dictionary-cache", _pre_cache])
         _after = _DictHandler.requests
+        # The mock API misses "mat"; the bundled WordNet answers it, so all
+        # three words are found (requests stay at one per word).
         check("pre-enrich primes the cache in one pass",
               rc == 0 and out == "" and _after - _before == 3
-              and "Pre-enriched 3 words (2 found, 1 not found)" in err)
+              and "Pre-enriched 3 words (3 found, 0 not found)" in err
+              and "1 answered from the bundled WordNet" in err)
         check("pre-enrich wrote the cache file", os.path.isfile(_pre_cache))
         rc2, _, err2 = run(["--file", _pen, "--pre-enrich", "--delay", "0",
                             "--dictionary-url", _dict_url,
@@ -1525,6 +1573,21 @@ try:
         check("pre-enrich second pass makes no requests",
               rc2 == 0 and _DictHandler.requests == _after
               and "3 of 3 already cached" in err2)
+
+        # A single RubricMaker-style CSV export imports directly.
+        _vocab_csv = os.path.join(_pen, "class-vocab.csv")
+        with open(_vocab_csv, "w", encoding="utf-8") as f:
+            f.write("word,definition,example,phonetic,partOfSpeech\n"
+                    "circumstances,,,,\nimplications,,,,\nmat,,,,\n")
+        _csv_cache = os.path.join(_pen, "csv-cache.json")
+        _before = _DictHandler.requests
+        rc3, out3, err3 = run(["--file", _vocab_csv, "--pre-enrich", "--delay", "0",
+                               "--dictionary-url", _dict_url,
+                               "--dictionary-cache", _csv_cache])
+        check("pre-enrich csv: single export imports and primes",
+              rc3 == 0 and out3 == "" and _DictHandler.requests - _before == 3
+              and "Pre-enriched 3 words (3 found, 0 not found)" in err3
+              and "1 answered from the bundled WordNet" in err3)
     finally:
         shutil.rmtree(_pen, ignore_errors=True)
 
@@ -1569,7 +1632,9 @@ try:
         check("enriched deck carries the mock definition",
               bool(_circ) and _circ[0][1] == "a fact connected with an event")
         check("enriched deck: one request per above-target word", _after - _before == 3)
-        check("enrich stats on stderr", "2 definitions added, 1 word not found" in err)
+        # The mock misses "mat"; the bundled WordNet gloss fills the card.
+        check("enrich stats on stderr",
+              "3 definitions added" in err and "0 words not found" in err)
         rc2, _, err2 = run(["--file", _enf, "--target-level", "B1", "--no-grammar",
                             "--export", "flashcards", "--dictionary-url", _dict_url,
                             "--dictionary-cache", _deck_cache,

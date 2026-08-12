@@ -1,0 +1,496 @@
+{
+  "source": "CEFR-J Grammar Profile (cefrj-grammar-profile.csv) — Tono, Y. (ed.), Tono Laboratory, Tokyo University of Foreign Studies; see GRAMMARPROFILE.md",
+  "levelResolution": "cefrj_levels.get(cefrjCode, fallback) — exactly the grammar profiler's level lookup",
+  "constructions": [
+    {
+      "id": "ving",
+      "name": "-ing form (gerund/participle)",
+      "category": "Non-finite",
+      "level": "A1",
+      "cefrjCode": "VG"
+    },
+    {
+      "id": "comp_er",
+      "name": "Comparative (-er)",
+      "category": "Comparison",
+      "level": "A1",
+      "cefrjCode": "COMP.JJR.RBR.er"
+    },
+    {
+      "id": "there_be",
+      "name": "Existential there + be",
+      "category": "Existential",
+      "level": "A1",
+      "cefrjCode": "EX.there.AFF"
+    },
+    {
+      "id": "imperative",
+      "name": "Imperative",
+      "category": "Imperative & mood",
+      "level": "A1",
+      "cefrjCode": "IMP.V.AFF"
+    },
+    {
+      "id": "lets",
+      "name": "let's ...",
+      "category": "Imperative & mood",
+      "level": "A1",
+      "cefrjCode": "IMP.let's_V.AFF"
+    },
+    {
+      "id": "modal_can",
+      "name": "Modal: can",
+      "category": "Modality",
+      "level": "A1",
+      "cefrjCode": "MD.can.AFF"
+    },
+    {
+      "id": "passive_present",
+      "name": "Passive (present)",
+      "category": "Voice",
+      "level": "A1",
+      "cefrjCode": "PASS.PRESENT"
+    },
+    {
+      "id": "past_simple",
+      "name": "Past simple",
+      "category": "Tense & aspect",
+      "level": "A1",
+      "cefrjCode": "TA.PAST.do.AFF"
+    },
+    {
+      "id": "past_simple_be",
+      "name": "Past simple (be)",
+      "category": "Tense & aspect",
+      "level": "A1",
+      "cefrjCode": "TA.PAST.be.AFF"
+    },
+    {
+      "id": "pres_prog",
+      "name": "Present progressive",
+      "category": "Tense & aspect",
+      "level": "A1",
+      "cefrjCode": "TA.PRPRG.AFF"
+    },
+    {
+      "id": "pres_simple",
+      "name": "Present simple",
+      "category": "Tense & aspect",
+      "level": "A1",
+      "cefrjCode": "TA.PRESENT.do.AFF"
+    },
+    {
+      "id": "pres_simple_be",
+      "name": "Present simple (be)",
+      "category": "Tense & aspect",
+      "level": "A1",
+      "cefrjCode": "TA.PRESENT.be.AFF"
+    },
+    {
+      "id": "rel_that",
+      "name": "Relative clause: that",
+      "category": "Relative clause",
+      "level": "A1",
+      "cefrjCode": "PREL.that"
+    },
+    {
+      "id": "rel_who",
+      "name": "Relative clause: who",
+      "category": "Relative clause",
+      "level": "A1",
+      "cefrjCode": "PREL.who"
+    },
+    {
+      "id": "superl_est",
+      "name": "Superlative (-est)",
+      "category": "Comparison",
+      "level": "A1",
+      "cefrjCode": "COMP.JJS.RBS.est"
+    },
+    {
+      "id": "to_inf",
+      "name": "to-infinitive (to do)",
+      "category": "Non-finite",
+      "level": "A1",
+      "cefrjCode": "TO.to_do"
+    },
+    {
+      "id": "wh_question",
+      "name": "Wh- question",
+      "category": "Questions",
+      "level": "A1",
+      "cefrjCode": "INT.what"
+    },
+    {
+      "id": "yesno_question",
+      "name": "Yes/no question (inversion)",
+      "category": "Questions",
+      "level": "A1",
+      "cefrjCode": "TA.PRESENT.be.INT.AFF"
+    },
+    {
+      "id": "adv_clause",
+      "name": "Adverbial (subordinate) clause",
+      "category": "Subordination",
+      "level": "A2",
+      "cefrjCode": ""
+    },
+    {
+      "id": "caus_make",
+      "name": "Causative (make/let/have + inf)",
+      "category": "Causative",
+      "level": "A2",
+      "cefrjCode": "CAUS.have.let.make"
+    },
+    {
+      "id": "comp_more",
+      "name": "Comparative (more + adj/adv)",
+      "category": "Comparison",
+      "level": "A2",
+      "cefrjCode": "COMP.JJR.RBR.more"
+    },
+    {
+      "id": "cond_first",
+      "name": "First conditional",
+      "category": "Conditionals",
+      "level": "A2",
+      "cefrjCode": "CL.if"
+    },
+    {
+      "id": "future_going_to",
+      "name": "Future (be going to)",
+      "category": "Modality",
+      "level": "A2",
+      "cefrjCode": "MD.be_going_to.AFF"
+    },
+    {
+      "id": "future_will",
+      "name": "Future (will)",
+      "category": "Tense & aspect",
+      "level": "A2",
+      "cefrjCode": "TA.FUT.AFF"
+    },
+    {
+      "id": "have_to",
+      "name": "have to (obligation)",
+      "category": "Modality",
+      "level": "A2",
+      "cefrjCode": "MD.have_to.AFF"
+    },
+    {
+      "id": "modal_shall",
+      "name": "Modal: shall",
+      "category": "Modality",
+      "level": "A2",
+      "cefrjCode": "MD.shall.AFF"
+    },
+    {
+      "id": "modal_should",
+      "name": "Modal: should",
+      "category": "Modality",
+      "level": "A2",
+      "cefrjCode": "MD.should.AFF"
+    },
+    {
+      "id": "modal_would",
+      "name": "Modal: would",
+      "category": "Modality",
+      "level": "A2",
+      "cefrjCode": "MD.would.AFF"
+    },
+    {
+      "id": "passive_past",
+      "name": "Passive (past)",
+      "category": "Voice",
+      "level": "A2",
+      "cefrjCode": "PASS.PAST.AFF"
+    },
+    {
+      "id": "past_prog",
+      "name": "Past progressive",
+      "category": "Tense & aspect",
+      "level": "A2",
+      "cefrjCode": "TA.PASTPRG.AFF"
+    },
+    {
+      "id": "pres_perf",
+      "name": "Present perfect",
+      "category": "Tense & aspect",
+      "level": "A2",
+      "cefrjCode": "TA.PRPF.AFF"
+    },
+    {
+      "id": "superl_most",
+      "name": "Superlative (most + adj/adv)",
+      "category": "Comparison",
+      "level": "A2",
+      "cefrjCode": "COMP.JJS.RBS.most"
+    },
+    {
+      "id": "that_clause",
+      "name": "that-clause complement",
+      "category": "Subordination",
+      "level": "A2",
+      "cefrjCode": "CL.that.OBJ"
+    },
+    {
+      "id": "caus_ask_tell",
+      "name": "ask/tell + object + to-infinitive",
+      "category": "Causative",
+      "level": "B1",
+      "cefrjCode": "CAUS.ask.tell_NP_to_do"
+    },
+    {
+      "id": "be_able_to",
+      "name": "be able to (ability)",
+      "category": "Modality",
+      "level": "B1",
+      "cefrjCode": "MD.be_able_to.AFF"
+    },
+    {
+      "id": "wh_clause",
+      "name": "Embedded wh- / question clause",
+      "category": "Subordination",
+      "level": "B1",
+      "cefrjCode": "CL.WH.OBJ"
+    },
+    {
+      "id": "get_passive",
+      "name": "get-passive",
+      "category": "Voice",
+      "level": "B1",
+      "cefrjCode": "PASS.get_VN"
+    },
+    {
+      "id": "modal_could",
+      "name": "Modal: could",
+      "category": "Modality",
+      "level": "B1",
+      "cefrjCode": "MD.could.AFF"
+    },
+    {
+      "id": "modal_may",
+      "name": "Modal: may",
+      "category": "Modality",
+      "level": "B1",
+      "cefrjCode": "MD.may.AFF"
+    },
+    {
+      "id": "modal_might",
+      "name": "Modal: might",
+      "category": "Modality",
+      "level": "B1",
+      "cefrjCode": "MD.might.AFF"
+    },
+    {
+      "id": "modal_must",
+      "name": "Modal: must",
+      "category": "Modality",
+      "level": "B1",
+      "cefrjCode": "MD.must.AFF"
+    },
+    {
+      "id": "neg_imperative",
+      "name": "Negative imperative",
+      "category": "Imperative & mood",
+      "level": "B1",
+      "cefrjCode": "IMP.V.NEG"
+    },
+    {
+      "id": "not_to_inf",
+      "name": "negative to-infinitive (not to do)",
+      "category": "Non-finite",
+      "level": "B1",
+      "cefrjCode": "TO.not_to_do"
+    },
+    {
+      "id": "rel_nonrestrictive",
+      "name": "Non-restrictive relative clause",
+      "category": "Relative clause",
+      "level": "B1",
+      "cefrjCode": "PREL.NR"
+    },
+    {
+      "id": "ought_to",
+      "name": "ought to",
+      "category": "Modality",
+      "level": "B1",
+      "cefrjCode": "MD.ought_to.AFF"
+    },
+    {
+      "id": "passive_modal",
+      "name": "Passive (with modal)",
+      "category": "Voice",
+      "level": "B1",
+      "cefrjCode": "PASS.MD.AFF"
+    },
+    {
+      "id": "past_perf",
+      "name": "Past perfect",
+      "category": "Tense & aspect",
+      "level": "B1",
+      "cefrjCode": "TA.PASTPF.AFF"
+    },
+    {
+      "id": "rel_whose",
+      "name": "Relative clause: whose",
+      "category": "Relative clause",
+      "level": "B1",
+      "cefrjCode": ""
+    },
+    {
+      "id": "cond_second",
+      "name": "Second conditional",
+      "category": "Conditionals",
+      "level": "B1",
+      "cefrjCode": "SUBJ.PAST.AFF"
+    },
+    {
+      "id": "tag_question",
+      "name": "Tag question",
+      "category": "Questions",
+      "level": "B1",
+      "cefrjCode": "TAG.AFF"
+    },
+    {
+      "id": "cond_third",
+      "name": "Third conditional",
+      "category": "Conditionals",
+      "level": "B1",
+      "cefrjCode": "SUBJ.PASTPF.AFF"
+    },
+    {
+      "id": "used_to",
+      "name": "used to (past habit)",
+      "category": "Modality",
+      "level": "B1",
+      "cefrjCode": "MD.used_to.AFF"
+    },
+    {
+      "id": "being_pp",
+      "name": "being + past participle",
+      "category": "Non-finite",
+      "level": "B2",
+      "cefrjCode": "VG.being_VN"
+    },
+    {
+      "id": "caus_have_pp",
+      "name": "Causative (have/get + past participle)",
+      "category": "Causative",
+      "level": "B2",
+      "cefrjCode": "CAUS.have.get_NP_VN"
+    },
+    {
+      "id": "as_as",
+      "name": "Comparison of equality (as ... as)",
+      "category": "Comparison",
+      "level": "B2",
+      "cefrjCode": "COMP.EQ.as_as"
+    },
+    {
+      "id": "had_better",
+      "name": "had better",
+      "category": "Modality",
+      "level": "B2",
+      "cefrjCode": "MD.had_better.AFF"
+    },
+    {
+      "id": "having_pp",
+      "name": "having + past participle",
+      "category": "Non-finite",
+      "level": "B2",
+      "cefrjCode": "VG.having_VN"
+    },
+    {
+      "id": "modal_perfect",
+      "name": "Modal + perfect (e.g. would have done)",
+      "category": "Modality",
+      "level": "B2",
+      "cefrjCode": "MD.MD_PF.AFF"
+    },
+    {
+      "id": "modal_progressive",
+      "name": "Modal + progressive (e.g. must be doing)",
+      "category": "Modality",
+      "level": "B2",
+      "cefrjCode": "MD.MD_PRG.AFF"
+    },
+    {
+      "id": "passive_perfect",
+      "name": "Passive (perfect)",
+      "category": "Voice",
+      "level": "B2",
+      "cefrjCode": "PASS.PRSPF.AFF"
+    },
+    {
+      "id": "passive_progressive",
+      "name": "Passive (progressive)",
+      "category": "Voice",
+      "level": "B2",
+      "cefrjCode": "PASS.PRSPRG.AFF"
+    },
+    {
+      "id": "to_be_done",
+      "name": "passive to-infinitive (to be done)",
+      "category": "Non-finite",
+      "level": "B2",
+      "cefrjCode": "TO.to_be_done"
+    },
+    {
+      "id": "past_perf_prog",
+      "name": "Past perfect progressive",
+      "category": "Tense & aspect",
+      "level": "B2",
+      "cefrjCode": "TA.PASTPFPRG.AFF"
+    },
+    {
+      "id": "pres_perf_prog",
+      "name": "Present perfect progressive",
+      "category": "Tense & aspect",
+      "level": "B2",
+      "cefrjCode": "TA.PRPFPRG.AFF"
+    },
+    {
+      "id": "rel_which",
+      "name": "Relative clause: which",
+      "category": "Relative clause",
+      "level": "B2",
+      "cefrjCode": "PREL.which"
+    },
+    {
+      "id": "rel_whom",
+      "name": "Relative clause: whom",
+      "category": "Relative clause",
+      "level": "B2",
+      "cefrjCode": ""
+    },
+    {
+      "id": "wish_clause",
+      "name": "wish + past (unreal)",
+      "category": "Conditionals",
+      "level": "B2",
+      "cefrjCode": "SUBJ.wish_PAST"
+    },
+    {
+      "id": "subjunctive_mandative",
+      "name": "Mandative subjunctive (suggest that he go)",
+      "category": "Inversion",
+      "level": "C1",
+      "cefrjCode": "SUBJ.PRS.AFF"
+    },
+    {
+      "id": "inversion_neg",
+      "name": "Negative-adverbial inversion",
+      "category": "Inversion",
+      "level": "C1",
+      "cefrjCode": "INV.never.etc"
+    },
+    {
+      "id": "to_have_done",
+      "name": "perfect to-infinitive (to have done)",
+      "category": "Non-finite",
+      "level": "C1",
+      "cefrjCode": "TO.to_have_done"
+    }
+  ]
+}

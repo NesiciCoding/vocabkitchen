@@ -363,11 +363,28 @@ def build_row(text, label, eng, with_grammar, targets):
         else:
             row_targets = outcomes
 
+    # The per-text (per-student) CEFR distribution — the dashboard feed: one
+    # essay per row, each with its own level counts + percentages, so a class
+    # summary can render each student's distribution without re-deriving it
+    # from the pooled aggregate.
+    distribution = {}
+    for name, _pct, rows in ordered:
+        count = sum(occ for _w, occ in rows)
+        distribution[name] = {
+            "count": count,
+            "percent": (round(count / total * 100) if total else 0),
+        }
+    distribution["total"] = total
+    distribution["typical"] = typical
+    distribution["coverage"] = coverage
+
     row = {
         "file": label,
         "totalWordCount": total,
         "vocabulary": {"typical": typical, "coverage": coverage,
-                       "offListPercent": off_list_percent},
+                       "offListPercent": off_list_percent,
+                       "profile": eng.profile_meta},
+        "distribution": distribution,
         "grammar": grammar,
         "grammarError": grammar_error,
         "estimatedLevel": estimated,
@@ -763,6 +780,7 @@ def export_payload(row, ordered, ctx, target, suggest=False, gap_report=False,
         "typical": row["vocabulary"]["typical"],
         "coverage": row["vocabulary"]["coverage"],
         "offListPercent": row["vocabulary"]["offListPercent"],
+        "profile": row["vocabulary"].get("profile"),
         "grammar_results": gresults,
         "grammar_meta": gmeta,
         "grammar_available": grammar_available,
@@ -1515,7 +1533,8 @@ def write_per_text_exports(profiled, target, fmt, cloze=False, enrich=True,
                            targets=None, rows=None, summary=None, suggest=False,
                            gap_report=False, curriculum=None, cando=False,
                            comments=False, cando_diff=False,
-                           cando_diff_sort="texts", payloads=None):
+                           cando_diff_sort="texts", payloads=None,
+                           offline_fallback=None):
     """Write the pre-teaching lists for *profiled* (the selected set).
 
     With a single *target*: one list per text next to its source (or into
@@ -1577,7 +1596,8 @@ def write_per_text_exports(profiled, target, fmt, cloze=False, enrich=True,
     def _deck(payload):
         content, stats = tr.export_flashcards(
             payload, enrich=enrich, base_url=base_url,
-            level_index=vp.load_level_index(base_dir), cache_path=cache_path)
+            level_index=vp.load_level_index(base_dir), cache_path=cache_path,
+            offline_fallback=offline_fallback)
         _fold_stats(stats)
         return content
 
@@ -1779,6 +1799,15 @@ def main(argv=None):
                         help="override the dictionary API base URL (proxy / test server)")
     parser.add_argument("--no-grammar", action="store_true")
     parser.add_argument("--wordlists", default=None)
+    parser.add_argument("--profile", default=None,
+                        help="swap the bundled CEFR lists for a pluggable "
+                             "vocabulary profile: a directory of A1.txt..C2.txt "
+                             "(one word per line each) or a single one-word-per-line "
+                             "list (levels from the bundled levels.json index, "
+                             "--profile-level otherwise; words outside it are off-list)")
+    parser.add_argument("--profile-level", dest="profile_level", default="B1",
+                        help="--profile single-file lists only: the CEFR level for "
+                             "words the bundled index doesn't know (default: B1)")
     parser.add_argument("--grammar-profile", dest="grammar_profile", default=None)
     parser.add_argument("--comments", action="store_true",
                         help="add the full apply-as-comment rubric to each per-text "
@@ -1937,7 +1966,9 @@ def main(argv=None):
     try:
         eng = engine.load_engine(wordlists_dir=args.wordlists,
                                  grammar_dir=args.grammar_profile,
-                                 with_grammar=not args.no_grammar)
+                                 with_grammar=not args.no_grammar,
+                                 profile=args.profile,
+                                 profile_level=args.profile_level)
     except vp.WordListError as ex:
         sys.stderr.write(str(ex) + "\n")
         return 1
@@ -1976,6 +2007,38 @@ def main(argv=None):
         single_text = None
         single_label = None
         if args.file:
+            # A class's vocabulary-list export (RubricMaker CSV/JSON) imports
+            # directly under --pre-enrich — the cache is primed from the
+            # app's own data without reformatting.
+            if (args.pre_enrich and os.path.isfile(args.file)
+                    and os.path.splitext(args.file)[1].lower()
+                    in (".csv", ".json")):
+                import dictionary
+                words = dictionary.read_word_list(args.file)
+                cpath = cache_path or tr.default_dictionary_cache_path()
+                stats = tr.pre_enrich_words(
+                    words, base_url=args.dictionary_url, cache_path=cpath,
+                    delay=args.delay, limit=args.limit,
+                    offline_fallback=dictionary.wordnet_fallback())
+                if stats["offline"]:
+                    if stats["fallback"]:
+                        tail = (f" Offline — {stats['fallback']} answered from "
+                                "the bundled WordNet; remaining words left "
+                                "unprimed.")
+                    else:
+                        tail = " Offline — remaining words left unprimed."
+                elif stats["fallback"]:
+                    tail = (f" {stats['fallback']} answered from the bundled "
+                            "WordNet (offline-safe).")
+                else:
+                    tail = ""
+                sys.stderr.write(
+                    f"Pre-enriched {stats['looked_up']} word"
+                    f"{'s' if stats['looked_up'] != 1 else ''} "
+                    f"({stats['found']} found, {stats['missed']} not found); "
+                    f"{stats['skipped']} of {stats['requested']} already "
+                    f"cached." + tail + "\n")
+                return 0
             try:
                 paths = discover_files(args.file)
             except ClassProfileError as ex:
@@ -2049,10 +2112,22 @@ def main(argv=None):
                     f"  pre-enriching… {s['looked_up']} looked up "
                     f"({s['found']} found, {s['missed']} not found)\n")
 
+            import dictionary
             stats = tr.pre_enrich_words(
                 words, base_url=args.dictionary_url, cache_path=cache_path,
-                delay=args.delay, limit=args.limit, on_progress=_progress)
-            tail = " Offline — remaining words left unprimed." if stats["offline"] else ""
+                delay=args.delay, limit=args.limit, on_progress=_progress,
+                offline_fallback=dictionary.wordnet_fallback())
+            if stats["offline"]:
+                if stats["fallback"]:
+                    tail = (f" Offline — {stats['fallback']} answered from the "
+                            "bundled WordNet; remaining words left unprimed.")
+                else:
+                    tail = " Offline — remaining words left unprimed."
+            elif stats["fallback"]:
+                tail = (f" {stats['fallback']} answered from the bundled "
+                        "WordNet (offline-safe).")
+            else:
+                tail = ""
             scope = " (the interleave schedule's words)" if args.interleave else ""
             sys.stderr.write(
                 f"Pre-enriched {stats['looked_up']} word"
@@ -2172,6 +2247,7 @@ def main(argv=None):
 
         # ---- Per-text pre-teaching lists (over the selected set) ------------
         if args.export:
+            import dictionary
             written, failed, deck_stats = write_per_text_exports(
                 selected_profiled, target, args.export, cloze=args.cloze,
                 enrich=not args.no_enrich, wordlists_dir=args.wordlists,
@@ -2183,7 +2259,8 @@ def main(argv=None):
                 comments=args.comments,
                 cando_diff=args.cando_diff,
                 cando_diff_sort=args.cando_diff_sort,
-                payloads=prebuilt_payloads)
+                payloads=prebuilt_payloads,
+                offline_fallback=dictionary.wordnet_fallback())
             if args.interleave and interleave is not None:
                 ext = "md" if args.export == "md" else "csv"
                 ipath = interleave_path(source_label, target, args.output, ext)

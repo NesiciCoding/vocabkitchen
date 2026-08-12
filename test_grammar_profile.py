@@ -298,6 +298,34 @@ if HAVE_SPACY:
 else:
     skipped += 1
 
+# --- the shared taxonomy: every construction, levelled exactly like the -----
+# --- profiler, in one machine-readable document both tools cite -------------- 
+_tax = gp.taxonomy(_LEVELS)
+check("taxonomy covers every registered construction",
+      len(_tax) == len(gp._CONSTRUCTIONS))
+check("taxonomy entries carry id/name/category/level/cefrjCode",
+      all(set(e) == {"id", "name", "category", "level", "cefrjCode"}
+          for e in _tax))
+check("taxonomy levels resolve exactly like the profiler",
+      all(e["level"] == _LEVELS.get(e["cefrjCode"],
+                                     gp._CONSTRUCTIONS[e["id"]][3])
+          for e in _tax))
+_ladder2 = ["A1", "A2", "B1", "B2", "C1", "C2"]
+_tax_levels = [_ladder2.index(e["level"]) if e["level"] in _ladder2 else 99
+               for e in _tax]
+check("taxonomy sorted by band ladder then name",
+      _tax_levels == sorted(_tax_levels))
+_doc = gp.taxonomy_document(_LEVELS)
+check("taxonomy document carries source attribution",
+      _doc["constructions"] == _tax and "CEFR-J" in _doc["source"])
+_checked_in = json.load(open(os.path.join(HERE, "GrammarProfile", "taxonomy.json"),
+                             encoding="utf-8"))
+check("checked-in taxonomy.json matches taxonomy_document()",
+      _checked_in == _doc)
+rc, out, err = run(["--taxonomy"])
+check("cli --taxonomy prints the shared document without spaCy",
+      rc == 0 and json.loads(out) == _doc)
+
 print(f"\n{passed} passed, {failed} failed, {skipped} skipped"
       + ("  (spaCy not installed — detector checks skipped)" if not HAVE_SPACY else ""))
 sys.exit(1 if failed else 0)

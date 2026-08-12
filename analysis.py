@@ -71,6 +71,9 @@ validated against :func:`payload_schema` (also checked in as
 Version history
 ~~~~~~~~~~~~~~~
 
+``1.4`` — ``vocabulary`` gains ``profile``: the pluggable vocabulary profile
+in effect (``{name, kind, levelFallback}`` — which word lists produced the
+bands), or null when the bundled CEFR lists were used.
 ``1.3`` — ``grammarComments`` entries gain ``rewrite``: pre-teach entries
 carry a curated target-level rewording hint (from
 ``WordLists/structure-rewrites.csv``) so the "or rewrite" half of the
@@ -96,7 +99,7 @@ import grammar_profile as gp
 
 # The payload contract version. Bump when the payload shape changes
 # incompatibly; RubricMaker and any other consumer should key off this.
-SCHEMA_VERSION = "1.3"
+SCHEMA_VERSION = "1.4"
 
 _CEFR_ORDER = ["A1", "A2", "B1", "B2", "C1", "C2"]
 _LEVEL_INDEX = {lvl: i for i, lvl in enumerate(_CEFR_ORDER)}
@@ -140,6 +143,12 @@ def payload_schema():
                                "offListPercent": {"type": "integer",
                                                   "minimum": 0,
                                                   "maximum": 100},
+                               "profile": {"type": ["object", "null"],
+                                            "properties": {
+                                                "name": {"type": "string"},
+                                                "kind": {"enum": ["directory", "list"]},
+                                                "levelFallback": {"type": ["string", "null"]},
+                                            }},
                                "results": {"type": "object"},
                            }},
             "grammar": {"type": ["object", "null"], "properties": {
@@ -950,7 +959,8 @@ class Engine:
 
     def __init__(self, levels, vocab_base, grammar_available=False,
                  nlp=None, cefrj_levels=None, grammar_error=None,
-                 grammar_requested=True):
+                 grammar_requested=True, profile_label=None,
+                 profile_meta=None):
         self.levels = levels
         self.vocab_base = vocab_base
         self.grammar_available = grammar_available
@@ -958,12 +968,18 @@ class Engine:
         self.cefrj_levels = cefrj_levels
         self.grammar_error = grammar_error
         self.grammar_requested = grammar_requested
+        self.profile_label = profile_label
+        self.profile_meta = profile_meta
 
 
 def load_engine(wordlists_dir=None, grammar_dir=None, with_grammar=True,
-                script_dir=None):
+                script_dir=None, profile=None, profile_level="B1"):
     """Load the word lists (always) and the grammar engine (when requested).
 
+    With *profile* (a pluggable vocabulary profile — see
+    :func:`vocab_profile.load_profile`), the CEFR lists are swapped for the
+    profile's (Oxford 3000/5000, a licensed list, the Octanove C1/C2 export,
+    ...); ``profile_level`` is the fallback band for single-file profiles.
     Raises ``vocab_profile.WordListError`` for a broken word-list install; a
     missing spaCy model or CEFR-J profile is **not** fatal — the engine is
     returned with ``grammar_available=False`` and the install note in
@@ -972,18 +988,27 @@ def load_engine(wordlists_dir=None, grammar_dir=None, with_grammar=True,
     """
     script_dir = script_dir or os.path.dirname(os.path.abspath(__file__))
     vocab_base = wordlists_dir or os.path.join(script_dir, "WordLists")
-    levels = [(name, vp.load_wordlist(vocab_base, rel))
-              for name, rel in vp.PROFILERS["cefr"]]
+    profile_label = profile_meta = None
+    if profile:
+        levels, profile_label, profile_meta = vp.load_profile(
+            profile, level_index=vp.load_level_index(vocab_base),
+            fallback_level=profile_level)
+    else:
+        levels = [(name, vp.load_wordlist(vocab_base, rel))
+                  for name, rel in vp.PROFILERS["cefr"]]
     if not with_grammar:
-        return Engine(levels, vocab_base, grammar_requested=False)
+        return Engine(levels, vocab_base, grammar_requested=False,
+                      profile_label=profile_label, profile_meta=profile_meta)
     try:
         gbase = grammar_dir or os.path.join(script_dir, "GrammarProfile")
         nlp = gp.load_nlp()
         cefrj = gp.load_cefrj_levels(gbase)
         return Engine(levels, vocab_base, grammar_available=True,
-                      nlp=nlp, cefrj_levels=cefrj)
+                      nlp=nlp, cefrj_levels=cefrj,
+                      profile_label=profile_label, profile_meta=profile_meta)
     except gp.EngineError as ex:
-        return Engine(levels, vocab_base, grammar_error=str(ex).strip())
+        return Engine(levels, vocab_base, grammar_error=str(ex).strip(),
+                      profile_label=profile_label, profile_meta=profile_meta)
 
 
 def profile(text, engine, with_grammar=True, with_readability=True):
@@ -1034,6 +1059,7 @@ def profile(text, engine, with_grammar=True, with_readability=True):
         "grammar_available": grammar_available,
         "grammar_error": grammar_error,
         "cefrj_levels": engine.cefrj_levels if with_grammar else None,
+        "profile": engine.profile_meta,
         "readability": (compute_readability(text, total)
                         if with_readability else None),
     }
@@ -1077,6 +1103,7 @@ def payload(pieces, text, vocab_base, target_level=None, suggest=False,
             "typical": pieces["typical"],
             "coverage": pieces["coverage"],
             "offListPercent": pieces["offListPercent"],
+            "profile": pieces.get("profile"),
             "results": vp.results_to_json(ordered),
         },
         "grammar": (gp.results_to_json(gresults, gmeta)
@@ -1169,7 +1196,7 @@ def payload(pieces, text, vocab_base, target_level=None, suggest=False,
 def analyze(text, target_level=None, wordlists_dir=None, grammar_dir=None,
             with_grammar=True, with_readability=True, suggest=False,
             gap_report=False, curriculum=None, cambridge=False, cando=False,
-            comments=False):
+            comments=False, profile_path=None, profile_level="B1"):
     """Run both profilers and readability over *text*; return the report payload.
 
     The single-text pipeline — the same report ``text_report.py`` ships:
@@ -1181,9 +1208,12 @@ def analyze(text, target_level=None, wordlists_dir=None, grammar_dir=None,
     per-construction rubric comments (``grammarComments``) and, with a
     target level, the per-word comments for above-target vocabulary
     (``vocabComments``) — so the rubric covers the whole report.
+    ``profile_path`` swaps the bundled CEFR lists for a pluggable vocabulary
+    profile (see :func:`load_engine`).
     """
     engine = load_engine(wordlists_dir=wordlists_dir, grammar_dir=grammar_dir,
-                         with_grammar=with_grammar)
+                         with_grammar=with_grammar, profile=profile_path,
+                         profile_level=profile_level)
     pieces = profile(text, engine, with_grammar=with_grammar,
                      with_readability=with_readability)
     return payload(

@@ -157,6 +157,25 @@ that use a fallback level because the source code is unlevelled).
 | Negative-adverbial inversion | C1 | `INV.never.etc` |
 | Mandative subjunctive | C1 | `SUBJ.PRS.AFF` |
 
+## The shared taxonomy — one levelling, both tools
+
+The construction registry above is also the **single source of truth for
+grammar** between the CLI and the app. It is exported as a machine-readable
+document — every construction with its `id`, display `name`, `category`,
+`level` (resolved exactly as detection resolves it) and `cefrjCode` — via
+
+```bash
+python3 grammar_profile.py --taxonomy
+```
+
+The same document is checked in at `GrammarProfile/taxonomy.json` (kept
+byte-equal by the test suites and CI), so a consumer — e.g. RubricMaker's
+grammar linker — can bundle the taxonomy without running anything. Because the
+levels come from the same `cefrj_levels.get(code, fallback)` lookup the
+profilers use, a construction is levelled the same way whether it's detected in
+a reading (the CLI) or an essay (the app): the taxonomy *is* the registry the
+`grammarCriteria` payload is built from.
+
 ## Accuracy notes
 
 - Detection is **rule-based over a spaCy parse** (`en_core_web_sm`), not an

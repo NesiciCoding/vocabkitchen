@@ -1137,6 +1137,48 @@ def render_pretty(source_label, results, meta, stream=None):
     stream.write("\n".join(out) + "\n")
 
 
+# ---------------------------------------------------------------------------
+# The shared taxonomy — the machine-readable construction registry both tools
+# cite, so a construction is levelled the same way whether it's detected in a
+# reading (the CLI) or an essay (the app).
+# ---------------------------------------------------------------------------
+
+def taxonomy(cefrj_levels=None):
+    """The full construction registry as a machine-readable taxonomy.
+
+    Phase 5's single source of truth for grammar: every construction the
+    tools detect, with its display ``name``, ``category``, CEFR ``level``
+    (resolved **exactly** like the profiler — ``cefrj_levels.get(code,
+    fallback)`` — so the taxonomy never disagrees with detection) and its
+    ``cefrjCode`` shorthand from the bundled CEFR-J Grammar Profile. Sorted
+    by band ladder, then name, mirroring the profiler's own ordering.
+    ``cefrj_levels`` is :func:`load_cefrj_levels`'s map; it's loaded lazily
+    so ``--taxonomy`` works without spaCy.
+    """
+    levels = cefrj_levels or {}
+    out = []
+    for cid, (name, category, code, fallback) in _CONSTRUCTIONS.items():
+        out.append({"id": cid, "name": name, "category": category,
+                    "level": levels.get(code, fallback),
+                    "cefrjCode": code})
+    out.sort(key=lambda d: (_LEVEL_INDEX.get(d["level"], 99),
+                            d["name"].lower()))
+    return out
+
+
+def taxonomy_document(cefrj_levels=None):
+    """The taxonomy as the versioned JSON document both tools bundle: the
+    construction list plus source/attribution metadata."""
+    return {
+        "source": ("CEFR-J Grammar Profile (cefrj-grammar-profile.csv) — "
+                   "Tono, Y. (ed.), Tono Laboratory, Tokyo University of "
+                   "Foreign Studies; see GRAMMARPROFILE.md"),
+        "levelResolution": "cefrj_levels.get(cefrjCode, fallback) — exactly "
+                            "the grammar profiler's level lookup",
+        "constructions": taxonomy(cefrj_levels),
+    }
+
+
 def resolve_format(explicit, is_tty):
     """Resolve --format: explicit value wins, else auto by TTY (pretty) vs pipe (json)."""
     if explicit in (None, "", "auto"):
@@ -1156,17 +1198,27 @@ def main(argv=None):
     parser.add_argument("--text", default=None)
     parser.add_argument("--file", default=None)
     parser.add_argument("--grammar-profile", dest="grammar_profile", default=None)
+    parser.add_argument("--taxonomy", action="store_true",
+                        help="print the full construction registry as JSON — the "
+                             "shared CEFR-J grammar taxonomy both tools cite — and "
+                             "exit (works without spaCy)")
     parser.add_argument("positional", nargs="*", help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
+
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    base_dir = args.grammar_profile or os.path.join(script_dir, "GrammarProfile")
+
+    if args.taxonomy:
+        cefrj_levels = load_cefrj_levels(base_dir)
+        print(json.dumps(taxonomy_document(cefrj_levels), indent=2,
+                         ensure_ascii=False))
+        return 0
 
     try:
         out_format = resolve_format(args.format, sys.stdout.isatty())
     except ValueError as ex:
         sys.stderr.write(str(ex) + "\n")
         return 1
-
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    base_dir = args.grammar_profile or os.path.join(script_dir, "GrammarProfile")
 
     source_label = None
     text = args.text

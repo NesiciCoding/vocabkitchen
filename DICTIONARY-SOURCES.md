@@ -122,13 +122,37 @@ Done in the CLI (`vocabkitchen-CLI`):
    `--text`/stdin with an essay) primes the cache for a whole class in one
    polite, rate-limited pass: `--delay SECONDS` spaces requests out (default
    0.25), `--limit N` caps new lookups, cached words are skipped, and later
-   deck exports answer entirely from the cache.
+   deck exports answer entirely from the cache. A class's **vocabulary-list
+   export (CSV/JSON) imports directly** — the `word` column or `words` array
+   is read without reformatting (`dictionary.read_word_list`).
+4. **Offline dictionary fallback (Open English WordNet)** — the CLI now
+   bundles a compact build of the Open English WordNet 2025 JSON
+   (`WordLists/dictionary/wordnet.json`, CC BY 4.0, built by
+   `build_dictionary.py`) as the final enrichment layer: when the Free
+   Dictionary API is unreachable or misses, definitions still ship from the
+   bundle — written into the **same lookup cache** (entries tagged
+   `source: "wordnet"`), so one warmed cache serves both deck exports and
+   teacher lookups, fully offline.
+5. **The shared lookup stack (`dictionary.py`)** — the layered lookup both
+   front ends use, i.e. the `cambridgeApi.lookupWord` replacement:
+   `dictionary.lookup_word(word, …)` returns the `{ word, level, definition,
+   phonetic, partOfSpeech, source }` contract with levels from the bundled
+   `levels.json`, definitions from the Free Dictionary API with the WordNet
+   fallback, and cache reads/writes in the exact format `text_report` uses.
+   The deck export and `--pre-enrich` on both CLIs use the same WordNet
+   fallback slot, so the whole enrichment pipeline is offline-capable.
 
-Not done (deferred):
+Not done (deferred) — the app side:
 
-1. **RubricMaker-side `lookupWord` swap** — replace `cambridgeApi.lookupWord`
-   with the free stack: the `{ level, definition }` contract plus phonetic/POS
-   was prototyped conceptually here, but RubricMaker still calls
-   `cambridgeApi.ts`. Its CEFR-J + open-vocab merge already covers level
-   lookup locally; the definition half is the remaining swap, and the CLI's
-   `levels.json`/deck output give it the same data the CLI now uses.
+1. **RubricMaker-side `lookupWord` swap** — `RubricMaker/src/services/cambridgeApi.ts`
+   still calls the paid Cambridge Dictionary API. The replacement contract and
+   implementation now exist here as the reference the app ports: `dictionary.py`
+   implements exactly the two returned fields (CEFR `level` + plain-text
+   `definition`) plus `phonetic`/`partOfSpeech`, offline-graceful and
+   fail-silent, sharing the cache format `--pre-enrich` and the deck exports
+   warm. The TypeScript port is a mechanical translation of `lookup_word`:
+   read `levels.json` for the level, fetch the Free Dictionary API entry for
+   the definition (keyed by URL + word in the same JSON cache), fall back to
+   the bundled `wordnet.json` gloss; never overwrite teacher-entered values.
+   Attribution for display: "Definitions © Wiktionary, CC BY-SA (via the Free
+   Dictionary API)"; "Open English WordNet, CC BY 4.0".

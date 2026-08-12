@@ -35,9 +35,12 @@ hand:
   by default: the back becomes the **Free Dictionary API's** plain definition
   (`dictionaryapi.dev`, free, no key), the in-text context sentence moves to
   the `example` column, and `phonetic`/`partOfSpeech` are filled in (POS falls
-  back to the bundled OLP-EN-CEFRJ index). Offline or on a miss, the back
-  falls back to the in-text sentence, so the deck always imports. CEFR levels
-  never come from the API — they come from the bundled word lists
+  back to the bundled OLP-EN-CEFRJ index). **Offline dictionary fallback:**
+  when the API is unreachable or misses, the back becomes a gloss from the
+  **bundled Open English WordNet** (`WordLists/dictionary/wordnet.json`, CC BY
+  4.0) — definitions ship even with no network — and only then falls back to
+  the in-text sentence, so the deck always imports. CEFR levels never come
+  from the API — they come from the bundled word lists
   (`WordLists/CEFR/levels.json`, built by `build_wordlists.py`).
   `--no-enrich` skips the network; `--dictionary-url` points at a proxy/test
   server; lookups are cached between runs (default
@@ -93,13 +96,17 @@ hand:
   (`essay-preteaching-B1-cando-deck.csv`) next to the word deck — the
   demands as cards in the same RubricMaker import shape.
 - **`--pre-enrich`** — prime the dictionary cache for a whole class in one
-  polite, rate-limited pass: point it at a word list (one word per line) or
-  an essay (`--file`/`--text`/stdin), it looks each distinct word up against
-  the Free Dictionary API (skipping words already cached), stores the results,
-  and exits without a report. `--delay SECONDS` spaces requests out (default
-  0.25), `--limit N` caps new lookups. After it, `--export flashcards` runs
-  answer from the cache — fast and with zero requests. Use this when a teacher
-  has a full class vocabulary list; offer `--delay 0.3` for long lists.
+  polite, rate-limited pass: point it at a word list (one word per line), a
+  class's **vocabulary-list export** (RubricMaker CSV/JSON — the `word`
+  column or `words` array is read directly, no reformatting), or an essay
+  (`--file`/`--text`/stdin), it looks each distinct word up against the Free
+  Dictionary API (skipping words already cached, answering misses and offline
+  words from the bundled WordNet), stores the results, and exits without a
+  report. `--delay SECONDS` spaces requests out (default 0.25), `--limit N`
+  caps new lookups. After it, `--export flashcards` runs answer from the
+  cache — fast and with zero requests. Use this when a teacher has a full
+  class vocabulary list or a RubricMaker export; offer `--delay 0.3` for long
+  lists.
 
 The vocabulary half and readability are dependency-free Python 3. The grammar
 half needs spaCy like the grammar-profiler skill; **when spaCy is missing the
@@ -132,6 +139,8 @@ Flags:
 | `--text`            | inline text to analyse                                                   |
 | `--file`            | path to a `.txt`, `.md`, `.docx`, or `.pdf` file (PDF needs `pypdf`)    |
 | `--wordlists`       | override the vocabulary word-list directory (defaults to the bundled lists) |
+| `--profile`         | swap the bundled CEFR lists for a pluggable vocabulary profile — a directory of `A1.txt`..`C2.txt` (one word per line each) or a single one-word-per-line list (the recognition list; levels from the bundled index, `--profile-level` otherwise, words outside it off-list) |
+| `--profile-level`   | `--profile` single-file lists only: the CEFR level for words the bundled index doesn't know (default `B1`) |
 | `--grammar-profile` | override the CEFR-J data directory (defaults to the bundled profile)    |
 | `--no-grammar`      | skip the grammar side even if spaCy is available                        |
 | `--no-readability`  | omit the Flesch–Kincaid / Flesch Reading Ease line                      |
@@ -152,7 +161,7 @@ Flags:
 | `--cambridge`       | map the report's own CEFR bands to the matching Cambridge English Qualification (A2 Key, B1 Preliminary, B2 First, C1 Advanced, C2 Proficiency) |
 | `--cando`           | express the text's demands as CEFR global-scale Can-Do descriptors; with `--target-level`, also list the ones above the target's expectations |
 | `--comments`        | add the full apply-as-comment rubric: one comment per construction (used / not used yet, from `grammarCriteria`; filtered to the class level under `--target-level` — used above-target constructions become "pre-teach or rewrite" notes carrying a curated rewrite suggestion, unused ones drop) plus one comment per above-target vocabulary word |
-| `--schema`          | print the versioned analysis payload schema (`analysis.schema.json` — the RubricMaker report contract, currently 1.3) as JSON and exit |
+| `--schema`          | print the versioned analysis payload schema (`analysis.schema.json` — the RubricMaker report contract, currently 1.4) as JSON and exit |
 | (stdin)             | if neither `--text` nor `--file` is given, text is read from stdin      |
 
 **Choosing input mode:** `--text` for a snippet, `--file` for a document on

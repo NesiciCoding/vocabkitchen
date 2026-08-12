@@ -62,6 +62,7 @@ Flags:
 | `--text`            | inline text to analyse                                                   |
 | `--file`            | path to a `.txt`, `.md`, `.docx`, or `.pdf` file (PDF needs `pypdf`)     |
 | `--grammar-profile` | override the CEFR-J data directory (defaults to the bundled profile)     |
+| `--taxonomy`        | print the full construction registry as JSON — the **shared CEFR-J grammar taxonomy** (every construction, its category, its level, its CEFR-J code, levelled exactly like the profiler) and exit; the same document is checked in at `GrammarProfile/taxonomy.json`, so the CLI and the app cite one taxonomy (works without spaCy) |
 | (stdin)             | if neither `--text` nor `--file` is given, text is read from stdin       |
 
 **Choosing input mode:** `--text` for a snippet, `--file` for a document on disk,
