@@ -85,7 +85,7 @@ jobs:
           required_flags = {
               "class-profile": ["--gap-report", "--interleave",
                                 "--new-words-per-reading", "--curriculum",
-                                "--watch", "--cando"],
+                                "--watch", "--cando", "--cando-diff"],
               "text-report": ["--suggest", "--gap-report", "--watch",
                               "--curriculum", "--cambridge", "--cando"],
           }
@@ -439,6 +439,36 @@ jobs:
               assert all(len(r["cells"]) == len(ccj["items"]) and isinstance(r["pass"], bool)
                          for r in ccj["rows"]), ccj
               assert 0 <= ccj["passCount"] <= ccj["textCount"], ccj
+          finally:
+              shutil.rmtree(outdir, ignore_errors=True)
+
+          # Can-Do pass: --cando-diff --export md adds the shared above-target
+          # demands to the summary handout, and --cando --export flashcards
+          # writes a combined Can-Do reference deck in the RubricMaker shape.
+          outdir = tempfile.mkdtemp(prefix="classprof-golden-cando-")
+          try:
+              rc, out, err = run_cli(["--file", "sample-readings/", "--target-level", "B1",
+                                      "--no-grammar", "--cando-diff", "--export", "md",
+                                      "--output", outdir])
+              assert rc == 0, err
+              summ_md = open(os.path.join(outdir, "sample-readings-summary-B1.md"),
+                             encoding="utf-8").read()
+              assert "## Can-Do demands across the set" in summ_md, summ_md
+              assert "| Demand | Level | Can-Do descriptor | Texts |" in summ_md, summ_md
+              assert all(f in summ_md for f in files), summ_md
+              rc, out, err = run_cli(["--file", "sample-readings/", "--target-level", "B1",
+                                      "--no-grammar", "--cando", "--export", "flashcards",
+                                      "--no-enrich", "--output", outdir])
+              assert rc == 0, err
+              cdeck = "sample-readings-preteaching-B1-cando-deck.csv"
+              assert cdeck in os.listdir(outdir), os.listdir(outdir)
+              cdrows = list(csv.reader(open(os.path.join(outdir, cdeck),
+                                            encoding="utf-8")))
+              assert cdrows[0] == ["word", "definition", "example", "phonetic",
+                                   "partOfSpeech"], cdrows[0]
+              assert len(cdrows) > 1, cdrows
+              assert all(r[0].endswith("demand") and r[3] == "" and r[4] == "cando"
+                         for r in cdrows[1:]), cdrows
           finally:
               shutil.rmtree(outdir, ignore_errors=True)
 

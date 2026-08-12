@@ -589,6 +589,62 @@ try:
           and _ggrid["passCount"] == 0 and _ggrid["textCount"] == 2)
     check("curriculum grid structured: no curriculum -> None",
           cp.curriculum_coverage_grid([{"file": "a.txt"}]) is None)
+
+    # --- unit: Can-Do demands across the set + the reference deck -------------
+    _cdpays = [
+        {"file": "a.txt", "cando": {"aboveTarget": {
+            "vocabulary": [{"band": "B2",
+                            "descriptor": "understand the main ideas of complex text"}],
+            "grammar": [], "estimated": []}}},
+        {"file": "b.txt", "cando": {"aboveTarget": {
+            "vocabulary": [{"band": "B2",
+                            "descriptor": "understand the main ideas of complex text"},
+                           {"band": "C1",
+                            "descriptor": "understand a wide range of demanding, longer texts"}],
+            "grammar": [], "estimated": []}}},
+    ]
+    _dems = cp.aggregate_cando_demands(_cdpays)
+    check("aggregate_cando_demands: most-common first with text lists",
+          _dems[0]["band"] == "B2" and _dems[0]["texts"] == ["a.txt", "b.txt"]
+          and _dems[1]["band"] == "C1" and _dems[1]["texts"] == ["b.txt"])
+    check("aggregate_cando_demands: empty without a diff",
+          cp.aggregate_cando_demands([{"file": "a.txt"}]) == [])
+    _cddeck = cp.combined_cando_deck(_cdpays, "B1")
+    _cdd_rows = list(_csv.reader(_cddeck.splitlines()))
+    check("combined_cando_deck: RubrikMaker shape, one card per demand",
+          _cdd_rows[0] == ["word", "definition", "example", "phonetic", "partOfSpeech"]
+          and len(_cdd_rows) == 3
+          and _cdd_rows[1][0] == "B2 — vocabulary demand"
+          and "demanded by 2 of 2 texts" in _cdd_rows[1][2]
+          and all(r[4] == "cando" for r in _cdd_rows[1:]))
+    check("combined_cando_deck: None without demands",
+          cp.combined_cando_deck([{"file": "a.txt"}], "B1") is None)
+    _cdsum = cp.set_summary_markdown(
+        [{"file": "a.txt", "totalWordCount": 1, "vocabulary": {"typical": "A1",
+                                                                  "coverage": "A1"},
+          "grammar": None, "estimatedLevel": "A1", "aboveTargetPercent": 0,
+          "fits": True},
+         {"file": "b.txt", "totalWordCount": 1, "vocabulary": {"typical": "A1",
+                                                                  "coverage": "A1"},
+          "grammar": None, "estimatedLevel": "A1", "aboveTargetPercent": 0,
+          "fits": True}],
+        {"totalWordCount": 2, "typical": "A1", "coverage": "A1",
+         "offListPercent": 0},
+        _cdpays, "B1", cando_diff=True)
+    check("summary cando-diff: section lists the shared demands",
+          "## Can-Do demands across the set" in _cdsum
+          and "| Vocabulary | B2 |" in _cdsum
+          and "a.txt, b.txt" in _cdsum
+          and "distinct Can-Do levels above the target" in _cdsum)
+    check("summary without cando-diff has no demands section",
+          "Can-Do demands" not in cp.set_summary_markdown(
+              [{"file": "a.txt", "totalWordCount": 1,
+                "vocabulary": {"typical": "A1", "coverage": "A1"},
+                "grammar": None, "estimatedLevel": "A1",
+                "aboveTargetPercent": 0, "fits": True}],
+              {"totalWordCount": 1, "typical": "A1", "coverage": "A1",
+               "offListPercent": 0},
+              [{"file": "a.txt", "cando": None}], "B1"))
     check("curriculum grid path named after source folder",
           cp.curriculum_coverage_path(_tmp, "B1", None)
           == os.path.join(_tmp, os.path.basename(_tmp) + "-curriculum-coverage-B1.csv"))
@@ -1022,10 +1078,44 @@ try:
         rc, _, err = run(["--file", _cd_in, "--target-level", "B1", "--cando"])
         check("class --cando without --export rc==1",
               rc == 1 and "--cando requires --export" in err)
+        # --cando --export flashcards: a combined Can-Do reference deck next
+        # to the word decks, in the same RubricMaker shape.
+        _cd_deck = os.path.join(_cd_in, "deckout")
+        rc, out, err = run(["--file", _cd_in, "--target-level", "B1",
+                            "--no-grammar", "--cando", "--export", "flashcards",
+                            "--no-enrich", "--output", _cd_deck])
+        check("class --cando deck rc==0", rc == 0)
+        with open(os.path.join(
+                _cd_deck, os.path.basename(_cd_in) + "-preteaching-B1-cando-deck.csv"),
+                encoding="utf-8") as f:
+            _cd_rows = list(_csv.reader(f))
+        check("class --cando deck carries the demands in RubricMaker shape",
+              _cd_rows[0] == ["word", "definition", "example", "phonetic", "partOfSpeech"]
+              and len(_cd_rows) >= 2
+              and all(r[0].endswith("demand") and r[4] == "cando"
+                      for r in _cd_rows[1:]))
+        # --cando-diff: the set-level demands section in the summary handout.
         rc, _, err = run(["--file", _cd_in, "--target-level", "B1",
-                          "--cando", "--export", "flashcards", "--no-enrich"])
-        check("class --cando with flashcards rc==1",
-              rc == 1 and "applies to the md/csv" in err)
+                          "--cando-diff", "--export", "flashcards", "--no-enrich"])
+        check("class --cando-diff with flashcards rc==1",
+              rc == 1 and "--cando-diff" in err and "requires --export md|csv" in err)
+        # A two-text folder: --cando-diff --export md puts the shared
+        # above-target demands into the summary handout.
+        with open(os.path.join(_cd_in, "easy.txt"), "w", encoding="utf-8") as f:
+            f.write("I am a student.")
+        _cd_sum = os.path.join(_cd_in, "sumout")
+        rc, out, err = run(["--file", _cd_in, "--target-level", "B1",
+                            "--no-grammar", "--cando-diff", "--export", "md",
+                            "--output", _cd_sum])
+        check("class --cando-diff md rc==0", rc == 0)
+        with open(os.path.join(_cd_sum, os.path.basename(_cd_in) + "-summary-B1.md"),
+                  encoding="utf-8") as f:
+            _cd_sum_md = f.read()
+        check("class --cando-diff summary lists the shared demands",
+              "## Can-Do demands across the set" in _cd_sum_md
+              and "| Vocabulary | B2 |" in _cd_sum_md
+              and "purchase.txt" in _cd_sum_md
+              and "distinct Can-Do levels above the target" in _cd_sum_md)
     finally:
         shutil.rmtree(_cd_in, ignore_errors=True)
 
@@ -1760,6 +1850,37 @@ if os.path.isdir(_sample):
               and 0 <= _ccj["passCount"] <= _ccj["textCount"])
     finally:
         shutil.rmtree(_golden_curr, ignore_errors=True)
+
+    # The Can-Do pass of the CI golden check: --cando-diff --export md puts
+    # the shared above-target demands into the summary handout, and
+    # --cando --export flashcards writes a combined Can-Do reference deck.
+    _golden_cando = tempfile.mkdtemp(prefix="classprof_golden_cando_")
+    try:
+        rc, out, err = run(["--file", _sample, "--target-level", "B1", "--no-grammar",
+                            "--cando-diff", "--export", "md", "--output", _golden_cando])
+        check("sample cando-diff: rc==0", rc == 0)
+        with open(os.path.join(_golden_cando, "sample-readings-summary-B1.md"),
+                  encoding="utf-8") as f:
+            _cd_summary = f.read()
+        check("sample cando-diff: summary carries the demands section",
+              "## Can-Do demands across the set" in _cd_summary
+              and "| Demand | Level | Can-Do descriptor | Texts |" in _cd_summary
+              and all(f in _cd_summary for f in files))
+        rc, out, err = run(["--file", _sample, "--target-level", "B1", "--no-grammar",
+                            "--cando", "--export", "flashcards", "--no-enrich",
+                            "--output", _golden_cando])
+        check("sample cando deck: rc==0", rc == 0)
+        with open(os.path.join(_golden_cando,
+                               "sample-readings-preteaching-B1-cando-deck.csv"),
+                  encoding="utf-8") as f:
+            _cdrows = list(_csv.reader(f))
+        check("sample cando deck: RubrikMaker shape with demand cards",
+              _cdrows[0] == ["word", "definition", "example", "phonetic", "partOfSpeech"]
+              and len(_cdrows) > 1
+              and all(r[0].endswith("demand") and r[3] == "" and r[4] == "cando"
+                      for r in _cdrows[1:]))
+    finally:
+        shutil.rmtree(_golden_cando, ignore_errors=True)
 else:
     skipped += 1
 
@@ -1786,7 +1907,7 @@ if all(os.path.isfile(p) for p in (_skill_local, _skill_plugin, _plugin_json)):
           "../../../" in _sl and "class_profile.py" in _sl)
     check("class-profile copies are deliberately different flavours", _sl != _sp)
     for _flag in ("--gap-report", "--interleave", "--new-words-per-reading",
-                  "--curriculum", "--watch", "--cando"):
+                  "--curriculum", "--watch", "--cando", "--cando-diff"):
         check(f"class-profile skill documents {_flag} in both copies",
               _flag in _sl and _flag in _sp)
     with open(os.path.join(HERE, ".claude", "skills", "text-report", "SKILL.md"),

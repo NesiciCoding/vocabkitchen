@@ -371,7 +371,10 @@ It reports:
   `aboveTarget` — the descriptors the text demands **beyond** what the
   class is expected to do yet (every level strictly above the target up to
   the text's own band), shown as an **Above the {target} target** block in
-  the terminal and the handout.
+  the terminal and the handout. With `--export flashcards` it writes a
+  companion **Can-Do reference deck** (`essay-preteaching-B1-cando-deck.csv`)
+  next to the word deck — the demands as cards in the same RubricMaker
+  import shape.
 
 Flags:
 
@@ -398,7 +401,7 @@ Flags:
 | `--limit`          | `--pre-enrich` only: cap the number of new lookups |
 | `--output`          | where the `--export` file goes (default: `<stem>-preteaching-<LEVEL>.<ext>` next to the input, or `preteaching-<LEVEL>.<ext>` in the cwd; decks get a `-deck` suffix) |
 | `--watch`           | re-profile the `--file` input whenever it changes on disk (edit → re-check loop; optional interval in seconds, default 1) |
-| `--curriculum`      | check the text against a curriculum checklist file (`[vocabulary]` + `[grammar]` sections) and report pass/fail coverage |
+| `--curriculum`      | check the text against a curriculum checklist file (`[vocabulary]` + `[grammar]` sections) and report pass/fail coverage; section headers are validated first (typos like `[grammer]` fail fast with a hint, empty sections warn) |
 | `--cambridge`       | map the report's own CEFR bands to the matching Cambridge English Qualification (A2 Key, B1 Preliminary, B2 First, C1 Advanced, C2 Proficiency) |
 | `--cando`           | express the text's demands as CEFR global-scale Can-Do descriptors; with `--target-level`, also list the ones above the target's expectations |
 | (stdin)             | if neither `--text` nor `--file` is given, text is read from stdin      |
@@ -522,7 +525,13 @@ It reports:
   Can-Do descriptors** (what a learner at the text's demand level can do)
   plus an **Above the target** list — the descriptors the text demands
   beyond what the class is expected to do yet, ready to pre-teach or
-  rewrite.
+  rewrite. With `--export flashcards` it also writes a **combined Can-Do
+  reference deck** (`essays-preteaching-B1-cando-deck.csv`) next to the
+  word decks: one card per above-target demand in the RubricMaker import
+  shape, so a deck doubles as Can-Do reference cards. With `--cando-diff`
+  the summary handout gains a **Can-Do demands across the set** section:
+  which above-target descriptors the texts share, most-common first, with
+  the demanding texts listed.
 - **Folder watch mode** — `--watch` keeps re-profiling the `--file` input
   whenever any text in it changes on disk (polling every second,
   `--watch 0.2` for faster), until Ctrl-C — the edit → re-check loop for a
@@ -555,8 +564,9 @@ Flags:
 | `--gap-report`      | `--export md\|csv` only: list the target-level constructions each text does not use yet, per handout |
 | `--interleave`      | build a spaced-introduction schedule across the set (new words per reading, review + due flags) |
 | `--new-words-per-reading` | `--interleave` only: max new words introduced per reading (default 5) |
-| `--curriculum`      | check every text against a curriculum checklist file (md: per-text sections; csv: the folder-level coverage grid; json: `curriculumCoverage` in the payload) |
-| `--cando`           | `--export md\|csv` only: add each text's CEFR Can-Do descriptors + the ones above the target's expectations to the handouts |
+| `--curriculum`      | check every text against a curriculum checklist file (md: per-text sections; csv: the folder-level coverage grid; json: `curriculumCoverage` in the payload); section headers are validated first (typos like `[grammer]` fail fast with a hint, empty sections warn) |
+| `--cando`           | add each text's CEFR Can-Do descriptors + the ones above the target's expectations to the handouts (md\|csv), or write a combined Can-Do reference deck (flashcards) |
+| `--cando-diff`      | `--export md\|csv` only: add the set-level Can-Do demands section to the summary handout — which above-target descriptors the texts share (implies `--cando`) |
 | `--watch`           | re-profile the `--file` input whenever any text in it changes on disk (edit → re-check loop; optional interval in seconds, default 1) |
 | `--no-enrich`       | `--export flashcards` only: skip the Free Dictionary API               |
 | `--output`          | `--export` only: write all lists into this directory (default: next to each source) |

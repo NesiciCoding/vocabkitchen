@@ -283,6 +283,29 @@ with open(os.path.join(_curr_dir, "bad.txt"), "w", encoding="utf-8") as f:
 check("curriculum: unknown section raises CurriculumError",
       _raises_curriculum(lambda: tr.load_curriculum(
           os.path.join(_curr_dir, "bad.txt"))))
+with open(os.path.join(_curr_dir, "typo.txt"), "w", encoding="utf-8") as f:
+    f.write("[grammer]\npast simple\n")
+try:
+    tr.load_curriculum(os.path.join(_curr_dir, "typo.txt"))
+    _typo_msg = ""
+except tr.CurriculumError as ex:
+    _typo_msg = str(ex)
+check("curriculum: typo'd header suggests the fix",
+      "unknown curriculum section on line 1" in _typo_msg
+      and "Did you mean [grammar]?" in _typo_msg)
+with open(os.path.join(_curr_dir, "mal.txt"), "w", encoding="utf-8") as f:
+    f.write("[vocabulary] words\n")
+check("curriculum: header with trailing text is malformed",
+      _raises_curriculum(lambda: tr.load_curriculum(
+          os.path.join(_curr_dir, "mal.txt"))))
+with open(os.path.join(_curr_dir, "empty.txt"), "w", encoding="utf-8") as f:
+    f.write("[vocabulary]\ncat\n\n[grammar]\n")
+_sect, _warns = tr.validate_curriculum(os.path.join(_curr_dir, "empty.txt"))
+check("curriculum: validate returns sections + warnings",
+      _sect == {"vocabulary": ["cat"], "grammar": []}
+      and _warns == ["curriculum section [grammar] is empty — nothing required from it"])
+check("curriculum: clean file has no warnings",
+      tr.validate_curriculum(_curr_path)[1] == [])
 
 check("curriculum resolver: by construction id",
       tr._resolve_construction("cond_second")[0] == "cond_second")
@@ -498,6 +521,41 @@ tr.render_pretty(tr.analyze("We purchase fresh bread daily.",
 check("pretty renders the above-target Can-Do block",
       "above the A2 target" in _bufdc.getvalue()
       and "pre-teach or rewrite" in _bufdc.getvalue())
+
+# --- unit: Can-Do reference deck (--cando --export flashcards) ---------------
+_cd_deck = tr.export_cando_deck(
+    tr.analyze("We purchase fresh bread daily.", target_level="A2",
+               with_grammar=False, cando=True))
+_cd_rows = list(_csv.reader(_cd_deck.splitlines()))
+check("cando deck: RubricMaker shape with demand cards",
+      _cd_rows[0] == ["word", "definition", "example", "phonetic", "partOfSpeech"]
+      and {r[0] for r in _cd_rows[1:]} == {"B1 — vocabulary demand",
+                                            "B2 — vocabulary demand",
+                                            "B1 — estimated demand",
+                                            "B2 — estimated demand"}
+      and all(r[3] == "" and r[4] == "cando" for r in _cd_rows[1:])
+      and any("above the A2 target" in r[2] for r in _cd_rows[1:]))
+check("cando deck: none without --cando",
+      tr.export_cando_deck(tr.analyze("I am a student.", with_grammar=False))
+      is None)
+check("cando deck path derives from the word deck",
+      tr.cando_deck_path("essay-preteaching-B1-deck.csv")
+      == "essay-preteaching-B1-cando-deck.csv"
+      and tr.cando_deck_path("out.csv") == "out-cando-deck.csv")
+# The companion deck is actually written by the CLI next to the word deck.
+_cd_cli = tempfile.mkdtemp(prefix="tr_cando_deck_")
+rc, out, err = run(["--cando", "--no-grammar", "--target-level", "A2",
+                    "--file", os.path.join(HERE, "sample-readings/news-report.txt"),
+                    "--export", "flashcards", "--no-enrich", "--output",
+                    os.path.join(_cd_cli, "news-deck.csv")])
+_has_deck = os.path.isfile(os.path.join(_cd_cli, "news-cando-deck.csv"))
+if _has_deck:
+    with open(os.path.join(_cd_cli, "news-cando-deck.csv"), encoding="utf-8") as f:
+        _deck_rows = list(_csv.reader(f))
+check("cli --cando --export flashcards writes the companion deck",
+      rc == 0 and _has_deck and _deck_rows[0][0] == "word"
+      and all(r[4] == "cando" for r in _deck_rows[1:]))
+shutil.rmtree(_cd_cli, ignore_errors=True)
 
 # --- unit: cached definitions (no-network lookups for handouts) ---------------
 _cache_path = os.path.join(_curr_dir, "dict-cache.json")

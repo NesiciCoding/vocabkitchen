@@ -135,6 +135,7 @@ summary.
 """
 
 import argparse
+import difflib
 import json
 import os
 import re
@@ -487,6 +488,56 @@ class CurriculumError(Exception):
     """A problem with the --curriculum checklist file."""
 
 
+_CURRICULUM_HEADERS = (("[vocabulary]", "vocabulary"),
+                       ("[vocab]", "vocabulary"),
+                       ("[grammar]", "grammar"))
+
+
+def _parse_curriculum(path):
+    """Parse the checklist file into sections + non-fatal warnings.
+
+    Section headers are ``[vocabulary]`` (or ``[vocab]``) and ``[grammar]``,
+    one per line; lines before any header count as vocabulary; ``#``/``;``
+    start comments. Raises ``CurriculumError`` for a missing file or a
+    malformed / unknown section header — with a *did you mean* hint for
+    typos — so a typo'd checklist is reported **before** any profiling.
+    Returns ``(sections, warnings)``; warnings are notes that do not stop
+    the run, e.g. an empty required section.
+    """
+    if not os.path.isfile(path):
+        raise CurriculumError(f"curriculum file not found: {path}")
+    sections = {"vocabulary": [], "grammar": []}
+    current = "vocabulary"
+    with open(path, encoding="utf-8") as f:
+        for lineno, raw in enumerate(f, 1):
+            line = raw.strip()
+            if not line or line.startswith(("#", ";")):
+                continue
+            low = line.lower()
+            matched = next((section for header, section in _CURRICULUM_HEADERS
+                            if low == header), None)
+            if matched is not None:
+                current = matched
+            elif low.startswith("["):
+                if low.endswith("]"):
+                    close = difflib.get_close_matches(
+                        low, [h for h, _s in _CURRICULUM_HEADERS], n=1)
+                    hint = f" Did you mean {close[0]}?" if close else ""
+                    raise CurriculumError(
+                        f"unknown curriculum section on line {lineno}: {line}."
+                        + hint)
+                raise CurriculumError(
+                    f"malformed curriculum section header on line {lineno}: "
+                    f"{line!r} — section headers are exactly [vocabulary] or "
+                    "[grammar], alone on their line")
+            else:
+                sections[current].append(line)
+    warnings = [
+        f"curriculum section [{name}] is empty — nothing required from it"
+        for name in ("vocabulary", "grammar") if not sections[name]]
+    return sections, warnings
+
+
 def load_curriculum(path):
     """Parse a curriculum checklist file into required vocabulary + grammar.
 
@@ -495,27 +546,21 @@ def load_curriculum(path):
     conditional", or their ids, e.g. ``cond_second``); lines before any
     section header count as vocabulary; ``#``/``;`` start comments. Returns
     ``{"vocabulary": [...], "grammar": [...]}``; raises
-    ``CurriculumError`` for a missing file or an unknown section.
+    ``CurriculumError`` for a missing file, a malformed header, or an
+    unknown section (typos get a *did you mean* hint).
     """
-    if not os.path.isfile(path):
-        raise CurriculumError(f"curriculum file not found: {path}")
-    sections = {"vocabulary": [], "grammar": []}
-    current = "vocabulary"
-    with open(path, encoding="utf-8") as f:
-        for raw in f:
-            line = raw.strip()
-            if not line or line.startswith(("#", ";")):
-                continue
-            low = line.lower()
-            if low in ("[vocabulary]", "[vocab]"):
-                current = "vocabulary"
-            elif low == "[grammar]":
-                current = "grammar"
-            elif low.startswith("[") and low.endswith("]"):
-                raise CurriculumError(f"unknown curriculum section: {line}")
-            else:
-                sections[current].append(line)
+    sections, _warnings = _parse_curriculum(path)
     return sections
+
+
+def validate_curriculum(path):
+    """Parse the checklist file and return ``(sections, warnings)``.
+
+    The CLI calls this before profiling so a typo'd section header fails
+    fast; warnings (e.g. an empty required section) print to stderr without
+    stopping the run.
+    """
+    return _parse_curriculum(path)
 
 
 def _resolve_construction(query):
@@ -1522,6 +1567,100 @@ def export_flashcards(payload, enrich=True, base_url=None, level_index=None,
     return buf.getvalue(), stats
 
 
+def _cando_cards(payload):
+    """The single text's Can-Do demands as reference cards.
+
+    One card per demand (dimension × band) — the ``## Can-Do descriptors``
+    table — plus one per level in the ``aboveTarget`` diff, so the deck
+    doubles as a Can-Do reference: front ``B2 — vocabulary demand``, back
+    the descriptor plus whether it's above the target. Deduplicated by
+    (dimension, band), keeping the demand card over its diff duplicate.
+    """
+    cd = payload.get("cando")
+    if not cd:
+        return []
+    target = payload.get("targetLevel")
+    v = payload.get("vocabulary") or {}
+    g = payload.get("grammar") or {}
+    gl = g.get("estimatedLevel") or {}
+    est = payload.get("estimatedLevel")
+
+    def _above(band):
+        return (target is not None and band in _LEVEL_INDEX
+                and target in _LEVEL_INDEX
+                and _LEVEL_INDEX[band] > _LEVEL_INDEX[target])
+
+    demands = []
+    if v.get("coverage") and cd["vocabulary"]["reaches"]:
+        demands.append(("Vocabulary", v["coverage"], cd["vocabulary"]["reaches"]))
+    if cd["grammar"]["reaches"] and gl.get("reaches"):
+        demands.append(("Grammar", gl["reaches"], cd["grammar"]["reaches"]))
+    if est and cd["estimated"]:
+        demands.append(("Estimated", est, cd["estimated"]))
+
+    cards = []
+    seen = set()
+    for dim, band, desc in demands:
+        if (dim, band) in seen:
+            continue
+        seen.add((dim, band))
+        note = (f" · above the {target} target — pre-teach or rewrite"
+                if _above(band)
+                else (f" · at the {target} target" if target else ""))
+        cards.append({"word": f"{band} — {dim.lower()} demand",
+                      "definition": desc,
+                      "example": f"{dim} reaches {band}{note}"})
+    for key, dim in (("vocabulary", "Vocabulary"),
+                     ("grammar", "Grammar"),
+                     ("estimated", "Estimated")):
+        for e in (cd.get("aboveTarget") or {}).get(key) or []:
+            if (dim, e["band"]) in seen:
+                continue
+            seen.add((dim, e["band"]))
+            cards.append({"word": f"{e['band']} — {dim.lower()} demand",
+                          "definition": e["descriptor"],
+                          "example": f"above the {target} target — "
+                                     "pre-teach or rewrite"})
+    return cards
+
+
+def cando_deck_csv(cards):
+    """Render Can-Do reference *cards* as a RubricMaker deck (same columns
+    as :func:`export_flashcards`: word, definition, example, phonetic,
+    partOfSpeech) so decks double as Can-Do reference cards; None when
+    there are no cards."""
+    if not cards:
+        return None
+    import csv
+    import io
+    buf = io.StringIO()
+    w = csv.writer(buf, lineterminator="\n")
+    w.writerow(["word", "definition", "example", "phonetic", "partOfSpeech"])
+    for c in cards:
+        w.writerow([c["word"], c["definition"], c["example"], "", "cando"])
+    return buf.getvalue()
+
+
+def export_cando_deck(payload):
+    """The text's Can-Do demands as a companion RubricMaker deck (CSV
+    string, or None when ``--cando`` wasn't requested): front = the demand
+    level (``B2 — vocabulary demand``), back = the CEFR descriptor plus
+    whether it's above the target — the ``## Can-Do descriptors`` table and
+    the ``aboveTarget`` diff as flashcard reference cards."""
+    return cando_deck_csv(_cando_cards(payload))
+
+
+def cando_deck_path(word_deck_path):
+    """The companion Can-Do deck next to a word deck:
+    ``essay-preteaching-B1-deck.csv`` → ``essay-preteaching-B1-cando-deck.csv``
+    (also handles an explicit ``--output`` path without the ``-deck``
+    suffix, e.g. ``out.csv`` → ``out-cando-deck.csv``)."""
+    stem, ext = os.path.splitext(word_deck_path)
+    if stem.endswith("-deck"):
+        stem = stem[:-len("-deck")]
+    return stem + "-cando-deck" + ext
+
+
 def export_path(source_file, output_path, target, fmt):
     """Where the pre-teaching list goes: --output, else a sensible default.
 
@@ -1628,6 +1767,20 @@ def _write_export(args, payload, target):
         return False
     # stderr, so --format json stdout stays machine-parseable
     sys.stderr.write(f"Wrote pre-teaching list to {path}\n")
+    if args.export == "flashcards":
+        # The deck doubles as a Can-Do reference when --cando is on: a
+        # companion deck with one card per demand descriptor + the
+        # above-target diff, in the same RubricMaker import shape.
+        cd_csv = export_cando_deck(payload)
+        if cd_csv is not None:
+            cd_path = cando_deck_path(path)
+            try:
+                with open(cd_path, "w", encoding="utf-8") as f:
+                    f.write(cd_csv)
+                sys.stderr.write(f"Wrote Can-Do reference deck to {cd_path}\n")
+            except OSError as ex:
+                sys.stderr.write(f"Could not write Can-Do reference deck: {ex}\n")
+                return False
     return True
 
 
@@ -1788,7 +1941,11 @@ def main(argv=None):
     curriculum = None
     if args.curriculum:
         try:
-            curriculum = load_curriculum(args.curriculum)
+            # validate_curriculum parses AND checks the schema — a typo'd
+            # section header (e.g. [grammer]) fails here, before profiling.
+            curriculum, warnings = validate_curriculum(args.curriculum)
+            for w in warnings:
+                sys.stderr.write("warning: " + w + "\n")
         except CurriculumError as ex:
             sys.stderr.write(str(ex) + "\n")
             return 1
