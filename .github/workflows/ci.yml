@@ -331,6 +331,26 @@ jobs:
                   return words
               assert _index_words("A2", {"B1", "B2", "C1", "C2"}).keys() == a2_words
               assert _index_words("B1", {"B2", "C1", "C2"}).keys() == b1_words
+              # --cando on the same run: each level also gets its own Can-Do
+              # reference deck, with the demands measured against that level.
+              rc, out, err = run_cli(["--file", "sample-readings/", "--targets", "A2,B1",
+                                      "--no-grammar", "--cando", "--export", "flashcards",
+                                      "--no-enrich", "--output", outdir])
+              assert rc == 0, err
+              assert {f"{base}-{lvl}-cando-deck.csv" for lvl in ("A2", "B1")} \
+                     <= set(os.listdir(outdir)), os.listdir(outdir)
+              for level, above_bands in (("A2", {"B1", "B2", "C1", "C2"}),
+                                         ("B1", {"B2", "C1", "C2"})):
+                  cdrows = list(csv.reader(open(
+                      os.path.join(outdir, f"{base}-{level}-cando-deck.csv"),
+                      encoding="utf-8")))
+                  assert cdrows[0] == ["word", "definition", "example", "phonetic",
+                                       "partOfSpeech"], cdrows[0]
+                  assert len(cdrows) > 1, cdrows
+                  assert all(r[0].split(" — ")[0] in above_bands
+                             and r[0].endswith("demand") and r[4] == "cando"
+                             and f"above the {level} target" in r[2]
+                             for r in cdrows[1:]), cdrows
           finally:
               shutil.rmtree(outdir, ignore_errors=True)
 

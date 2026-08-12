@@ -2025,9 +2025,12 @@ def main(argv=None):
 
         # Per-text export payloads, built once — they feed the JSON
         # curriculumCoverage grid and are reused (not rebuilt) by the
-        # per-text exports.
+        # per-text exports. Single-target runs only: under --targets the
+        # per-level exports build their own payloads per level (and
+        # export_payload needs a real target, not None).
         prebuilt_payloads = None
-        if (curriculum is not None or cando) and (out_format == "json" or args.export):
+        if (target is not None and (curriculum is not None or cando)
+                and (out_format == "json" or args.export)):
             prebuilt_payloads = [
                 export_payload(row, ordered, ctx, target,
                                suggest=args.suggest,

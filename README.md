@@ -528,7 +528,10 @@ It reports:
   rewrite. With `--export flashcards` it also writes a **combined Can-Do
   reference deck** (`essays-preteaching-B1-cando-deck.csv`) next to the
   word decks: one card per above-target demand in the RubricMaker import
-  shape, so a deck doubles as Can-Do reference cards. With `--cando-diff`
+  shape, so a deck doubles as Can-Do reference cards — under `--targets
+  A2,B1` each level gets its own deck
+  (`essays-preteaching-A2-cando-deck.csv` …), the demands measured against
+  that level. With `--cando-diff`
   the summary handout gains a **Can-Do demands across the set** section:
   which above-target descriptors the texts share, most-common first, with
   the demanding texts listed — `--cando-diff-sort band` re-orders it by the

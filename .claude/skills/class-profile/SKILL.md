@@ -88,7 +88,10 @@ doesn't have.
   also writes a **combined Can-Do reference deck**
   (`essays-preteaching-B1-cando-deck.csv`) next to the word decks: one card
   per above-target demand in the same RubricMaker import shape, so a deck
-  doubles as Can-Do reference cards.
+  doubles as Can-Do reference cards. Under `--targets A2,B1` each level
+  gets its own deck (`essays-preteaching-A2-cando-deck.csv`,
+  `essays-preteaching-B1-cando-deck.csv`), the demands measured against
+  that level.
 - **Set-level Can-Do diff (`--cando-diff`)** — with `--export md|csv`, the
   summary handout gains a **Can-Do demands across the set** section: which
   above-target descriptors the texts share, most-common first, with the

@@ -1690,6 +1690,29 @@ if os.path.isdir(_sample):
               _gindex_words("A2", {"B1", "B2", "C1", "C2"}).keys() == _ga2_words)
         check("sample targets export: B1 index == B1 deck",
               _gindex_words("B1", {"B2", "C1", "C2"}).keys() == _gb1_words)
+        # --cando on the same run: each level also gets its own Can-Do
+        # reference deck, with the demands measured against that level.
+        rc, out, err = run(["--file", _sample, "--targets", "A2,B1", "--no-grammar",
+                            "--cando", "--export", "flashcards", "--no-enrich",
+                            "--output", _golden_targets])
+        check("sample targets cando: rc==0", rc == 0)
+        check("sample targets cando: one cando deck per level",
+              {f"{_gbase}-{lvl}-cando-deck.csv" for lvl in ("A2", "B1")}
+              <= set(os.listdir(_golden_targets)))
+        for _lvl, _above_bands in (("A2", {"B1", "B2", "C1", "C2"}),
+                                   ("B1", {"B2", "C1", "C2"})):
+            with open(os.path.join(_golden_targets,
+                                   f"{_gbase}-{_lvl}-cando-deck.csv"),
+                      encoding="utf-8") as f:
+                _cd_rows = list(_csv.reader(f))
+            check(f"sample targets cando: {_lvl} deck has the RubricMaker shape",
+                  _cd_rows[0] == ["word", "definition", "example", "phonetic",
+                                  "partOfSpeech"]
+                  and len(_cd_rows) > 1
+                  and all(r[0].split(" — ")[0] in _above_bands
+                          and r[0].endswith("demand") and r[4] == "cando"
+                          and f"above the {_lvl} target" in r[2]
+                          for r in _cd_rows[1:]))
     finally:
         shutil.rmtree(_golden_targets, ignore_errors=True)
 
