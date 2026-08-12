@@ -25,6 +25,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 SCRIPT = os.path.join(HERE, "class_profile.py")
 
 import class_profile as cp  # noqa: E402
+import analysis as engine  # noqa: E402
 import vocab_profile as vp  # noqa: E402
 import grammar_profile as gp  # noqa: E402
 import text_report as tr  # noqa: E402
@@ -39,6 +40,16 @@ except Exception:
 
 _BASE = os.path.join(HERE, "WordLists")
 _LEVELS = [(name, vp.load_wordlist(_BASE, rel)) for name, rel in vp.PROFILERS["cefr"]]
+# The Phase 5 shared engine: word lists + the same grammar engine the CLI
+# loads once for the whole set (built here per-interpreter for the unit
+# tests; the CLI builds it once in main).
+_ENG = engine.Engine(_LEVELS, _BASE, grammar_available=HAVE_GRAMMAR,
+                     nlp=_NLP if HAVE_GRAMMAR else None,
+                     cefrj_levels=_CEFRJ if HAVE_GRAMMAR else None)
+_ENG_GRAMMAR = engine.Engine(_LEVELS, _BASE, grammar_available=HAVE_GRAMMAR,
+                             nlp=_NLP if HAVE_GRAMMAR else None,
+                             cefrj_levels=_CEFRJ if HAVE_GRAMMAR else None,
+                             grammar_requested=True)
 
 _EASY = "The cat sat on the mat. I like bread and milk and apples."
 _MID = ("The results were analysed by the committee and the findings were "
@@ -256,8 +267,14 @@ try:
     except cp.ClassProfileError:
         check("format bogus raises", True)
 
+    # --- Phase 5: the shared analysis engine -----------------------------------
+    check("class_profile imports the shared engine",
+          cp.engine.__name__ == "analysis"
+          and callable(cp.engine.load_engine)
+          and callable(cp.engine.payload))
+
     # --- unit: row building (vocab only; no grammar engine needed) -------------
-    row, ordered, _ctx = cp.build_row(_EASY, "easy.txt", _LEVELS, None, None, False, "B1")
+    row, ordered, _ctx = cp.build_row(_EASY, "easy.txt", _ENG, False, "B1")
     check("row easy typical A1", row["vocabulary"]["typical"] == "A1")
     check("row easy coverage A1", row["vocabulary"]["coverage"] == "A1")
     check("row grammar None without engine", row["grammar"] is None)
@@ -267,16 +284,16 @@ try:
     check("row easy fits B1 target", row["fits"] is True)
     check("row ctx carries the text", _ctx["text"] == _EASY)
 
-    row2, _o2, _c2 = cp.build_row(_HARD, "hard.txt", _LEVELS, None, None, False, "B1")
+    row2, _o2, _c2 = cp.build_row(_HARD, "hard.txt", _ENG, False, "B1")
     check("row hard estimated C2", row2["estimatedLevel"] == "C2")
     check("row hard does not fit B1", row2["fits"] is False)
 
-    row3, _o3, _c3 = cp.build_row(_EASY, "x.txt", _LEVELS, None, None, False, None)
+    row3, _o3, _c3 = cp.build_row(_EASY, "x.txt", _ENG, False, None)
     check("row without target: above/fits null",
           row3["aboveTargetPercent"] is None and row3["fits"] is None)
 
     # --- unit: multiple targets side by side ----------------------------------
-    rowm, _om, _cm = cp.build_row(_EASY, "easy.txt", _LEVELS, None, None, False,
+    rowm, _om, _cm = cp.build_row(_EASY, "easy.txt", _ENG, False,
                                   ["A2", "B1"])
     check("multi-target: per-target map populated",
           set(rowm["targets"]) == {"A2", "B1"})
@@ -284,7 +301,7 @@ try:
           rowm["targets"]["A2"]["fits"] is True and rowm["targets"]["B1"]["fits"] is True)
     check("multi-target: singular fields null",
           rowm["aboveTargetPercent"] is None and rowm["fits"] is None)
-    rowm2, _om2, _cm2 = cp.build_row(_HARD, "hard.txt", _LEVELS, None, None, False,
+    rowm2, _om2, _cm2 = cp.build_row(_HARD, "hard.txt", _ENG, False,
                                      ["A2", "B1"])
     check("multi-target: hard fits neither",
           rowm2["targets"]["A2"]["fits"] is False
@@ -306,8 +323,8 @@ try:
 
     # --- unit: --suggest annotates the per-text payload -----------------------
     _prof_p = cp.build_row("We purchase fresh bread daily, and the "
-                           "circumstances rarely change.", "p.txt", _LEVELS,
-                           None, None, False, "B1")
+                           "circumstances rarely change.", "p.txt", _ENG,
+                           False, "B1")
     _pp = cp.export_payload(_prof_p[0], _prof_p[1], _prof_p[2], "B1", suggest=True)
     _pw = next(d for d in _pp["aboveTarget"]["words"] if d["word"] == "purchase")
     check("export payload suggest annotates the word",
@@ -318,17 +335,17 @@ try:
           "suggestion" not in _pwn)
 
     # --- unit: --gap-report wires text_report's gap report per text -----------
-    _gap_prof = cp.build_row(_EASY, "g.txt", _LEVELS, None, None, False, "B1")
+    _gap_prof = cp.build_row(_EASY, "g.txt", _ENG, False, "B1")
     _gap_p = cp.export_payload(_gap_prof[0], _gap_prof[1], _gap_prof[2], "B1",
                                gap_report=True)
     check("export payload gap report w/o engine sets grammarGapError",
           _gap_p.get("grammarGap") is None
           and bool(_gap_p.get("grammarGapError")))
-    check("export payload without gap report: no grammarGap key",
-          "grammarGap" not in cp.export_payload(_gap_prof[0], _gap_prof[1],
-                                                _gap_prof[2], "B1"))
+    check("export payload without gap report: grammarGap stays None",
+          cp.export_payload(_gap_prof[0], _gap_prof[1], _gap_prof[2], "B1")
+          .get("grammarGap") is None)
     if HAVE_GRAMMAR:
-        _gap_full = cp.build_row(_MID, "g.txt", _LEVELS, _NLP, _CEFRJ, True, "B1")
+        _gap_full = cp.build_row(_MID, "g.txt", _ENG_GRAMMAR, True, "B1")
         _gap_pf = cp.export_payload(_gap_full[0], _gap_full[1], _gap_full[2],
                                     "B1", gap_report=True)
         _gap = _gap_pf.get("grammarGap")
@@ -343,16 +360,16 @@ try:
         skipped += 1
 
     # --- unit: folder vocabulary + combined deck ------------------------------
-    prof_a = cp.build_row(_EASY, "a", _LEVELS, None, None, False, None)
-    prof_b = cp.build_row(_HARD, "b", _LEVELS, None, None, False, None)
+    prof_a = cp.build_row(_EASY, "a", _ENG, False, None)
+    prof_b = cp.build_row(_HARD, "b", _ENG, False, None)
     vocab = cp.folder_vocabulary([prof_a, prof_b])
     check("folder_vocabulary distinct across texts",
           {"the", "cat", "circumstances", "chlorophyll"} <= set(vocab))
     check("folder_vocabulary sorted", vocab == sorted(vocab))
 
     payloads = [cp.export_payload(r, o, c, "B1") for r, o, c in
-                (cp.build_row(_EASY, "a", _LEVELS, None, None, False, "B1"),
-                 cp.build_row(_HARD, "b", _LEVELS, None, None, False, "B1"))]
+                (cp.build_row(_EASY, "a", _ENG, False, "B1"),
+                 cp.build_row(_HARD, "b", _ENG, False, "B1"))]
     combined = cp._combined_deck_payload(payloads)
     check("combined payload merges distinct words",
           {w["word"] for w in combined["aboveTarget"]["words"]}
@@ -380,8 +397,8 @@ try:
 
     # --- unit: aggregate + rank/filter ----------------------------------------
     agg = cp.new_aggregate()
-    for _r, _o, _c in (cp.build_row(_EASY, "a", _LEVELS, None, None, False, None),
-                       cp.build_row(_HARD, "b", _LEVELS, None, None, False, None)):
+    for _r, _o, _c in (cp.build_row(_EASY, "a", _ENG, False, None),
+                       cp.build_row(_HARD, "b", _ENG, False, None)):
         cp.add_to_aggregate(agg, _o)
     summ = cp.aggregate_summary(agg)
     check("aggregate total words", summ["totalWordCount"] == 13 + 12)
@@ -396,7 +413,7 @@ try:
     check("summary path into --output dir",
           cp.set_summary_path(None, "B1", os.path.join(_tmp, "decks"))
           == os.path.join(_tmp, "decks", "class-summary-B1.md"))
-    _prof = [cp.build_row(t, label, _LEVELS, None, None, False, "B1")
+    _prof = [cp.build_row(t, label, _ENG, False, "B1")
              for label, t in [("easy.txt", _EASY), ("hard.txt", _HARD)]]
     _srows = [r for r, _o, _c in _prof]
     _spays = [cp.export_payload(r, o, c, "B1") for r, o, c in _prof]
@@ -731,8 +748,8 @@ try:
     with open(_curr_path2, "w", encoding="utf-8") as f:
         f.write("[vocabulary]\npurchase\nmat\n\n[grammar]\npassive_present\n")
     _curriculum2 = tr.load_curriculum(_curr_path2)
-    _prof_cc = cp.build_row("We purchase the equipment daily.", "c.txt", _LEVELS,
-                            None, None, False, "B1")
+    _prof_cc = cp.build_row("We purchase the equipment daily.", "c.txt", _ENG,
+                            False, "B1")
     _cc = cp.export_payload(_prof_cc[0], _prof_cc[1], _prof_cc[2], "B1",
                             curriculum=_curriculum2)
     check("export payload carries the curriculum checklist",
@@ -751,7 +768,7 @@ try:
 
     rows = []
     for label, text in [("b", _EASY), ("a", _HARD)]:
-        _r, _o, _c = cp.build_row(text, label, _LEVELS, None, None, False, None)
+        _r, _o, _c = cp.build_row(text, label, _ENG, False, None)
         rows.append(_r)
 
     # --- unit: CSV with multiple targets ---------------------------------------

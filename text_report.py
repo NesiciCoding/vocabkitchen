@@ -142,6 +142,7 @@ import re
 import sys
 import time
 
+import analysis as engine
 import vocab_profile as vp
 import grammar_profile as gp
 
@@ -718,129 +719,27 @@ def analyze(text, target_level=None, wordlists_dir=None, grammar_dir=None,
             gap_report=False, curriculum=None, cambridge=False, cando=False):
     """Run both profilers and readability over *text*; return the report payload.
 
-    With ``suggest=True`` (and a *target_level*), each above-target word that
-    has an entry in the bundled synonyms list carries a ``suggestion`` — the
-    simpler alternative to rewrite it with. With ``gap_report=True`` (and a
-    *target_level*), ``grammarGap`` lists the target-level constructions the
-    text does not use yet. With ``curriculum`` (a parsed checklist), the
-    payload carries a ``curriculum`` pass/fail coverage report. With
-    ``cambridge=True``/``cando=True``, the payload also maps its own bands to
-    the matching Cambridge English Qualifications / CEFR Can-Do descriptors
-    (the Phase 4 exam-mapping and Can-Do-framing items).
+    The Phase 5 shared engine: this is the analysis module's pipeline (word
+    lists + grammar engine loaded once per call, vocabulary always, grammar
+    when available, readability, and the above-target / coverage / verdict
+    layers under a *target_level*), so the report this CLI ships is exactly
+    the one class_profile builds per text. With ``suggest=True`` (and a
+    *target_level*), each above-target word that has an entry in the bundled
+    synonyms list carries a ``suggestion`` — the simpler alternative to
+    rewrite it with. With ``gap_report=True`` (and a *target_level*),
+    ``grammarGap`` lists the target-level constructions the text does not
+    use yet. With ``curriculum`` (a parsed checklist), the payload carries a
+    ``curriculum`` pass/fail coverage report. With ``cambridge=True`` /
+    ``cando=True``, the payload also maps its own bands to the matching
+    Cambridge English Qualifications / CEFR Can-Do descriptors (the Phase 4
+    exam-mapping and Can-Do-framing items).
     """
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-
-    # Vocabulary (always runs; dependency-free).
-    vocab_base = wordlists_dir or os.path.join(script_dir, "WordLists")
-    levels = [(name, vp.load_wordlist(vocab_base, rel))
-              for name, rel in vp.PROFILERS["cefr"]]
-    ordered, total = vp.profile(text, levels)
-    counts, typical, coverage = vp.cefr_stats(ordered, total)
-
-    payload = {
-        "totalWordCount": total,
-        "vocabulary": {
-            "typical": typical,
-            "coverage": coverage,
-            "offListPercent": (round(counts.get("Off List", 0) / total * 100)
-                               if total else 0),
-            "results": vp.results_to_json(ordered),
-        },
-        "grammar": None,
-        "grammarError": None,
-        "targetLevel": target_level,
-        "aboveTarget": None,
-        "coverage": None,
-        "estimatedLevel": None,
-        "verdict": None,
-        "grammarGap": None,
-        "grammarGapError": None,
-        "curriculum": None,
-        "curriculumError": None,
-        "cambridge": None,
-        "cando": None,
-        "readability": compute_readability(text, total) if with_readability else None,
-    }
-
-    # Grammar (needs spaCy; degrades gracefully when it's missing).
-    grammar_available = False
-    gresults = None
-    gmeta = None
-    if with_grammar:
-        try:
-            gbase = grammar_dir or os.path.join(script_dir, "GrammarProfile")
-            nlp = gp.load_nlp()
-            cefrj_levels = gp.load_cefrj_levels(gbase)
-            if len(text) > nlp.max_length:
-                raise ValueError(
-                    f"input too long for the parser ({len(text):,} characters; "
-                    f"limit {nlp.max_length:,}) — split the text and re-run"
-                )
-            gresults, gmeta = gp.profile(text, nlp, cefrj_levels)
-            payload["grammar"] = gp.results_to_json(gresults, gmeta)
-            grammar_available = True
-        except gp.EngineError as ex:
-            payload["grammarError"] = str(ex).strip()
-        except ValueError as ex:
-            payload["grammarError"] = str(ex).strip()
-    else:
-        payload["grammarError"] = "skipped (--no-grammar)"
-
-    if target_level is not None:
-        words = words_above_target(ordered, target_level)
-        structures = (structures_above_target(gresults, target_level)
-                      if grammar_available else [])
-        bands = [d["level"] for d in words] + [d["level"] for d in structures]
-        if words:
-            ctx = word_contexts(text, [d["word"] for d in words])
-            for d in words:
-                d["context"] = ctx.get(d["word"])
-        if suggest:
-            syns = load_synonyms(os.path.join(vocab_base, "synonyms.csv"))
-            for d in words:
-                s = syns.get(d["word"])
-                if s:
-                    d["suggestion"] = s
-        payload["aboveTarget"] = {
-            "maxLevel": max(bands, key=lambda lvl: _LEVEL_INDEX[lvl]) if bands else None,
-            "words": words,
-            "wordCount": len(words),
-            "structures": structures,
-            "structureCount": len(structures),
-        }
-        payload["coverage"] = coverage_figure(ordered, target_level)
-        payload["verdict"] = build_verdict(words, structures, grammar_available)
-
-    if gap_report:
-        if target_level is None:
-            payload["grammarGapError"] = "requires --target-level"
-        elif not grammar_available:
-            payload["grammarGapError"] = (payload["grammarError"]
-                                          or "not analysed")
-        else:
-            payload["grammarGap"] = grammar_gap_report(
-                gresults, cefrj_levels, target_level)
-
-    grammar_typical = gmeta["estimatedLevel"]["typical"] if gmeta else None
-    payload["estimatedLevel"] = blend_level(coverage, grammar_typical)
-
-    if cambridge:
-        payload["cambridge"] = cambridge_mapping(payload)
-    if cando:
-        payload["cando"] = cando_mapping(payload, target_level)
-
-    if curriculum:
-        # Re-run the checklist with the grammar results now that the grammar
-        # side has (or hasn't) run; vocabulary presence needs `ordered`.
-        payload["curriculum"] = curriculum_report(
-            text, curriculum, ordered, gresults)
-        if curriculum and not grammar_available:
-            payload["curriculum"]["grammarAvailable"] = False
-            payload["curriculumError"] = (
-                payload["grammarError"] or "grammar not analysed")
-        else:
-            payload["curriculum"]["grammarAvailable"] = True
-    return payload
+    return engine.analyze(
+        text, target_level=target_level, wordlists_dir=wordlists_dir,
+        grammar_dir=grammar_dir, with_grammar=with_grammar,
+        with_readability=with_readability, suggest=suggest,
+        gap_report=gap_report, curriculum=curriculum, cambridge=cambridge,
+        cando=cando)
 
 
 # ---------------------------------------------------------------------------

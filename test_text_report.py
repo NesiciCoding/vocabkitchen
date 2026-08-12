@@ -28,6 +28,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 SCRIPT = os.path.join(HERE, "text_report.py")
 
 import text_report as tr  # noqa: E402
+import analysis as engine  # noqa: E402
 import vocab_profile as vp  # noqa: E402
 import grammar_profile as gp  # noqa: E402
 
@@ -56,6 +57,15 @@ def check(name, cond, detail=None):
     else:
         failed += 1
         print(f"FAIL: {name}" + (f" — {detail}" if detail is not None else ""))
+
+
+# --- Phase 5: the shared analysis engine -------------------------------------
+check("text_report delegates to the shared engine",
+      engine.analyze(_CAT, target_level="B1", with_grammar=False)
+      == tr.analyze(_CAT, target_level="B1", with_grammar=False))
+check("engine payload matches text_report's shape",
+      set(engine.analyze(_CAT, with_grammar=False)) == set(
+          tr.analyze(_CAT, with_grammar=False)))
 
 
 def run(args, text=""):

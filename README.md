@@ -36,6 +36,11 @@ The vocabulary profiler scores against three word lists:
   `NawlProfiler`) with **no database, AWS, Angular, auth — or .NET**. It reuses
   the exact same word lists and is validated to produce identical output to the
   original C# profiler.
+- **`analysis.py`** — the **shared analysis engine** (Phase 5): the word lists
+  plus the grammar engine loaded once, and the one payload builder both CLIs
+  call — `text_report.py` and `class_profile.py` import it, so a CEFR level
+  means the same thing whether one text or a whole folder is profiled, and
+  RubricMaker gets a single importable entry point.
 - **`grammar_profile.py`** — a companion **grammar** profiler. Where the
   vocabulary tool scores *which words* a text uses, this reports *which
   grammatical constructions* it uses — present perfect, the passive, relative

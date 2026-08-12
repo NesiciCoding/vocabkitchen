@@ -64,7 +64,8 @@ jobs:
                   p = os.path.join(d, f)
                   if os.path.islink(p) and not os.path.exists(p):
                       print(f"plugin {name}: broken symlink {f} -> {os.readlink(p)}")
-                      ok = False          sys.exit(0 if ok else 1)
+                      ok = False
+          sys.exit(0 if ok else 1)
           EOF
 
       - name: Skills stay flavour-consistent + plugin.json commands

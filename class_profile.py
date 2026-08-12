@@ -147,8 +147,8 @@ import re
 import sys
 import time
 
+import analysis as engine
 import vocab_profile as vp
-import grammar_profile as gp
 import text_report as tr
 
 _CEFR_ORDER = vp.CEFR_ORDER
@@ -290,41 +290,6 @@ def resolve_format(explicit, is_tty):
 # numbers mean exactly the same thing as the single-text tools.
 # ---------------------------------------------------------------------------
 
-def load_grammar_engine(grammar_dir=None):
-    """Load spaCy + CEFR-J levels once for the whole set.
-
-    Returns ``(nlp, cefrj_levels)`` or ``(None, note)`` when the engine is
-    unavailable (note carries the install guidance from grammar_profile).
-    """
-    try:
-        script_dir = os.path.dirname(os.path.abspath(__file__))
-        gbase = grammar_dir or os.path.join(script_dir, "GrammarProfile")
-        nlp = gp.load_nlp()
-        cefrj = gp.load_cefrj_levels(gbase)
-        return nlp, cefrj
-    except gp.EngineError as ex:
-        return None, str(ex).strip()
-
-
-def grammar_levels_for(text, nlp, cefrj_levels):
-    """(estimatedLevel, results, meta, error) for one text.
-
-    ``results``/``meta`` are the full grammar profiler payload — kept for the
-    per-text ``--export`` mode; ``error`` explains an unparseable input.
-    """
-    if nlp is None:
-        return None, None, None, None
-    try:
-        if len(text) > nlp.max_length:
-            raise ValueError(
-                f"input too long for the parser ({len(text):,} characters; "
-                f"limit {nlp.max_length:,}) — split the text and re-run")
-        results, meta = gp.profile(text, nlp, cefrj_levels)
-        return meta["estimatedLevel"], results, meta, None
-    except ValueError as ex:
-        return None, None, None, str(ex).strip()
-
-
 def _target_outcomes(ordered, targets, estimated):
     """Per-target %-above-target and fits verdicts for one text.
 
@@ -342,33 +307,35 @@ def _target_outcomes(ordered, targets, estimated):
     return out
 
 
-def build_row(text, label, levels, nlp, cefrj_levels, with_grammar, targets):
-    """Profile in-memory *text*; return ``(row, ordered, ctx)``.
+def build_row(text, label, eng, with_grammar, targets):
+    """Profile in-memory *text* with the shared engine; return ``(row, ordered, ctx)``.
 
-    *ordered* is vocab_profile's per-level result (level → word × occurrences)
-    — the caller folds it into the pooled aggregate. *targets* is a single
-    CEFR level, a list of them, or None: with one level the row carries the
-    singular ``aboveTargetPercent``/``fits`` fields; with several, a
-    per-target ``targets`` map. *ctx* holds the text and the full grammar
-    payload so the per-text ``--export`` mode can reuse text_report's writers
-    verbatim. Raises nothing; reading the text itself is the caller's job.
+    *eng* is the Phase 5 shared :class:`analysis.Engine` (word lists + the
+    grammar engine, loaded once for the whole set). *ordered* is vocab's
+    per-level result (level → word × occurrences) — the caller folds it into
+    the pooled aggregate. *targets* is a single CEFR level, a list of them,
+    or None: with one level the row carries the singular
+    ``aboveTargetPercent``/``fits`` fields; with several, a per-target
+    ``targets`` map. *ctx* holds the text and the full grammar payload so
+    the per-text ``--export`` mode can reuse text_report's writers verbatim.
+    Raises nothing; reading the text itself is the caller's job.
     """
     if isinstance(targets, str):
         targets = [targets]
-    ordered, total = vp.profile(text, levels)
-    counts = {name: sum(occ for _w, occ in rows) for name, _pct, rows in ordered}
-    _c, typical, coverage = vp.cefr_stats(ordered, total)
-    off_list_percent = (round(counts.get("Off List", 0) / total * 100)
-                        if total else 0)
+    pieces = engine.profile(text, eng, with_grammar=with_grammar)
+    ordered = pieces["ordered"]
+    total = pieces["total"]
+    typical = pieces["typical"]
+    coverage = pieces["coverage"]
+    off_list_percent = pieces["offListPercent"]
+    grammar_results = pieces["grammar_results"]
+    grammar_meta = pieces["grammar_meta"]
+    grammar_error = pieces["grammar_error"]
 
     grammar = None
-    grammar_error = None
-    grammar_results = grammar_meta = None
-    if with_grammar:
-        g_est, grammar_results, grammar_meta, grammar_error = \
-            grammar_levels_for(text, nlp, cefrj_levels)
-        if g_est is not None:
-            grammar = {"typical": g_est["typical"], "reaches": g_est["reaches"]}
+    if grammar_meta and grammar_meta.get("estimatedLevel"):
+        g_est = grammar_meta["estimatedLevel"]
+        grammar = {"typical": g_est["typical"], "reaches": g_est["reaches"]}
 
     # Blended estimated level — the same number text_report reports: the
     # higher of the vocab 90%-coverage band and the grammar typical band.
@@ -405,15 +372,16 @@ def build_row(text, label, levels, nlp, cefrj_levels, with_grammar, targets):
         "grammar_results": grammar_results,
         "grammar_meta": grammar_meta,
         "grammar_error": grammar_error,
-        "cefrj_levels": cefrj_levels,
+        "cefrj_levels": eng.cefrj_levels,
     }
     return row, ordered, ctx
 
 
-def profile_file(path, label, levels, nlp, cefrj_levels, with_grammar, targets):
-    """Read *path* and build its row; raises DocumentError on unreadable text."""
+def profile_file(path, label, eng, with_grammar, targets):
+    """Read *path* and build its row with the shared engine; raises
+    DocumentError on unreadable text."""
     text = vp.extract_text(path)
-    return build_row(text, label, levels, nlp, cefrj_levels, with_grammar, targets)
+    return build_row(text, label, eng, with_grammar, targets)
 
 
 # ---------------------------------------------------------------------------
@@ -753,95 +721,48 @@ def export_vocab_lists(agg_words, out_dir):
 # ---------------------------------------------------------------------------
 
 def export_payload(row, ordered, ctx, target, suggest=False, gap_report=False,
-                   curriculum=None, cando=False):
+                   curriculum=None, cando=False, vocab_base=None):
     """Build a text_report-shaped payload for one row's text.
 
-    Mirrors ``text_report.analyze``'s output (vocabulary + grammar shapes,
-    above-target words with in-text contexts, coverage figure, verdict,
-    readability) by composing the same helpers, so ``export_csv`` /
-    ``export_markdown`` / ``export_flashcards`` run unmodified — same
-    columns, same enrichment, same cloze. With ``suggest=True``, each
-    above-target word that has a curated simpler alternative carries it (the
-    ``--export md`` handout then renders the 'Simpler alternative' column).
-    With ``gap_report=True`` (and grammar available), ``grammarGap`` lists
-    the target-level constructions the text does **not** use yet — the same
-    Phase 3 gap report as ``text_report.py --gap-report``, rendered by
-    ``export_markdown`` as the 'Constructions to introduce' section. With
-    ``cando=True``, the payload carries the CEFR Can-Do framing (plus, since
-    folder runs always carry a target, the per-dimension ``aboveTarget``
-    diff against it) — the same ``--cando`` demand picture as text_report.
+    Phase 5: this is the **shared engine's payload builder** — the same one
+    ``text_report.analyze`` uses — fed with this row's pieces, so a folder's
+    per-text handouts are byte-compatible with the single-text report
+    (``export_csv`` / ``export_markdown`` / ``export_flashcards`` run
+    unmodified — same columns, same enrichment, same cloze). With
+    ``suggest=True``, each above-target word that has a curated simpler
+    alternative carries it (the ``--export md`` handout then renders the
+    'Simpler alternative' column). With ``gap_report=True`` (and grammar
+    available), ``grammarGap`` lists the target-level constructions the
+    text does **not** use yet — the same Phase 3 gap report as
+    ``text_report.py --gap-report``. With ``cando=True``, the payload
+    carries the CEFR Can-Do framing (plus, since folder runs always carry a
+    target, the per-dimension ``aboveTarget`` diff against it).
     """
     text = ctx["text"]
     gresults = ctx["grammar_results"]
     gmeta = ctx["grammar_meta"]
     grammar_available = gresults is not None and gmeta is not None
-
-    file_label = row["file"]
-
-    words = tr.words_above_target(ordered, target)
-    structures = (tr.structures_above_target(gresults, target)
-                  if grammar_available else [])
-    if words:
-        ctxts = tr.word_contexts(text, [d["word"] for d in words])
-        for d in words:
-            d["context"] = ctxts.get(d["word"])
-    if suggest:
-        syns = tr.load_synonyms(os.path.join(
-            os.path.dirname(os.path.abspath(__file__)), "WordLists",
-            "synonyms.csv"))
-        for d in words:
-            s = syns.get(d["word"])
-            if s:
-                d["suggestion"] = s
-
-    bands = [d["level"] for d in words] + [d["level"] for d in structures]
-    payload = {
-        "file": file_label,
-        "totalWordCount": row["totalWordCount"],
-        "vocabulary": {
-            "typical": row["vocabulary"]["typical"],
-            "coverage": row["vocabulary"]["coverage"],
-            "offListPercent": row["vocabulary"]["offListPercent"],
-            "results": vp.results_to_json(ordered),
-        },
-        "grammar": (gp.results_to_json(gresults, gmeta)
-                     if grammar_available else None),
-        "grammarError": (None if grammar_available
-                         else (ctx["grammar_error"] or "not analysed")),
-        "targetLevel": target,
-        "aboveTarget": {
-            "maxLevel": max(bands, key=lambda lvl: _LEVEL_INDEX[lvl])
-                        if bands else None,
-            "words": words,
-            "wordCount": len(words),
-            "structures": structures,
-            "structureCount": len(structures),
-        },
-        "coverage": tr.coverage_figure(ordered, target),
-        "verdict": tr.build_verdict(words, structures, grammar_available),
+    if vocab_base is None:
+        vocab_base = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                  "WordLists")
+    pieces = {
+        "ordered": ordered,
+        "total": row["totalWordCount"],
+        "typical": row["vocabulary"]["typical"],
+        "coverage": row["vocabulary"]["coverage"],
+        "offListPercent": row["vocabulary"]["offListPercent"],
+        "grammar_results": gresults,
+        "grammar_meta": gmeta,
+        "grammar_available": grammar_available,
+        "grammar_error": ctx["grammar_error"],
+        "cefrj_levels": ctx["cefrj_levels"],
         "readability": tr.compute_readability(text, row["totalWordCount"]),
     }
-    if gap_report:
-        if target is None:
-            payload["grammarGapError"] = "requires --target-level"
-        elif not grammar_available:
-            payload["grammarGapError"] = (
-                ctx["grammar_error"] or payload["grammarError"])
-        else:
-            payload["grammarGap"] = tr.grammar_gap_report(
-                gresults, ctx["cefrj_levels"], target)
-    if curriculum:
-        curr = tr.curriculum_report(
-            text, curriculum, ordered,
-            gresults if grammar_available else None)
-        curr["grammarAvailable"] = grammar_available
-        payload["curriculum"] = curr
-    else:
-        payload["curriculum"] = None
-    if cando:
-        payload["cando"] = tr.cando_mapping(payload, target)
-    else:
-        payload["cando"] = None
+    payload = engine.payload(
+        pieces, text, vocab_base, target_level=target, suggest=suggest,
+        gap_report=gap_report, curriculum=curriculum, cando=cando,
+        grammar_unavailable_note="not analysed")
+    payload["file"] = row["file"]
     return payload
 
 
@@ -1860,25 +1781,23 @@ def main(argv=None):
     cache_path = (None if args.no_dictionary_cache
                   else (args.dictionary_cache or tr.default_dictionary_cache_path()))
 
-    # Word lists + grammar engine are static: loaded once here, reused by the
-    # watch loop's re-runs (spaCy reloads per call, so this matters).
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    base_dir = args.wordlists or os.path.join(script_dir, "WordLists")
+    # The Phase 5 shared engine: word lists + the grammar engine, loaded once
+    # here, reused by the watch loop's re-runs (spaCy reloads per call, so
+    # this matters). A missing spaCy model is not fatal — the engine carries
+    # the install note and the report degrades gracefully.
     try:
-        levels = [(name, vp.load_wordlist(base_dir, rel))
-                  for name, rel in vp.PROFILERS["cefr"]]
+        eng = engine.load_engine(wordlists_dir=args.wordlists,
+                                 grammar_dir=args.grammar_profile,
+                                 with_grammar=not args.no_grammar)
     except vp.WordListError as ex:
         sys.stderr.write(str(ex) + "\n")
         return 1
 
     grammar_note = None
-    nlp = cefrj_levels = None
     if args.no_grammar:
         grammar_note = "skipped (--no-grammar)"
-    else:
-        nlp, cefrj_levels = load_grammar_engine(args.grammar_profile)
-        if nlp is None:
-            grammar_note = cefrj_levels  # the engine's unavailable note
+    elif not eng.grammar_available:
+        grammar_note = eng.grammar_error  # the engine's unavailable note
 
     # The curriculum checklist, validated and loaded once here — a typo'd
     # section header (e.g. [grammer]) fails fast, before any profiling or
@@ -1946,15 +1865,13 @@ def main(argv=None):
         skipped = []
         for path in paths:
             try:
-                profiled.append(profile_file(path, path, levels, nlp,
-                                             cefrj_levels, with_grammar,
+                profiled.append(profile_file(path, path, eng, with_grammar,
                                              profiling_targets))
             except vp.DocumentError as ex:
                 skipped.append({"file": path, "error": str(ex)})
         if single_text is not None:
-            profiled.append(build_row(single_text, single_label, levels, nlp,
-                                      cefrj_levels, with_grammar,
-                                      profiling_targets))
+            profiled.append(build_row(single_text, single_label, eng,
+                                      with_grammar, profiling_targets))
 
         if not profiled:
             sys.stderr.write("No analysable text found in any of the inputs."
