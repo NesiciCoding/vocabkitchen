@@ -93,7 +93,8 @@ doesn't have.
   summary handout gains a **Can-Do demands across the set** section: which
   above-target descriptors the texts share, most-common first, with the
   demanding texts listed — the class-level challenge in one table (implies
-  `--cando`).
+  `--cando`). `--cando-diff-sort band` re-orders the section by the CEFR
+  ladder ascending, to see which demand levels to tackle in order.
 - **`--watch`** — the edit → re-check loop for a whole folder: keep
   re-profiling the `--file` input whenever any text in it changes on disk
   (polls every second; `--watch 0.2` for faster) until Ctrl-C.
@@ -152,6 +153,7 @@ Flags:
 | `--curriculum`      | check every text against a curriculum checklist file (md: per-text sections; csv: the folder-level coverage grid; json: `curriculumCoverage` in the payload) |
 | `--cando`           | add each text's CEFR Can-Do descriptors + the ones above the target's expectations to the handouts (md\|csv), or write a combined Can-Do reference deck (flashcards) |
 | `--cando-diff`      | `--export md\|csv` only: add the set-level Can-Do demands section to the summary handout — which above-target descriptors the texts share (implies `--cando`) |
+| `--cando-diff-sort` | `--cando-diff` only: order the demands by text count (`texts`, default) or by the CEFR band ladder ascending (`band`) |
 | `--watch`           | re-profile the `--file` input whenever any text in it changes on disk (edit → re-check loop; optional interval in seconds, default 1) |
 | `--no-enrich`       | `--export flashcards` only: skip the Free Dictionary API               |
 | `--output`          | `--export` only: write all lists into this directory (default: next to each source) |

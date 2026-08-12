@@ -609,6 +609,23 @@ try:
           and _dems[1]["band"] == "C1" and _dems[1]["texts"] == ["b.txt"])
     check("aggregate_cando_demands: empty without a diff",
           cp.aggregate_cando_demands([{"file": "a.txt"}]) == [])
+    # A case where band order and text-count order disagree: the C1 demand
+    # is shared by both texts, the B1 demand by only one — so "texts" puts
+    # C1 first and "band" puts B1 first.
+    _sort_pays = [
+        {"file": "a.txt", "cando": {"aboveTarget": {
+            "vocabulary": [{"band": "B1", "descriptor": "deal with situations"},
+                           {"band": "C1", "descriptor": "understand demanding texts"}],
+            "grammar": [], "estimated": []}}},
+        {"file": "b.txt", "cando": {"aboveTarget": {
+            "vocabulary": [{"band": "C1", "descriptor": "understand demanding texts"}],
+            "grammar": [], "estimated": []}}},
+    ]
+    check("aggregate_cando_demands: texts sort is most-common first",
+          [r["band"] for r in cp.aggregate_cando_demands(_sort_pays)] == ["C1", "B1"])
+    check("aggregate_cando_demands: band sort follows the ladder",
+          [r["band"] for r in cp.aggregate_cando_demands(_sort_pays, sort="band")]
+          == ["B1", "C1"])
     _cddeck = cp.combined_cando_deck(_cdpays, "B1")
     _cdd_rows = list(_csv.reader(_cddeck.splitlines()))
     check("combined_cando_deck: RubrikMaker shape, one card per demand",
@@ -636,6 +653,21 @@ try:
           and "| Vocabulary | B2 |" in _cdsum
           and "a.txt, b.txt" in _cdsum
           and "distinct Can-Do levels above the target" in _cdsum)
+    _cdsum_band = cp.set_summary_markdown(
+        [{"file": "a.txt", "totalWordCount": 1,
+          "vocabulary": {"typical": "A1", "coverage": "A1"},
+          "grammar": None, "estimatedLevel": "A1", "aboveTargetPercent": 0,
+          "fits": True},
+         {"file": "b.txt", "totalWordCount": 1,
+          "vocabulary": {"typical": "A1", "coverage": "A1"},
+          "grammar": None, "estimatedLevel": "A1", "aboveTargetPercent": 0,
+          "fits": True}],
+        {"totalWordCount": 2, "typical": "A1", "coverage": "A1",
+         "offListPercent": 0},
+        _sort_pays, "B1", cando_diff=True, cando_diff_sort="band")
+    check("summary cando-diff: band sort renders ladder-first",
+          _cdsum_band.index("| Vocabulary | B1 |")
+          < _cdsum_band.index("| Vocabulary | C1 |"))
     check("summary without cando-diff has no demands section",
           "Can-Do demands" not in cp.set_summary_markdown(
               [{"file": "a.txt", "totalWordCount": 1,
@@ -1116,6 +1148,25 @@ try:
               and "| Vocabulary | B2 |" in _cd_sum_md
               and "purchase.txt" in _cd_sum_md
               and "distinct Can-Do levels above the target" in _cd_sum_md)
+        # --cando-diff-sort band: the same section ordered by the ladder.
+        rc, out, err = run(["--file", _cd_in, "--target-level", "B1",
+                            "--no-grammar", "--cando-diff", "--cando-diff-sort", "band",
+                            "--export", "md", "--output", _cd_sum])
+        check("class --cando-diff-sort band rc==0", rc == 0)
+        with open(os.path.join(_cd_sum, os.path.basename(_cd_in) + "-summary-B1.md"),
+                  encoding="utf-8") as f:
+            _cd_sort_md = f.read()
+        check("class --cando-diff-sort band renders ladder-first",
+              "## Can-Do demands across the set" in _cd_sort_md
+              and "| Vocabulary | B2 |" in _cd_sort_md)
+        rc, _, err = run(["--file", _cd_in, "--target-level", "B1",
+                          "--cando-diff-sort", "band", "--export", "md"])
+        check("class --cando-diff-sort without --cando-diff rc==1",
+              rc == 1 and "--cando-diff-sort" in err and "requires --cando-diff" in err)
+        rc, _, err = run(["--file", _cd_in, "--target-level", "B1",
+                          "--cando-diff", "--cando-diff-sort", "weird", "--export", "md"])
+        check("class --cando-diff-sort unknown value rc==2",
+              rc == 2 and "invalid choice" in err)
     finally:
         shutil.rmtree(_cd_in, ignore_errors=True)
 
@@ -1907,7 +1958,8 @@ if all(os.path.isfile(p) for p in (_skill_local, _skill_plugin, _plugin_json)):
           "../../../" in _sl and "class_profile.py" in _sl)
     check("class-profile copies are deliberately different flavours", _sl != _sp)
     for _flag in ("--gap-report", "--interleave", "--new-words-per-reading",
-                  "--curriculum", "--watch", "--cando", "--cando-diff"):
+                  "--curriculum", "--watch", "--cando", "--cando-diff",
+                  "--cando-diff-sort"):
         check(f"class-profile skill documents {_flag} in both copies",
               _flag in _sl and _flag in _sp)
     with open(os.path.join(HERE, ".claude", "skills", "text-report", "SKILL.md"),

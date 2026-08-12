@@ -955,13 +955,15 @@ def set_summary_path(source_label, target, output_dir):
     return fname
 
 
-def set_summary_markdown(rows, summary, payloads, target, cando_diff=False):
+def set_summary_markdown(rows, summary, payloads, target, cando_diff=False,
+                         cando_diff_sort="texts"):
     """One handout for the whole set, aggregating the per-text lists:
     the pooled distribution plus a per-text table and per-text verdicts
     (fits / reaches-X with the %-above) — the ``--export md|csv`` counterpart
     of the combined flashcard deck. With ``cando_diff=True`` (and the
     per-text payloads carrying a Can-Do diff), it also shows which
-    above-target Can-Do demands the set shares, most-common first."""
+    above-target Can-Do demands the set shares, most-common first — or, with
+    ``cando_diff_sort="band"``, ordered by the CEFR ladder ascending."""
     n = len(rows)
     lines = [f"# Set summary — Target {target} ({n} text{'s' if n != 1 else ''})", ""]
     lines.append(
@@ -1015,7 +1017,7 @@ def set_summary_markdown(rows, summary, payloads, target, cando_diff=False):
     # above-target descriptors the texts share, most-common first — the
     # class-level challenge in one table.
     if cando_diff:
-        demands = aggregate_cando_demands(payloads)
+        demands = aggregate_cando_demands(payloads, sort=cando_diff_sort)
         if demands:
             lines.append("## Can-Do demands across the set")
             lines.append("")
@@ -1105,15 +1107,18 @@ def curriculum_coverage_csv(payloads, target):
     return buf.getvalue()
 
 
-def aggregate_cando_demands(payloads):
+def aggregate_cando_demands(payloads, sort="texts"):
     """Which above-target Can-Do demands the set shares.
 
     One row per (dimension × band) descriptor demanded beyond the target by
     at least one text: ``{"dimension", "band", "descriptor", "texts"}``
-    with the demanding texts' basenames, most-common first (ties by band,
-    then dimension) — the raw material for the summary handout's
-    **Can-Do demands across the set** section and the class-wide Can-Do
-    reference deck. Empty when no payload carries an above-target diff.
+    with the demanding texts' basenames — the raw material for the summary
+    handout's **Can-Do demands across the set** section and the class-wide
+    Can-Do reference deck. With ``sort="texts"`` (the default) rows are
+    most-common first (ties by band, then dimension); with
+    ``sort="band"`` they follow the CEFR ladder ascending (ties by text
+    count) — the teacher's view of which demand levels to tackle in order.
+    Empty when no payload carries an above-target diff.
     """
     per = {}
     for p in payloads:
@@ -1129,26 +1134,32 @@ def aggregate_cando_demands(payloads):
     rows = [{"dimension": dim, "band": band, "descriptor": desc,
              "texts": sorted(names)}
             for (dim, band, desc), names in per.items()]
-    rows.sort(key=lambda r: (-len(r["texts"]),
-                             _LEVEL_INDEX.get(r["band"], 99), r["dimension"]))
+    if sort == "band":
+        rows.sort(key=lambda r: (_LEVEL_INDEX.get(r["band"], 99),
+                                 -len(r["texts"]), r["dimension"]))
+    else:
+        rows.sort(key=lambda r: (-len(r["texts"]),
+                                 _LEVEL_INDEX.get(r["band"], 99),
+                                 r["dimension"]))
     return rows
 
 
-def combined_cando_deck(payloads, target):
+def combined_cando_deck(payloads, target, sort="texts"):
     """The set's Can-Do demands as a class-wide RubricMaker reference deck.
 
     One card per (dimension × band) descriptor the set demands above the
     target — front ``B2 — vocabulary demand``, back the CEFR descriptor
     plus how many of the set's texts demand it — in the same RubricMaker
     import shape as the word decks, so the deck doubles as a Can-Do
-    reference. None when no text has an above-target diff.
+    reference. None when no text has an above-target diff. *sort* follows
+    :func:`aggregate_cando_demands` (``texts`` or ``band``).
     """
     cards = [
         {"word": f"{r['band']} — {r['dimension'].lower()} demand",
          "definition": r["descriptor"],
          "example": (f"demanded by {len(r['texts'])} of {len(payloads)} "
                       f"texts — above the {target} target")}
-        for r in aggregate_cando_demands(payloads)]
+        for r in aggregate_cando_demands(payloads, sort=sort)]
     return tr.cando_deck_csv(cards)
 
 
@@ -1468,7 +1479,8 @@ def write_per_text_exports(profiled, target, fmt, cloze=False, enrich=True,
                            source_label=None, base_url=None, cache_path=None,
                            targets=None, rows=None, summary=None, suggest=False,
                            gap_report=False, curriculum=None, cando=False,
-                           cando_diff=False, payloads=None):
+                           cando_diff=False, cando_diff_sort="texts",
+                           payloads=None):
     """Write the pre-teaching lists for *profiled* (the selected set).
 
     With a single *target*: one list per text next to its source (or into
@@ -1491,9 +1503,10 @@ def write_per_text_exports(profiled, target, fmt, cloze=False, enrich=True,
     payload and, with ``--export flashcards``, writes a **combined Can-Do
     reference deck** next to the word decks. *cando_diff* adds the
     set-level **Can-Do demands across the set** section to the summary
-    handout. *payloads* — a prebuilt per-text payload list (same order as
-    *profiled*, e.g. built for the JSON ``curriculumCoverage`` grid) — is
-    reused instead of rebuilt.
+    handout; *cando_diff_sort* orders it by ``texts`` (most-common first)
+    or ``band`` (CEFR ladder ascending). *payloads* — a prebuilt per-text
+    payload list (same order as *profiled*, e.g. built for the JSON
+    ``curriculumCoverage`` grid) — is reused instead of rebuilt.
     """
     script_dir = os.path.dirname(os.path.abspath(__file__))
     base_dir = wordlists_dir or os.path.join(script_dir, "WordLists")
@@ -1543,7 +1556,7 @@ def write_per_text_exports(profiled, target, fmt, cloze=False, enrich=True,
             if cando:
                 _write(tr.cando_deck_path(combined_deck_path(source_label, t,
                                                              output_dir)),
-                       combined_cando_deck(payloads, t))
+                       combined_cando_deck(payloads, t, sort=cando_diff_sort))
         return written, failed, deck_stats
 
     if payloads is None:
@@ -1589,14 +1602,15 @@ def write_per_text_exports(profiled, target, fmt, cloze=False, enrich=True,
     if fmt == "flashcards" and cando:
         _write(tr.cando_deck_path(combined_deck_path(source_label, target,
                                                      output_dir)),
-               combined_cando_deck(payloads, target))
+               combined_cando_deck(payloads, target, sort=cando_diff_sort))
     # The set-level summary handout, aggregating the per-text lists.
     if fmt in ("csv", "md") and len(profiled) > 1 and rows is not None and summary is not None:
         payload_by_file = {p["file"]: p for p in payloads}
         ordered_payloads = [payload_by_file[r["file"]] for r in rows]
         _write(set_summary_path(source_label, target, output_dir),
                set_summary_markdown(rows, summary, ordered_payloads, target,
-                                    cando_diff=cando_diff))
+                                    cando_diff=cando_diff,
+                                    cando_diff_sort=cando_diff_sort))
     # The folder-level curriculum grid: one row per text, one column per
     # required item (with --curriculum and --export csv).
     if fmt == "csv" and curriculum:
@@ -1672,8 +1686,12 @@ def main(argv=None):
     parser.add_argument("--cando-diff", dest="cando_diff", action="store_true",
                         help="--export md|csv only: add a set-level **Can-Do demands "
                              "across the set** section to the summary handout — which "
-                             "above-target descriptors the texts share, most-common "
-                             "first (implies --cando)")
+                             "above-target descriptors the texts share (implies --cando)")
+    parser.add_argument("--cando-diff-sort", dest="cando_diff_sort",
+                        default="texts", choices=["texts", "band"],
+                        help="--cando-diff only: order the set-level demands by how many "
+                             "texts share them (texts, default) or by the CEFR band "
+                             "ladder ascending (band)")
     parser.add_argument("--watch", nargs="?", const=1.0, type=float, default=None,
                         help="re-profile the --file input whenever any text in it changes "
                              "on disk (the Phase 3 edit → re-check loop for a whole "
@@ -1793,6 +1811,10 @@ def main(argv=None):
             raise ClassProfileError(
                 "--cando-diff adds the set-level Can-Do demands section to the "
                 "summary handout; it requires --export md|csv.")
+        if args.cando_diff_sort != "texts" and not args.cando_diff:
+            raise ClassProfileError(
+                "--cando-diff-sort orders the set-level Can-Do demands section; "
+                "it requires --cando-diff.")
         if args.interleave and target is None:
             raise ClassProfileError(
                 "--interleave builds a spaced introduction schedule; it requires "
@@ -2084,7 +2106,9 @@ def main(argv=None):
                 targets=targets, rows=rows, summary=summary,
                 suggest=args.suggest, gap_report=args.gap_report,
                 curriculum=curriculum, cando=cando,
-                cando_diff=args.cando_diff, payloads=prebuilt_payloads)
+                cando_diff=args.cando_diff,
+                cando_diff_sort=args.cando_diff_sort,
+                payloads=prebuilt_payloads)
             if args.interleave and interleave is not None:
                 ext = "md" if args.export == "md" else "csv"
                 ipath = interleave_path(source_label, target, args.output, ext)
