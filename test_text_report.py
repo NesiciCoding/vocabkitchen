@@ -68,7 +68,7 @@ check("engine payload matches text_report's shape",
           tr.analyze(_CAT, with_grammar=False)))
 
 # --- Phase 5: the payload contract (schema version + grammar criteria) --------
-check("SCHEMA_VERSION is 1.0", engine.SCHEMA_VERSION == "1.0")
+check("SCHEMA_VERSION is 1.1", engine.SCHEMA_VERSION == "1.1")
 _schema_doc = json.load(open(os.path.join(HERE, "analysis.schema.json"),
                              encoding="utf-8"))
 check("analysis.schema.json matches payload_schema()",
@@ -141,6 +141,26 @@ if HAVE_GRAMMAR:
     check("comments handout renders the Rubric comments section",
           "## Rubric comments" in tr.export_markdown(_gcm_p)
           and "not used yet" in tr.export_markdown(_gcm_p))
+
+    # vocabComments: the vocabulary half of the apply-as-comment pass.
+    _vc = _gcm_p["vocabComments"]
+    _vc_words = (_gcm_p["aboveTarget"] or {}).get("words") or []
+    check("payload with comments+target carries vocabComments",
+          _vc is not None and len(_vc) == len(_vc_words))
+    check("vocabulary_comments full shape per word",
+          all(set(c) == {"word", "level", "occurrences", "suggestion",
+                         "comment"} for c in _vc))
+    check("vocabulary_comments phrasing + evidence",
+          all(c["comment"].startswith('Above B1: "')
+              and c["comment"].endswith('"') and "E.g." in c["comment"]
+              for c in _vc))
+    check("payload without comments: vocabComments null",
+          _gc_p["vocabComments"] is None)
+    check("comments without a target: vocabComments null (no words to flag)",
+          engine.analyze(_ACADEMIC, comments=True)["vocabComments"] is None)
+    _md = tr.export_markdown(_gcm_p)
+    check("comments handout shows both halves",
+          "## Rubric comments" in _md and "## Vocabulary comments" in _md)
 else:
     skipped += 1
 
@@ -164,6 +184,17 @@ check("--comments CLI: grammarComments present iff grammar ran",
       _rc == 0 and "grammarComments" in json.loads(_out)
       and (json.loads(_out)["grammarComments"] is None)
       == (json.loads(_out)["grammar"] is None))
+_rc, _out, _err = run(["--comments", "--target-level", "B1",
+                       "--format", "json"], text=_ACADEMIC)
+_pl = json.loads(_out) if _rc == 0 else {}
+check("--comments CLI: vocabComments cover the above-target words",
+      _rc == 0 and _pl.get("vocabComments") is not None
+      and len(_pl["vocabComments"])
+      == len((_pl.get("aboveTarget") or {}).get("words") or []))
+check("--comments CLI: payload renders both rubric halves",
+      _rc == 0
+      and "## Vocabulary comments" in tr.export_markdown(_pl)
+      and "## Rubric comments" in tr.export_markdown(_pl))
 
 
 # --- unit: the venv re-exec is skipped in vocabulary-only modes -------------

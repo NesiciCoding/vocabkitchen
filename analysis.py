@@ -43,6 +43,9 @@ validated against :func:`payload_schema` (also checked in as
 ``grammarComments`` per-construction rubric comments derived from
                    ``grammarCriteria`` (the apply-as-comment reference
                    implementation), or null unless ``comments`` is on.
+``vocabComments``   the vocabulary half of the apply-as-comment pass: one
+                   comment per above-target word, or null unless ``comments``
+                   is on with a ``targetLevel``.
 ``grammarError``   the reason grammar is missing (install note, "not
                    analysed", or null).
 ``targetLevel``    the class level the report was measured against.
@@ -63,6 +66,8 @@ validated against :func:`payload_schema` (also checked in as
 Version history
 ~~~~~~~~~~~~~~~
 
+``1.1`` — added ``vocabComments``, the vocabulary half of the apply-as-comment
+pass (one comment per above-target word), completing the rubric coverage.
 ``1.0`` — initial documented contract: the payload keys above, including the
 ``grammarCriteria`` per-construction pass/fail shape and ``schemaVersion``.
 """
@@ -77,7 +82,7 @@ import grammar_profile as gp
 
 # The payload contract version. Bump when the payload shape changes
 # incompatibly; RubricMaker and any other consumer should key off this.
-SCHEMA_VERSION = "1.0"
+SCHEMA_VERSION = "1.1"
 
 _CEFR_ORDER = ["A1", "A2", "B1", "B2", "C1", "C2"]
 _LEVEL_INDEX = {lvl: i for i, lvl in enumerate(_CEFR_ORDER)}
@@ -105,9 +110,10 @@ def payload_schema():
         "type": "object",
         "required": ["schemaVersion", "totalWordCount", "vocabulary",
                      "grammar", "grammarError", "grammarCriteria",
-                     "grammarComments", "targetLevel", "aboveTarget",
-                     "coverage", "estimatedLevel", "verdict", "grammarGap",
-                     "grammarGapError", "curriculum", "curriculumError",
+                     "grammarComments", "vocabComments", "targetLevel",
+                     "aboveTarget", "coverage", "estimatedLevel",
+                     "verdict", "grammarGap", "grammarGapError",
+                     "curriculum", "curriculumError",
                      "cambridge", "cando", "readability"],
         "properties": {
             "schemaVersion": {"type": "string", "enum": [SCHEMA_VERSION]},
@@ -155,6 +161,14 @@ def payload_schema():
                     "level": {"type": "string"},
                     "status": {"enum": ["used", "not used"]},
                     "pass": {"type": "boolean"},
+                    "comment": {"type": "string"},
+                }}},
+            "vocabComments": {"type": ["array", "null"], "items": {
+                "type": "object", "properties": {
+                    "word": {"type": "string"},
+                    "level": {"type": "string"},
+                    "occurrences": {"type": "integer"},
+                    "suggestion": {"type": ["string", "null"]},
                     "comment": {"type": "string"},
                 }}},
             "targetLevel": band,
@@ -412,6 +426,36 @@ def grammar_comments(gc):
         out.append({"id": c["id"], "name": c["name"],
                     "category": c["category"], "level": c["level"],
                     "status": c["status"], "pass": c["pass"],
+                    "comment": comment})
+    return out
+
+
+def vocabulary_comments(words, target_level):
+    """Turn *target_level*-above vocabulary words into rubric comments.
+
+    The vocabulary half of the apply-as-comment reference implementation:
+    one comment per above-target word — ``Above {target}: "{word}"
+    ({level}) — used {n}×.`` — with the first sentence containing it as
+    evidence (``E.g. "…"``, when available) and the curated simpler
+    alternative (``Swap for "…"``, when ``suggest`` was on). Each entry
+    carries the word's identity (``word``/``level``/``occurrences``/
+    ``suggestion``) alongside the generated ``comment``, so RubricMaker's
+    vocabulary linker can attach one comment per word the way the grammar
+    linker does per construction.
+    """
+    out = []
+    for d in (words or []):
+        comment = (f'Above {target_level}: "{d["word"]}" ({d["level"]})'
+                   f" — used {d['occurrences']}×.")
+        ctx = d.get("context")
+        if ctx:
+            comment += f' E.g. "{ctx}"'
+        s = d.get("suggestion")
+        if s:
+            comment += f' Swap for "{s["word"]}" ({s["level"]}).'
+        out.append({"word": d["word"], "level": d["level"],
+                    "occurrences": d["occurrences"],
+                    "suggestion": s["word"] if s else None,
                     "comment": comment})
     return out
 
@@ -915,10 +959,12 @@ def payload(pieces, text, vocab_base, target_level=None, suggest=False,
     *grammar_unavailable_note* is the ``grammarError`` shown when the
     grammar side neither ran nor failed (``text_report`` says "skipped
     (--no-grammar)", the class profile says "not analysed"). With
-    ``comments=True`` (and the grammar side available), the payload also
-    carries ``grammarComments`` — the per-construction rubric comments
-    derived from ``grammarCriteria``, the apply-as-comment reference
-    implementation for RubricMaker's grammar linker.
+    ``comments=True`` the payload carries the full apply-as-comment pass:
+    ``grammarComments`` (per-construction, derived from ``grammarCriteria``,
+    when the grammar side is available) **and** ``vocabComments`` (per
+    above-target word, when a ``target_level`` is given) — the rubric
+    reference implementation for RubricMaker's grammar and vocabulary
+    linkers.
     """
     ordered = pieces["ordered"]
     total = pieces["total"]
@@ -948,6 +994,7 @@ def payload(pieces, text, vocab_base, target_level=None, suggest=False,
         "grammarCriteria": gc_obj,
         "grammarComments": (grammar_comments(gc_obj)
                             if gc_obj is not None and comments else None),
+        "vocabComments": None,
         "targetLevel": target_level,
         "aboveTarget": None,
         "coverage": None,
@@ -987,6 +1034,10 @@ def payload(pieces, text, vocab_base, target_level=None, suggest=False,
         }
         payload["coverage"] = coverage_figure(ordered, target_level)
         payload["verdict"] = build_verdict(words, structures, grammar_available)
+
+    payload["vocabComments"] = (vocabulary_comments(
+        (payload["aboveTarget"] or {}).get("words") or [], target_level)
+        if comments and target_level is not None else None)
 
     if gap_report:
         if target_level is None:
@@ -1031,8 +1082,10 @@ def analyze(text, target_level=None, wordlists_dir=None, grammar_dir=None,
     *target_level*, the above-target words/structures, coverage figure and
     verdict. ``suggest``/``gap_report``/``curriculum``/``cambridge``/``cando``
     add the Phase 3/4 layers (rewrite aid, grammar gaps, the checklist, exam
-    mapping, Can-Do framing); ``comments`` adds the per-construction rubric
-    comments (``grammarComments``) for RubricMaker's apply-as-comment.
+    mapping, Can-Do    framing); ``comments`` adds the full apply-as-comment pass — the
+    per-construction rubric comments (``grammarComments``) and, with a
+    target level, the per-word comments for above-target vocabulary
+    (``vocabComments``) — so the rubric covers the whole report.
     """
     engine = load_engine(wordlists_dir=wordlists_dir, grammar_dir=grammar_dir,
                          with_grammar=with_grammar)

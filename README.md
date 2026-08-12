@@ -417,7 +417,7 @@ Flags:
 | `--curriculum`      | check the text against a curriculum checklist file (`[vocabulary]` + `[grammar]` sections) and report pass/fail coverage; validated before profiling — header typos like `[grammer]` fail fast with a hint, empty sections and unrecognised grammar items (typos like `second conditinal`) warn with a suggestion |
 | `--cambridge`       | map the report's own CEFR bands to the matching Cambridge English Qualification (A2 Key, B1 Preliminary, B2 First, C1 Advanced, C2 Proficiency) |
 | `--cando`           | express the text's demands as CEFR global-scale Can-Do descriptors; with `--target-level`, also list the ones above the target's expectations |
-| `--comments`        | add one rubric comment per construction (used / not used yet), derived from `grammarCriteria` — the apply-as-comment shape RubricMaker's grammar linker consumes (needs the grammar side) |
+| `--comments`        | add the full apply-as-comment rubric: one comment per construction (used / not used yet, from `grammarCriteria`) plus one comment per above-target vocabulary word (`--target-level` required for the vocabulary half) |
 | `--schema`          | print the versioned analysis payload schema (`analysis.schema.json` — the RubricMaker report contract) as JSON and exit |
 | (stdin)             | if neither `--text` nor `--file` is given, text is read from stdin      |
 
@@ -434,7 +434,7 @@ carries an example sentence from the text (`context` on words, `examples` on
 structures), which the exports use to show every item in context.
 
 **The payload is a versioned contract.** Every payload carries `schemaVersion`
-(currently `1.0`), and the full JSON Schema is checked in at
+(currently `1.1`), and the full JSON Schema is checked in at
 `analysis.schema.json` (kept byte-equal to `analysis.payload_schema()` by the
 tests and CI, and printable with `--schema`). With the grammar side enabled,
 the payload also carries `grammarCriteria`: one entry per registered
@@ -444,12 +444,15 @@ per-criterion shape RubricMaker's grammar linker consumes for its
 apply-as-comment breakdown, so a comment can be attached per criterion
 without re-deriving anything.
 
-With `--comments` the same payload also carries `grammarComments`: one rubric
-comment per construction (`Uses the … — E.g. "…"` for each used one with its
-detected span as evidence, `Doesn't use the … yet` for the rest) — the
-apply-as-comment reference implementation, rendered as a **Rubric comments**
-section in `--export md` handouts and available per text in folder runs via
-`class_profile.py --comments`.
+With `--comments` the same payload also carries the full apply-as-comment
+pass: `grammarComments` (one rubric comment per construction — `Uses the …
+E.g. "…"` for each used one with its detected span as evidence, `Doesn't use
+the … yet` for the rest) **and** `vocabComments` (one rubric comment per
+above-target word — `Above B1: "anticipate" (B2) — used 1×. E.g. "…"`, with
+the curated simpler alternative appended when `--suggest` is on) — so the
+rubric covers the whole report. Both are rendered in `--export md` handouts
+(as **Rubric comments** and **Vocabulary comments** sections) and available
+per text in folder runs via `class_profile.py --comments`.
 
 Run the regression tests with:
 
@@ -607,7 +610,7 @@ Flags:
 | `--cando`           | add each text's CEFR Can-Do descriptors + the ones above the target's expectations to the handouts (md\|csv), or write a combined Can-Do reference deck (flashcards) |
 | `--cando-diff`      | `--export md\|csv` only: add the set-level Can-Do demands section to the summary handout — which above-target descriptors the texts share (implies `--cando`) |
 | `--cando-diff-sort` | `--cando-diff` only: order the demands by text count (`texts`, default) or by the CEFR band ladder ascending (`band`) |
-| `--comments`        | add one rubric comment per construction (used / not used yet) to each per-text handout, derived from `grammarCriteria` — the apply-as-comment shape RubricMaker's grammar linker consumes (needs the grammar side) |
+| `--comments`        | add the full apply-as-comment rubric to each per-text handout: one comment per construction (used / not used yet) plus one comment per above-target vocabulary word (folder runs always carry a target) |
 | `--schema`          | print the versioned analysis payload schema (`analysis.schema.json` — the RubricMaker report contract) as JSON and exit |
 | `--watch`           | re-profile the `--file` input whenever any text in it changes on disk (edit → re-check loop; optional interval in seconds, default 1) |
 | `--no-enrich`       | `--export flashcards` only: skip the Free Dictionary API               |

@@ -3,7 +3,7 @@
   "$id": "https://vocabkitchen.dev/schemas/analysis.schema.json",
   "title": "VocabKitchen analysis report payload",
   "description": "The CEFR profile of one text, as produced by text_report.py and class_profile.py per-text exports.",
-  "version": "1.0",
+  "version": "1.1",
   "type": "object",
   "required": [
     "schemaVersion",
@@ -13,6 +13,7 @@
     "grammarError",
     "grammarCriteria",
     "grammarComments",
+    "vocabComments",
     "targetLevel",
     "aboveTarget",
     "coverage",
@@ -30,7 +31,7 @@
     "schemaVersion": {
       "type": "string",
       "enum": [
-        "1.0"
+        "1.1"
       ]
     },
     "totalWordCount": {
@@ -214,6 +215,35 @@
           },
           "pass": {
             "type": "boolean"
+          },
+          "comment": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "vocabComments": {
+      "type": [
+        "array",
+        "null"
+      ],
+      "items": {
+        "type": "object",
+        "properties": {
+          "word": {
+            "type": "string"
+          },
+          "level": {
+            "type": "string"
+          },
+          "occurrences": {
+            "type": "integer"
+          },
+          "suggestion": {
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "comment": {
             "type": "string"

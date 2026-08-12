@@ -374,6 +374,21 @@ def render_pretty(payload, source_label, stream=None):
         out.append(dim("  (one comment per construction, for RubricMaker's "
                        "apply-as-comment)"))
 
+    vcomments = payload.get("vocabComments")
+    if vcomments is not None:
+        out.append("")
+        out.append(bold(f"Vocabulary comments — {len(vcomments)} above "
+                        f"{payload['targetLevel']}"))
+        if not vcomments:
+            out.append(dim("  nothing above the target — no vocabulary comments"))
+        for c in vcomments[:12]:
+            out.append(f"  ▲ {c['comment']}")
+        if len(vcomments) > 12:
+            out.append(dim(f"  +{len(vcomments) - 12} more — --export md for "
+                           "the full apply-as-comment list"))
+        out.append(dim("  (one comment per above-target word, for "
+                       "RubricMaker's apply-as-comment)"))
+
     target = payload["targetLevel"]
     if target is not None:
         out.append("")
@@ -839,6 +854,20 @@ def export_markdown(payload, cloze=False):
         for c in gcm:
             cm = c["comment"].replace("|", "\\|")
             lines.append(f"| {c['name']} | {c['level']} | {cm} |")
+        lines.append("")
+    vcom = payload.get("vocabComments")
+    if vcom is not None:
+        lines.append(f"## Vocabulary comments — {len(vcom)} above "
+                     f"{payload['targetLevel']}")
+        lines.append("")
+        if vcom:
+            lines.append("| Word | Level | Comment |")
+            lines.append("|---|---|---|")
+            for c in vcom:
+                cm = c["comment"].replace("|", "\\|")
+                lines.append(f"| {c['word']} | {c['level']} | {cm} |")
+        else:
+            lines.append("_Nothing above the target — no vocabulary comments._")
         lines.append("")
     read = payload.get("readability")
     if read:
@@ -1329,9 +1358,10 @@ def main(argv=None):
                              "learner at the reached/estimated band can do, the language "
                              "rubrics and self-assessment forms use (the Phase 4 Can-Do item)")
     parser.add_argument("--comments", action="store_true",
-                        help="add per-construction rubric comments (used / not used yet) "
-                             "derived from grammarCriteria — the apply-as-comment shape "
-                             "RubricMaker's grammar linker consumes (needs the grammar side)")
+                        help="add the full apply-as-comment rubric: per-construction "
+                             "grammar comments (used / not used yet, from grammarCriteria) "
+                             "plus per-word comments for above-target vocabulary "
+                             "(--target-level required for the vocabulary half)")
     parser.add_argument("--schema", action="store_true",
                         help="print the analysis report payload schema (the RubricMaker "
                              "contract, version " + engine.SCHEMA_VERSION + ") as JSON and exit")

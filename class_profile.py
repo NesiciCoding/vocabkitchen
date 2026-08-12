@@ -737,7 +737,10 @@ def export_payload(row, ordered, ctx, target, suggest=False, gap_report=False,
     text does **not** use yet — the same Phase 3 gap report as
     ``text_report.py --gap-report``. With ``cando=True``, the payload
     carries the CEFR Can-Do framing (plus, since folder runs always carry a
-    target, the per-dimension ``aboveTarget`` diff against it).
+    target, the per-dimension ``aboveTarget`` diff against it). With
+    ``comments=True`` the payload carries the full apply-as-comment pass
+    (``grammarComments`` + ``vocabComments`` — every handout covers the
+    whole report, grammar constructions **and** above-target words).
     """
     text = ctx["text"]
     gresults = ctx["grammar_results"]
@@ -1647,9 +1650,10 @@ def main(argv=None):
     parser.add_argument("--wordlists", default=None)
     parser.add_argument("--grammar-profile", dest="grammar_profile", default=None)
     parser.add_argument("--comments", action="store_true",
-                        help="add per-construction rubric comments (used / not used yet) "
-                             "to each per-text handout — the apply-as-comment shape "
-                             "RubricMaker's grammar linker consumes (needs the grammar side)")
+                        help="add the full apply-as-comment rubric to each per-text "
+                             "handout: per-construction grammar comments (used / not "
+                             "used yet) plus per-word comments for above-target "
+                             "vocabulary (folder runs always carry a target)")
     parser.add_argument("--schema", action="store_true",
                         help="print the analysis report payload schema (the RubricMaker "
                              "contract, version " + engine.SCHEMA_VERSION + ") as JSON and exit")

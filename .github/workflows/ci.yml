@@ -311,17 +311,26 @@ jobs:
                      for c in gc["criteria"] if c["pass"]), gc
 
           # --comments turns that criteria list into one rubric comment per
-          # construction (the apply-as-comment reference implementation).
+          # construction (the apply-as-comment reference implementation),
+          # plus one comment per above-target word — the vocabulary half.
           rc, out, err = run_cli(["--file", os.path.join("sample-readings", files[0]),
                                   "--target-level", "B1", "--comments",
                                   "--format", "json"], script="text_report.py")
           assert rc == 0, err
-          gcm = json.loads(out)["grammarComments"]
+          cp_pl = json.loads(out)
+          gcm = cp_pl["grammarComments"]
           assert gcm is not None and len(gcm) == gc["total"], gcm
           assert all(c["status"] in ("used", "not used")
                      and c["pass"] == (c["status"] == "used")
                      and c["comment"].startswith(("Uses the ", "Doesn't use the "))
                      for c in gcm), gcm
+          vcm = cp_pl["vocabComments"]
+          above_words = (cp_pl.get("aboveTarget") or {}).get("words") or []
+          assert vcm is not None and len(vcm) == len(above_words), vcm
+          assert all(set(c) == {"word", "level", "occurrences", "suggestion",
+                                "comment"}
+                     and c["comment"].startswith('Above B1: "')
+                     for c in vcm), vcm
 
           # Pre-teaching export: per-text decks + the combined class-wide deck
           # (named after the source folder) and its level-keyed index, in the

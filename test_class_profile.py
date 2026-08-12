@@ -375,8 +375,8 @@ try:
         check("export payload grammarCriteria used entries have examples",
               all(c["count"] >= 1 and isinstance(c["examples"], list)
                   for c in _gc_full["criteria"] if c["pass"]))
-        # --comments: the per-construction rubric comments ride in the same
-        # payload (apply-as-comment reference), off by default.
+        # --comments: the full apply-as-comment pass rides in the same
+        # payload (grammar constructions + above-target words), off by default.
         _cm_full = cp.export_payload(_gap_full[0], _gap_full[1], _gap_full[2],
                                      "B1", comments=True)
         _cm_list = _cm_full["grammarComments"]
@@ -384,9 +384,17 @@ try:
               _cm_list is not None and len(_cm_list) == _gc_full["total"]
               and all(c["comment"].startswith(("Uses the ", "Doesn't use the "))
                       for c in _cm_list))
-        check("export payload without comments: grammarComments null",
+        check("export payload comments=True carries the vocabulary half",
+              _cm_full["vocabComments"] is not None
+              and len(_cm_full["vocabComments"])
+              == len((_cm_full.get("aboveTarget") or {}).get("words") or [])
+              and all(c["comment"].startswith('Above B1: "')
+                      for c in _cm_full["vocabComments"]))
+        check("export payload without comments: both halves null",
               cp.export_payload(_gap_full[0], _gap_full[1], _gap_full[2], "B1")
-              .get("grammarComments") is None)
+              .get("grammarComments") is None
+              and cp.export_payload(_gap_full[0], _gap_full[1], _gap_full[2], "B1")
+              .get("vocabComments") is None)
     else:
         skipped += 1
 
@@ -1673,9 +1681,11 @@ if os.path.isdir(_sample):
             _handouts = [os.path.join(_comments_out, f)
                          for f in os.listdir(_comments_out)
                          if f.endswith("-preteaching-B1.md")]
-            check("sample comments: every per-text handout has the section",
+            check("sample comments: every per-text handout has both halves",
                   bool(_handouts)
                   and all("## Rubric comments" in open(h, encoding="utf-8").read()
+                          and "## Vocabulary comments"
+                          in open(h, encoding="utf-8").read()
                           for h in _handouts))
         finally:
             shutil.rmtree(_comments_out, ignore_errors=True)
