@@ -753,7 +753,7 @@ def export_vocab_lists(agg_words, out_dir):
 # ---------------------------------------------------------------------------
 
 def export_payload(row, ordered, ctx, target, suggest=False, gap_report=False,
-                   curriculum=None):
+                   curriculum=None, cando=False):
     """Build a text_report-shaped payload for one row's text.
 
     Mirrors ``text_report.analyze``'s output (vocabulary + grammar shapes,
@@ -766,7 +766,10 @@ def export_payload(row, ordered, ctx, target, suggest=False, gap_report=False,
     With ``gap_report=True`` (and grammar available), ``grammarGap`` lists
     the target-level constructions the text does **not** use yet — the same
     Phase 3 gap report as ``text_report.py --gap-report``, rendered by
-    ``export_markdown`` as the 'Constructions to introduce' section.
+    ``export_markdown`` as the 'Constructions to introduce' section. With
+    ``cando=True``, the payload carries the CEFR Can-Do framing (plus, since
+    folder runs always carry a target, the per-dimension ``aboveTarget``
+    diff against it) — the same ``--cando`` demand picture as text_report.
     """
     text = ctx["text"]
     gresults = ctx["grammar_results"]
@@ -835,6 +838,10 @@ def export_payload(row, ordered, ctx, target, suggest=False, gap_report=False,
         payload["curriculum"] = curr
     else:
         payload["curriculum"] = None
+    if cando:
+        payload["cando"] = tr.cando_mapping(payload, target)
+    else:
+        payload["cando"] = None
     return payload
 
 
@@ -1029,28 +1036,51 @@ def curriculum_coverage_path(source_label, target, output_dir):
     return fname
 
 
-def curriculum_coverage_csv(payloads, target):
-    """The folder-level pass/fail grid: one row per text, one column per
-    required item (vocabulary words then grammar constructions, in checklist
-    order) plus a ``pass`` verdict — the curriculum checklist as a
-    spreadsheet. Cells are ``yes``/``no`` for spreadsheet friendliness.
+def curriculum_coverage_grid(payloads):
+    """The folder-level pass/fail grid as structured data: ``items`` (the
+    required items in order, ``(kind, name)`` pairs) and one ``row`` per
+    text with its ``cells`` aligned to ``items`` (booleans) and a ``pass``
+    verdict — the shared shape behind the csv grid, the md summary matrix,
+    and the JSON payload, so scripts can consume the matrix without CSV
+    parsing. None when no payload carries a curriculum report.
     """
     first = next((p for p in payloads if p.get("curriculum")), None)
     if first is None:
         return None
     items = curriculum_items(first)
-    buf = io.StringIO()
-    writer = csv.writer(buf, lineterminator="\n")
-    writer.writerow(["text"] + [name for _kind, name in items] + ["pass"])
+    rows = []
     for p in payloads:
         curr = p.get("curriculum")
         if curr is None:
             continue
         status = {d["word"]: d["present"] for d in curr["vocabulary"]}
         status.update({d["name"]: d["present"] for d in curr["grammar"]})
-        cells = ["yes" if status.get(name) else "no" for _kind, name in items]
-        writer.writerow([os.path.basename(p.get("file") or "(input)")]
-                        + cells + ["yes" if curr["pass"] else "no"])
+        rows.append({
+            "text": os.path.basename(p.get("file") or "(input)"),
+            "cells": [bool(status.get(name)) for _kind, name in items],
+            "pass": bool(curr["pass"]),
+        })
+    return {"items": items, "rows": rows,
+            "passCount": sum(1 for r in rows if r["pass"]),
+            "textCount": len(rows)}
+
+
+def curriculum_coverage_csv(payloads, target):
+    """The folder-level pass/fail grid: one row per text, one column per
+    required item (vocabulary words then grammar constructions, in checklist
+    order) plus a ``pass`` verdict — the curriculum checklist as a
+    spreadsheet. Cells are ``yes``/``no`` for spreadsheet friendliness.
+    """
+    grid = curriculum_coverage_grid(payloads)
+    if grid is None:
+        return None
+    buf = io.StringIO()
+    writer = csv.writer(buf, lineterminator="\n")
+    writer.writerow(["text"] + [name for _kind, name in grid["items"]]
+                    + ["pass"])
+    for r in grid["rows"]:
+        cells = ["yes" if c else "no" for c in r["cells"]]
+        writer.writerow([r["text"]] + cells + ["yes" if r["pass"] else "no"])
     return buf.getvalue()
 
 
@@ -1369,7 +1399,8 @@ def write_per_text_exports(profiled, target, fmt, cloze=False, enrich=True,
                            wordlists_dir=None, output_dir=None,
                            source_label=None, base_url=None, cache_path=None,
                            targets=None, rows=None, summary=None, suggest=False,
-                           gap_report=False, curriculum=None):
+                           gap_report=False, curriculum=None, cando=False,
+                           payloads=None):
     """Write the pre-teaching lists for *profiled* (the selected set).
 
     With a single *target*: one list per text next to its source (or into
@@ -1388,7 +1419,10 @@ def write_per_text_exports(profiled, target, fmt, cloze=False, enrich=True,
     the set-level handout. Returns ``(written, failed, deck_stats)``;
     ``deck_stats`` aggregates the flashcard enrichment counters across the
     set. *base_url*/*cache_path* override the dictionary API and its JSON
-    lookup cache.
+    lookup cache. *cando* threads the CEFR Can-Do framing into each per-text
+    payload. *payloads* — a prebuilt per-text payload list (same order as
+    *profiled*, e.g. built for the JSON ``curriculumCoverage`` grid) — is
+    reused instead of rebuilt.
     """
     script_dir = os.path.dirname(os.path.abspath(__file__))
     base_dir = wordlists_dir or os.path.join(script_dir, "WordLists")
@@ -1428,7 +1462,7 @@ def write_per_text_exports(profiled, target, fmt, cloze=False, enrich=True,
         # One combined class-wide deck (plus its markdown index) per level,
         # no per-text lists.
         for t in targets:
-            payloads = [export_payload(row, ordered, ctx, t)
+            payloads = [export_payload(row, ordered, ctx, t, cando=cando)
                         for row, ordered, ctx in profiled]
             combined = _combined_deck_payload(payloads)
             _write(combined_deck_path(source_label, t, output_dir),
@@ -1437,20 +1471,36 @@ def write_per_text_exports(profiled, target, fmt, cloze=False, enrich=True,
                    combined_index_markdown(combined["aboveTarget"]["words"], t))
         return written, failed, deck_stats
 
-    payloads = []
-    for row, ordered, ctx in profiled:
-        payload = export_payload(row, ordered, ctx, target, suggest=suggest,
-                                 gap_report=gap_report, curriculum=curriculum)
-        payloads.append(payload)
-        if fmt == "flashcards":
-            content = _deck(payload)
-        else:
-            content = (tr.export_csv(payload, cloze=cloze) if fmt == "csv"
-                       else tr.export_markdown(payload, cloze=cloze))
-        path = tr.export_path(row["file"], None, target, fmt)
-        if output_dir:
-            path = os.path.join(output_dir, os.path.basename(path))
-        _write(path, content)
+    if payloads is None:
+        payloads = []
+        for row, ordered, ctx in profiled:
+            payload = export_payload(row, ordered, ctx, target,
+                                     suggest=suggest, gap_report=gap_report,
+                                     curriculum=curriculum, cando=cando)
+            payloads.append(payload)
+            if fmt == "flashcards":
+                content = _deck(payload)
+            else:
+                content = (tr.export_csv(payload, cloze=cloze) if fmt == "csv"
+                           else tr.export_markdown(payload, cloze=cloze))
+            path = tr.export_path(row["file"], None, target, fmt)
+            if output_dir:
+                path = os.path.join(output_dir, os.path.basename(path))
+            _write(path, content)
+    else:
+        # Reuse the caller's prebuilt payloads (same order as *profiled*),
+        # writing each through the same per-text writers.
+        payloads = list(payloads)
+        for (row, _ordered, _ctx), payload in zip(profiled, payloads):
+            if fmt == "flashcards":
+                content = _deck(payload)
+            else:
+                content = (tr.export_csv(payload, cloze=cloze) if fmt == "csv"
+                           else tr.export_markdown(payload, cloze=cloze))
+            path = tr.export_path(row["file"], None, target, fmt)
+            if output_dir:
+                path = os.path.join(output_dir, os.path.basename(path))
+            _write(path, content)
     # The class-wide combined deck (plus its markdown index), in addition to
     # the per-text decks.
     if fmt == "flashcards" and len(profiled) > 1:
@@ -1523,11 +1573,18 @@ def main(argv=None):
                         help="--interleave only: max new words introduced per "
                              "reading (default: 5)")
     parser.add_argument("--curriculum", default=None,
-                        help="--export md|csv only: check every text against a curriculum "
-                             "checklist file (sections [vocabulary] and [grammar]) — "
-                             "per-text coverage sections in the md handouts, or a "
-                             "folder-level pass/fail grid (<set>-curriculum-coverage-<LEVEL>.csv) "
-                             "for csv (the Phase 4 curriculum checklist)")
+                        help="check every text against a curriculum checklist file "
+                             "(sections [vocabulary] and [grammar]) — per-text coverage "
+                             "sections in the --export md handouts, a folder-level "
+                             "pass/fail grid (<set>-curriculum-coverage-<LEVEL>.csv) "
+                             "for --export csv, and the same grid as "
+                             "`curriculumCoverage` in the JSON report (the Phase 4 "
+                             "curriculum checklist)")
+    parser.add_argument("--cando", action="store_true",
+                        help="--export md|csv only: add each text's CEFR Can-Do framing "
+                             "to the handouts — the descriptors its demands imply, "
+                             "plus the ones above the target class's expectations "
+                             "(the Phase 4 Can-Do framing, per text)")
     parser.add_argument("--watch", nargs="?", const=1.0, type=float, default=None,
                         help="re-profile the --file input whenever any text in it changes "
                              "on disk (the Phase 3 edit → re-check loop for a whole "
@@ -1639,6 +1696,14 @@ def main(argv=None):
             raise ClassProfileError(
                 "--gap-report applies to the md/csv handouts; --export flashcards "
                 "produces RubricMaker deck cards instead.")
+        if args.cando and args.export is None:
+            raise ClassProfileError(
+                "--cando requires --export md|csv (it adds each text's CEFR "
+                "Can-Do framing to the per-text handouts).")
+        if args.cando and args.export == "flashcards":
+            raise ClassProfileError(
+                "--cando applies to the md/csv handouts; --export flashcards "
+                "produces RubricMaker deck cards instead.")
         if args.interleave and target is None:
             raise ClassProfileError(
                 "--interleave builds a spaced introduction schedule; it requires "
@@ -1659,10 +1724,11 @@ def main(argv=None):
             if not os.path.isfile(args.curriculum):
                 raise ClassProfileError(
                     f"curriculum file not found: {args.curriculum}")
-            if args.export not in ("md", "csv"):
+            if args.export not in ("md", "csv") and args.format != "json":
                 raise ClassProfileError(
-                    "--curriculum needs --export md (per-text coverage sections) "
-                    "or --export csv (the folder-level coverage grid).")
+                    "--curriculum needs --export md (per-text coverage sections), "
+                    "--export csv (the folder-level coverage grid), or --format "
+                    "json (the grid in the payload as `curriculumCoverage`).")
         if args.watch is not None and not args.file:
             raise ClassProfileError(
                 "--watch re-profiles the input on change; it requires --file "
@@ -1736,7 +1802,7 @@ def main(argv=None):
                 "[--sort level|typical|reached|words|name] "
                 "[--format auto|json|pretty|csv] [--export-vocab DIR] "
                 "[--export csv|md|flashcards [--cloze] [--suggest] [--gap-report] "
-                "[--no-enrich] [--output DIR]] "
+                "[--cando] [--no-enrich] [--output DIR]] "
                 "[--interleave [--new-words-per-reading N]] "
                 "[--pre-enrich [--delay SECONDS] [--limit N]] "
                 "[--no-grammar]\n"
@@ -1830,6 +1896,26 @@ def main(argv=None):
                 f"{'s' if len(written) != 1 else ''} "
                 f"to {args.export_vocab}\n")
 
+        # ---- Curriculum checklist (needed by the JSON grid + the exports) ----
+        curriculum = None
+        if args.curriculum:
+            try:
+                curriculum = tr.load_curriculum(args.curriculum)
+            except tr.CurriculumError as ex:
+                sys.stderr.write(str(ex) + "\n")
+                return 1
+        # Per-text export payloads, built once — they feed the JSON
+        # curriculumCoverage grid and are reused (not rebuilt) by the
+        # per-text exports.
+        prebuilt_payloads = None
+        if curriculum is not None and (out_format == "json" or args.export):
+            prebuilt_payloads = [
+                export_payload(row, ordered, ctx, target,
+                               suggest=args.suggest,
+                               gap_report=args.gap_report,
+                               curriculum=curriculum, cando=args.cando)
+                for row, ordered, ctx in selected_profiled]
+
         # ---- Output ----------------------------------------------------------
         if target:
             fits_count = sum(1 for r in all_rows if r["fits"] is True)
@@ -1855,6 +1941,8 @@ def main(argv=None):
             "aggregate": summary,
             "rows": rows,
             "interleave": interleave,
+            "curriculumCoverage": (curriculum_coverage_grid(prebuilt_payloads)
+                                    if prebuilt_payloads else None),
         }
 
         if out_format == "pretty":
@@ -1890,13 +1978,6 @@ def main(argv=None):
             print(json.dumps(payload, indent=2, ensure_ascii=False))
 
         # ---- Per-text pre-teaching lists (over the selected set) ------------
-        curriculum = None
-        if args.curriculum:
-            try:
-                curriculum = tr.load_curriculum(args.curriculum)
-            except tr.CurriculumError as ex:
-                sys.stderr.write(str(ex) + "\n")
-                return 1
         if args.export:
             written, failed, deck_stats = write_per_text_exports(
                 selected_profiled, target, args.export, cloze=args.cloze,
@@ -1905,7 +1986,8 @@ def main(argv=None):
                 base_url=args.dictionary_url, cache_path=cache_path,
                 targets=targets, rows=rows, summary=summary,
                 suggest=args.suggest, gap_report=args.gap_report,
-                curriculum=curriculum)
+                curriculum=curriculum, cando=args.cando,
+                payloads=prebuilt_payloads)
             if args.interleave and interleave is not None:
                 ext = "md" if args.export == "md" else "csv"
                 ipath = interleave_path(source_label, target, args.output, ext)

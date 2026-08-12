@@ -469,6 +469,36 @@ _dcd = json.loads(out)
 check("cli --cando carries the mapping",
       rc == 0 and _dcd["cando"]["vocabulary"]["reaches"] == tr.cando_for("B2"))
 
+# --- unit: Can-Do diff against a target level (--cando + --target-level) -----
+_dc = tr.analyze("We purchase fresh bread daily.", target_level="A2",
+                 with_grammar=False, cando=True)["cando"]
+check("cando with target carries the aboveTarget diff",
+      _dc["targetLevel"] == "A2"
+      and [e["band"] for e in _dc["aboveTarget"]["vocabulary"]] == ["B1", "B2"]
+      and _dc["aboveTarget"]["grammar"] == []
+      and [e["band"] for e in _dc["aboveTarget"]["estimated"]] == ["B1", "B2"])
+check("cando at-or-below target diff is empty",
+      tr.analyze("I am a student.", target_level="B1", with_grammar=False,
+                 cando=True)["cando"]["aboveTarget"]
+      == {"vocabulary": [], "grammar": [], "estimated": []})
+check("cando without a target has no diff",
+      "aboveTarget" not in tr.analyze("I am a student.", with_grammar=False,
+                                       cando=True)["cando"])
+_dcmd = tr.export_markdown(tr.analyze("We purchase fresh bread daily.",
+                                      target_level="A2", with_grammar=False,
+                                      cando=True))
+check("md renders the above-target Can-Do section",
+      "### Above the A2 target" in _dcmd
+      and "| Vocabulary | B2 |" in _dcmd
+      and "pre-teach or rewrite" in _dcmd)
+_bufdc = io.StringIO()
+tr.render_pretty(tr.analyze("We purchase fresh bread daily.",
+                            target_level="A2", with_grammar=False, cando=True),
+                 "dc.txt", stream=_bufdc)
+check("pretty renders the above-target Can-Do block",
+      "above the A2 target" in _bufdc.getvalue()
+      and "pre-teach or rewrite" in _bufdc.getvalue())
+
 # --- unit: cached definitions (no-network lookups for handouts) ---------------
 _cache_path = os.path.join(_curr_dir, "dict-cache.json")
 with open(_cache_path, "w", encoding="utf-8") as f:

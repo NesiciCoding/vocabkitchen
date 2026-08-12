@@ -435,20 +435,52 @@ def cando_for(band):
     return _CANDO.get(band)
 
 
-def cando_mapping(payload):
+def _cando_above(band, target_level):
+    """The Can-Do descriptors a text at *band* demands above *target_level*.
+
+    One entry per level strictly above the target, up to and including the
+    text's own band — everything the class is not expected to do yet but the
+    text asks for. Empty when the text demands nothing beyond the target
+    (or either band is unknown).
+    """
+    if band is None or target_level is None:
+        return []
+    ti = _LEVEL_INDEX.get(target_level)
+    bi = _LEVEL_INDEX.get(band)
+    if ti is None or bi is None or bi <= ti:
+        return []
+    return [{"band": lvl, "descriptor": _CANDO[lvl]}
+            for lvl in _CEFR_ORDER[ti + 1:bi + 1]]
+
+
+def cando_mapping(payload, target_level=None):
     """The report's own bands, each with its Can-Do descriptor — what a
-    learner at that band can do with the text's demands."""
+    learner at that band can do with the text's demands.
+
+    With *target_level*, each dimension also carries ``aboveTarget``: the
+    Can-Do descriptors the text demands **beyond** what the class is
+    expected to do yet (every level strictly above the target, up to the
+    text's own demand band), and the mapping carries ``targetLevel``.
+    """
     v = payload.get("vocabulary") or {}
     g = payload.get("grammar") or {}
     gl = g.get("estimatedLevel") or {}
     est = payload.get("estimatedLevel")
-    return {
+    result = {
         "vocabulary": {"typical": cando_for(v.get("typical")),
                         "reaches": cando_for(v.get("coverage"))},
         "grammar": {"typical": cando_for(gl.get("typical")),
                      "reaches": cando_for(gl.get("reaches"))},
         "estimated": cando_for(est),
     }
+    if target_level is not None:
+        result["targetLevel"] = target_level
+        result["aboveTarget"] = {
+            "vocabulary": _cando_above(v.get("coverage"), target_level),
+            "grammar": _cando_above(gl.get("reaches"), target_level),
+            "estimated": _cando_above(est, target_level),
+        }
+    return result
 
 
 class CurriculumError(Exception):
@@ -728,7 +760,7 @@ def analyze(text, target_level=None, wordlists_dir=None, grammar_dir=None,
     if cambridge:
         payload["cambridge"] = cambridge_mapping(payload)
     if cando:
-        payload["cando"] = cando_mapping(payload)
+        payload["cando"] = cando_mapping(payload, target_level)
 
     if curriculum:
         # Re-run the checklist with the grammar results now that the grammar
@@ -834,6 +866,25 @@ def render_pretty(payload, source_label, stream=None):
                        f"{_desc(cd['estimated'])}")
         out.append(dim("  (what a learner at the text's demand level can do — "
                        "the language rubrics and self-assessment forms use)"))
+        above = cd.get("aboveTarget")
+        tgt = cd.get("targetLevel")
+        if above and tgt:
+            _gl = (g or {}).get("estimatedLevel") or {}
+            for key, label, band in (
+                    ("vocabulary", "Vocabulary", v.get("coverage")),
+                    ("grammar", "Grammar", _gl.get("reaches")),
+                    ("estimated", "Estimated", est)):
+                entries = above.get(key) or []
+                if not entries:
+                    continue
+                out.append("")
+                out.append(bold(f"{label} — above the {tgt} target"))
+                for e in entries:
+                    out.append(f"  {_lvl(e['band'], colour)}: "
+                               f"\"{e['descriptor']}\"")
+            art = "an " if tgt.startswith("A") else "a "
+            out.append(dim(f"  (demands beyond what {art + tgt} class is "
+                           "expected to do yet — pre-teach or rewrite)"))
 
     target = payload["targetLevel"]
     if target is not None:
@@ -1268,6 +1319,26 @@ def export_markdown(payload, cloze=False):
         for label, desc in rows:
             lines.append(f"| {label} | {desc or '—'} |")
         lines.append("")
+        above = cd.get("aboveTarget")
+        tgt = cd.get("targetLevel")
+        if above and tgt and any(above.get(k) for k in ("vocabulary",
+                                                        "grammar",
+                                                        "estimated")):
+            lines.append(f"### Above the {tgt} target")
+            lines.append("")
+            lines.append("| Demand | Level | Can-Do descriptor |")
+            lines.append("|---|---|---|")
+            for key, label in (("vocabulary", "Vocabulary"),
+                               ("grammar", "Grammar"),
+                               ("estimated", "Estimated")):
+                for e in above.get(key) or []:
+                    lines.append(f"| {label} | {e['band']} | "
+                                 f"{e['descriptor']} |")
+            lines.append("")
+            art = "an " if tgt.startswith("A") else "a "
+            lines.append("_Demands beyond what " + art + tgt + " class is "
+                         "expected to do yet — pre-teach or rewrite._")
+            lines.append("")
     read = payload.get("readability")
     if read:
         lines.append(f"Readability: Flesch–Kincaid grade "

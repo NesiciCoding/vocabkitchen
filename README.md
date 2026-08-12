@@ -367,7 +367,11 @@ It reports:
   reached / estimated band can actually do, in the language rubrics and
   self-assessment forms already use. Carried in JSON as `cando`, shown in
   the terminal, and rendered as a **Can-Do descriptors** section in the
-  `--export md` handout.
+  `--export md` handout. With `--target-level`, each dimension also reports
+  `aboveTarget` — the descriptors the text demands **beyond** what the
+  class is expected to do yet (every level strictly above the target up to
+  the text's own band), shown as an **Above the {target} target** block in
+  the terminal and the handout.
 
 Flags:
 
@@ -396,7 +400,7 @@ Flags:
 | `--watch`           | re-profile the `--file` input whenever it changes on disk (edit → re-check loop; optional interval in seconds, default 1) |
 | `--curriculum`      | check the text against a curriculum checklist file (`[vocabulary]` + `[grammar]` sections) and report pass/fail coverage |
 | `--cambridge`       | map the report's own CEFR bands to the matching Cambridge English Qualification (A2 Key, B1 Preliminary, B2 First, C1 Advanced, C2 Proficiency) |
-| `--cando`           | express the text's demands as CEFR global-scale Can-Do descriptors (what a learner at the reached/estimated band can do) |
+| `--cando`           | express the text's demands as CEFR global-scale Can-Do descriptors; with `--target-level`, also list the ones above the target's expectations |
 | (stdin)             | if neither `--text` nor `--file` is given, text is read from stdin      |
 
 The vocabulary half is dependency-free Python 3. The grammar half needs spaCy
@@ -511,7 +515,14 @@ It reports:
   handout; with `--export csv` it writes the matrix as a spreadsheet
   (`essays-curriculum-coverage-B1.csv`) — one row per text, one column per
   required item, with a pass verdict — so which texts cover the unit's
-  requirements is visible at a glance.
+  requirements is visible at a glance. The same grid rides in the JSON
+  report as `curriculumCoverage` (items × rows × cells), so scripts can
+  consume the pass/fail matrix without CSV parsing.
+- **Can-Do framing** — `--cando` adds each per-text handout's **CEFR
+  Can-Do descriptors** (what a learner at the text's demand level can do)
+  plus an **Above the target** list — the descriptors the text demands
+  beyond what the class is expected to do yet, ready to pre-teach or
+  rewrite.
 - **Folder watch mode** — `--watch` keeps re-profiling the `--file` input
   whenever any text in it changes on disk (polling every second,
   `--watch 0.2` for faster), until Ctrl-C — the edit → re-check loop for a
@@ -544,7 +555,8 @@ Flags:
 | `--gap-report`      | `--export md\|csv` only: list the target-level constructions each text does not use yet, per handout |
 | `--interleave`      | build a spaced-introduction schedule across the set (new words per reading, review + due flags) |
 | `--new-words-per-reading` | `--interleave` only: max new words introduced per reading (default 5) |
-| `--curriculum`      | `--export md\|csv` only: check every text against a curriculum checklist file (md: per-text sections; csv: the folder-level coverage grid) |
+| `--curriculum`      | check every text against a curriculum checklist file (md: per-text sections; csv: the folder-level coverage grid; json: `curriculumCoverage` in the payload) |
+| `--cando`           | `--export md\|csv` only: add each text's CEFR Can-Do descriptors + the ones above the target's expectations to the handouts |
 | `--watch`           | re-profile the `--file` input whenever any text in it changes on disk (edit → re-check loop; optional interval in seconds, default 1) |
 | `--no-enrich`       | `--export flashcards` only: skip the Free Dictionary API               |
 | `--output`          | `--export` only: write all lists into this directory (default: next to each source) |

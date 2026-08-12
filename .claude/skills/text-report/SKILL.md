@@ -80,11 +80,15 @@ hand:
   Preliminary, B2 First, C1 Advanced, C2 Proficiency. Carried in JSON as
   `cambridge`, shown in pretty mode, and rendered as a **Cambridge English
   mapping** section in the `--export md` handout.
-- **`--cando-off`** — the Phase 4 Can-Do framing: express the text's demands as
+- **`--cando`** — the Phase 4 Can-Do framing: express the text's demands as
   CEFR global-scale Can-Do descriptors — what a learner at the reached /
   estimated band can do, the language rubrics and self-assessment forms
   already use. Carried in JSON as `cando`, shown in pretty mode, and
   rendered as a **Can-Do descriptors** section in the `--export md` handout.
+  With `--target-level`, each dimension also reports **`aboveTarget`** — the
+  descriptors the text demands **beyond** what the class is expected to do
+  yet (every level strictly above the target up to the text's own band), as
+  an **Above the {target} target** block in pretty mode and the handout.
 - **`--pre-enrich`** — prime the dictionary cache for a whole class in one
   polite, rate-limited pass: point it at a word list (one word per line) or
   an essay (`--file`/`--text`/stdin), it looks each distinct word up against
@@ -143,7 +147,7 @@ Flags:
 | `--watch`           | re-profile the `--file` input whenever it changes on disk (edit → re-check loop; optional interval in seconds, default 1) |
 | `--curriculum`      | check the text against a curriculum checklist file (`[vocabulary]` + `[grammar]` sections) and report pass/fail coverage |
 | `--cambridge`       | map the report's own CEFR bands to the matching Cambridge English Qualification (A2 Key, B1 Preliminary, B2 First, C1 Advanced, C2 Proficiency) |
-| `--cando-off`           | express the text's demands as CEFR global-scale Can-Do descriptors (what a learner at the reached/estimated band can do) |
+| `--cando`           | express the text's demands as CEFR global-scale Can-Do descriptors; with `--target-level`, also list the ones above the target's expectations |
 | (stdin)             | if neither `--text` nor `--file` is given, text is read from stdin      |
 
 **Choosing input mode:** `--text` for a snippet, `--file` for a document on

@@ -85,7 +85,7 @@ jobs:
           required_flags = {
               "class-profile": ["--gap-report", "--interleave",
                                 "--new-words-per-reading", "--curriculum",
-                                "--watch"],
+                                "--watch", "--cando"],
               "text-report": ["--suggest", "--gap-report", "--watch",
                               "--curriculum", "--cambridge", "--cando"],
           }
@@ -424,6 +424,21 @@ jobs:
               with open(os.path.join(outdir, "academic-essay-preteaching-B1.md"),
                         encoding="utf-8") as f:
                   assert "## Curriculum checklist" in f.read()
+              # json run: the same grid inside the payload (curriculumCoverage),
+              # so scripts can consume the pass/fail matrix without CSV parsing.
+              rc, out, err = run_cli(["--file", "sample-readings/", "--target-level", "B1",
+                                      "--no-grammar", "--format", "json",
+                                      "--curriculum", curr])
+              assert rc == 0, err
+              ccj = json.loads(out)["curriculumCoverage"]
+              assert ccj["items"] == [["vocabulary", "purchase"],
+                                       ["vocabulary", "mat"],
+                                       ["grammar", "Passive (present)"]], ccj["items"]
+              assert ccj["textCount"] == len(files), ccj
+              assert {r["text"] for r in ccj["rows"]} == set(files), ccj
+              assert all(len(r["cells"]) == len(ccj["items"]) and isinstance(r["pass"], bool)
+                         for r in ccj["rows"]), ccj
+              assert 0 <= ccj["passCount"] <= ccj["textCount"], ccj
           finally:
               shutil.rmtree(outdir, ignore_errors=True)
 

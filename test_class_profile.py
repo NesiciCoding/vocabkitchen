@@ -577,6 +577,18 @@ try:
           and _grid_rows[2] == ["b.txt", "no", "yes", "yes", "no"])
     check("curriculum grid: no curriculum -> None",
           cp.curriculum_coverage_csv([{"file": "a.txt"}], "B1") is None)
+    _ggrid = cp.curriculum_coverage_grid(_cpays)
+    check("curriculum grid structured data (items/rows/passCount)",
+          _ggrid["items"] == [("vocabulary", "purchase"),
+                               ("vocabulary", "mat"),
+                               ("grammar", "Passive (present)")]
+          and _ggrid["rows"][0] == {"text": "a.txt",
+                                     "cells": [True, False, False],
+                                     "pass": False}
+          and _ggrid["rows"][1]["cells"] == [False, True, True]
+          and _ggrid["passCount"] == 0 and _ggrid["textCount"] == 2)
+    check("curriculum grid structured: no curriculum -> None",
+          cp.curriculum_coverage_grid([{"file": "a.txt"}]) is None)
     check("curriculum grid path named after source folder",
           cp.curriculum_coverage_path(_tmp, "B1", None)
           == os.path.join(_tmp, os.path.basename(_tmp) + "-curriculum-coverage-B1.csv"))
@@ -969,9 +981,53 @@ try:
               and _cc_rows[1][0] == "purchase.txt"
               and _cc_rows[1][1] == "yes" and _cc_rows[1][2] == "no"
               and _cc_rows[1][4] == "no")
+        # --format json --curriculum: the same grid inside the payload, so
+        # scripts can consume the pass/fail matrix without CSV parsing.
+        rc, out, err = run(["--file", _curr_in, "--target-level", "B1",
+                            "--no-grammar", "--format", "json",
+                            "--curriculum", _curr_cl])
+        _ccj = json.loads(out)["curriculumCoverage"]
+        check("class --curriculum json grid in payload",
+              rc == 0 and _ccj["items"] == [["vocabulary", "purchase"],
+                                             ["vocabulary", "mat"],
+                                             ["grammar", "Passive (present)"]]
+              and len(_ccj["rows"]) == 1
+              and _ccj["rows"][0]["text"] == "purchase.txt"
+              and _ccj["rows"][0]["cells"] == [True, False, False]
+              and _ccj["rows"][0]["pass"] is False
+              and _ccj["textCount"] == 1 and _ccj["passCount"] == 0)
     finally:
         shutil.rmtree(_curr_in, ignore_errors=True)
         shutil.rmtree(_curr_cl_dir, ignore_errors=True)
+
+    # --- integration: --cando Can-Do framing in the per-text handouts --------
+    _cd_in = tempfile.mkdtemp(prefix="classprof_cando_")
+    try:
+        with open(os.path.join(_cd_in, "purchase.txt"), "w",
+                  encoding="utf-8") as f:
+            f.write("We purchase fresh bread daily.")
+        _cd_out = os.path.join(_cd_in, "out")
+        rc, out, err = run(["--file", _cd_in, "--target-level", "B1",
+                            "--no-grammar", "--export", "md", "--cando",
+                            "--output", _cd_out])
+        check("class --cando rc==0", rc == 0)
+        with open(os.path.join(_cd_out, "purchase-preteaching-B1.md"),
+                  encoding="utf-8") as f:
+            _cd_md = f.read()
+        check("class --cando handout carries the Can-Do framing",
+              "## Can-Do descriptors" in _cd_md
+              and "### Above the B1 target" in _cd_md
+              and "| Vocabulary | B2 |" in _cd_md
+              and "pre-teach or rewrite" in _cd_md)
+        rc, _, err = run(["--file", _cd_in, "--target-level", "B1", "--cando"])
+        check("class --cando without --export rc==1",
+              rc == 1 and "--cando requires --export" in err)
+        rc, _, err = run(["--file", _cd_in, "--target-level", "B1",
+                          "--cando", "--export", "flashcards", "--no-enrich"])
+        check("class --cando with flashcards rc==1",
+              rc == 1 and "applies to the md/csv" in err)
+    finally:
+        shutil.rmtree(_cd_in, ignore_errors=True)
 
     # --- integration: --interleave spaced introduction schedule ---------------
     _il_in = tempfile.mkdtemp(prefix="classprof_il_")
@@ -1687,6 +1743,21 @@ if os.path.isdir(_sample):
                   encoding="utf-8") as f:
             check("sample curriculum md: per-text handout carries the checklist",
                   "## Curriculum checklist" in f.read())
+        # json run: the same grid inside the payload (curriculumCoverage), so
+        # scripts can consume the pass/fail matrix without CSV parsing.
+        rc, out, err = run(["--file", _sample, "--target-level", "B1", "--no-grammar",
+                            "--format", "json", "--curriculum", _curr_path])
+        _ccj = json.loads(out)["curriculumCoverage"]
+        check("sample curriculum json: grid in the payload",
+              rc == 0 and _ccj["items"] == [["vocabulary", "purchase"],
+                                             ["vocabulary", "mat"],
+                                             ["grammar", "Passive (present)"]]
+              and _ccj["textCount"] == len(files)
+              and {r["text"] for r in _ccj["rows"]} == set(files)
+              and all(len(r["cells"]) == len(_ccj["items"])
+                      and isinstance(r["pass"], bool)
+                      for r in _ccj["rows"])
+              and 0 <= _ccj["passCount"] <= _ccj["textCount"])
     finally:
         shutil.rmtree(_golden_curr, ignore_errors=True)
 else:
@@ -1715,7 +1786,7 @@ if all(os.path.isfile(p) for p in (_skill_local, _skill_plugin, _plugin_json)):
           "../../../" in _sl and "class_profile.py" in _sl)
     check("class-profile copies are deliberately different flavours", _sl != _sp)
     for _flag in ("--gap-report", "--interleave", "--new-words-per-reading",
-                  "--curriculum", "--watch"):
+                  "--curriculum", "--watch", "--cando"):
         check(f"class-profile skill documents {_flag} in both copies",
               _flag in _sl and _flag in _sp)
     with open(os.path.join(HERE, ".claude", "skills", "text-report", "SKILL.md"),

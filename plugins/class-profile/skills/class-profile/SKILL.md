@@ -78,7 +78,13 @@ doesn't have.
   per-text handout; with `--export csv`, a **folder-level coverage grid**
   (`essays-curriculum-coverage-B1.csv`) — one row per text, one column per
   required item, with a pass verdict — so which texts cover the unit's
-  requirements is visible at a glance.
+  requirements is visible at a glance. The same grid rides in the JSON
+  report as `curriculumCoverage` (items × rows × cells), for scripts.
+- **Can-Do framing (`--cando`)** — with `--export md|csv`, each per-text
+  handout gains the text's **CEFR Can-Do descriptors** (what a learner at
+  the text's demand level can do) plus an **Above the target** list — the
+  descriptors the text demands beyond what the class is expected to do yet,
+  the Phase 4 Can-Do framing per text.
 - **`--watch`** — the edit → re-check loop for a whole folder: keep
   re-profiling the `--file` input whenever any text in it changes on disk
   (polls every second; `--watch 0.2` for faster) until Ctrl-C.
@@ -151,7 +157,8 @@ Flags:
 | `--gap-report`      | `--export md\|csv` only: list the target-level constructions each text does not use yet, per handout |
 | `--interleave`      | build a spaced-introduction schedule across the set (new words per reading, review + due flags) |
 | `--new-words-per-reading` | `--interleave` only: max new words introduced per reading (default 5) |
-| `--curriculum`      | `--export md\|csv` only: check every text against a curriculum checklist file (md: per-text sections; csv: the folder-level coverage grid) |
+| `--curriculum`      | check every text against a curriculum checklist file (md: per-text sections; csv: the folder-level coverage grid; json: `curriculumCoverage` in the payload) |
+| `--cando`           | `--export md\|csv` only: add each text's CEFR Can-Do descriptors + the ones above the target's expectations to the handouts |
 | `--watch`           | re-profile the `--file` input whenever any text in it changes on disk (edit → re-check loop; optional interval in seconds, default 1) |
 | `--no-enrich`       | `--export flashcards` only: skip the Free Dictionary API               |
 | `--output`          | `--export` only: write all lists into this directory (default: next to each source) |
