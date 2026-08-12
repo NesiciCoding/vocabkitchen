@@ -931,6 +931,22 @@ def analyze_sentence(sent):
 # Profiling — aggregate detections into a level-banded result
 # ---------------------------------------------------------------------------
 
+def constructions_at_level(cefrj_levels, level):
+    """Every registered construction whose band is exactly *level*.
+
+    The canonical set for the grammar gap report: the target-level
+    constructions a text should be introducing. Levels resolve like the
+    profiler's (``cefrj_levels.get(code, fallback)``); entries are sorted by
+    category then name.
+    """
+    out = []
+    for cid, (name, category, code, fallback) in _CONSTRUCTIONS.items():
+        if cefrj_levels.get(code, fallback) == level:
+            out.append({"name": name, "category": category})
+    out.sort(key=lambda d: (d["category"], d["name"]))
+    return out
+
+
 def profile(text, nlp, cefrj_levels):
     """Analyse *text* and return (results_by_level, meta).
 

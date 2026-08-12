@@ -50,6 +50,18 @@ hand:
   there and the gap becomes an input blank (auto-graded case-insensitively);
   on paper the gap doubles as a worksheet blank with the item's row as answer
   key. Applies to `--export md|csv`.
+- **`--suggest`** — the rewrite aid: for each word above the target, suggest a
+  simpler alternative from the bundled curated list (`WordLists/synonyms.csv`,
+  validated by `build_wordlists.py --check`) — shown inline in the
+  above-target list (`purchase → buy (A1)`), carried in JSON as
+  `aboveTarget.words[i].suggestion`, and added as a **Simpler alternative**
+  column in the `--export md` handout. Requires `--target-level`.
+- **`--gap-report`** — the grammar gap report: with `--target-level`, list the
+  target-level constructions the text does **not** use yet — the "introduce
+  these structures" checklist for graded-reader authors, grouped by category
+  in the terminal, carried in JSON as `grammarGap.missing`, and added as a
+  **Constructions to introduce** section in the `--export md` handout. Needs
+  the grammar side (spaCy); incompatible with `--no-grammar`.
 - **`--pre-enrich`** — prime the dictionary cache for a whole class in one
   polite, rate-limited pass: point it at a word list (one word per line) or
   an essay (`--file`/`--text`/stdin), it looks each distinct word up against
@@ -111,6 +123,8 @@ Flags:
 | `--no-grammar`      | skip the grammar side even if spaCy is available                        |
 | `--no-readability`  | omit the Flesch–Kincaid / Flesch Reading Ease line                      |
 | `--export`          | `csv`, `md`, or `flashcards` — write the above-target items as a pre-teaching list (requires `--target-level`) |
+| `--suggest`         | rewrite aid: suggest a simpler alternative for each word above the target (requires `--target-level`) |
+| `--gap-report`      | grammar gap report: list the target-level constructions the text does not use yet (requires `--target-level`; needs spaCy) |
 | `--cloze`           | render exported examples as `{{...}}` fill-the-gap sentences (RubricMaker syntax; `--export md\|csv` only) |
 | `--no-enrich`       | `--export flashcards` only: skip the Free Dictionary API (card backs stay the in-text context sentence) |
 | `--dictionary-url`  | `--export flashcards` only: override the dictionary API base URL (proxy / test server) |

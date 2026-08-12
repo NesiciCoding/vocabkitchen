@@ -327,6 +327,21 @@ It reports:
   question and the gap becomes an input blank (auto-graded
   case-insensitively); on paper, the gap doubles as a worksheet blank with the
   item's row as the answer key. Applies to `--export md|csv`.
+- **Rewrite aid** — `--suggest` adds a **simpler alternative** for each
+  above-target word that has one in the bundled curated list
+  ([`WordLists/synonyms.csv`](WordLists/synonyms.csv), validated by
+  `build_wordlists.py --check` against `levels.json`): the above-target list
+  shows it inline (`purchase → buy (A1)`), JSON carries it as
+  `aboveTarget.words[i].suggestion`, and the `--export md` handout gains a
+  **Simpler alternative** column — the Phase 3 "what do I change?" answer
+  next to the "what's above level?" list. Requires `--target-level`.
+- **Grammar gap report** — `--gap-report` lists the **target-level
+  constructions the text does not use yet** (the mirror of the
+  above-target list): the "introduce these structures" checklist for
+  graded-reader authors, grouped by category in the terminal, carried in
+  JSON as `grammarGap.missing`, and added as a **Constructions to introduce**
+  section in the `--export md` handout. Requires `--target-level` and the
+  grammar side (spaCy).
 
 Flags:
 
@@ -341,6 +356,8 @@ Flags:
 | `--no-grammar`      | skip the grammar side even if spaCy is available                        |
 | `--no-readability`  | omit the readability line                                               |
 | `--export`          | `csv`, `md`, or `flashcards` — write the above-target items as a pre-teaching list (requires `--target-level`) |
+| `--suggest`         | rewrite aid: suggest a simpler alternative for each word above the target (requires `--target-level`) |
+| `--gap-report`      | grammar gap report: list the target-level constructions the text does not use yet (requires `--target-level`; needs spaCy) |
 | `--cloze`           | render exported examples as `{{...}}` fill-the-gap sentences (RubricMaker syntax; `--export md\|csv` only) |
 | `--no-enrich`       | `--export flashcards` only: skip the Free Dictionary API (card backs stay the in-text context sentence) |
 | `--dictionary-url`  | `--export flashcards` only: override the dictionary API base URL (proxy / test server) |
@@ -384,6 +401,8 @@ python3 class_profile.py --file essays/ --max-level B1           # "which of the
 python3 class_profile.py --file essays/ --targets A2,B1,B2       # fit across classes
 python3 class_profile.py --file essays/ --export-vocab vocab-lists/   # glossaries per band
 python3 class_profile.py --file essays/ --target-level B1 --export md --output pret/  # handouts
+python3 class_profile.py --file essays/ --target-level B1 --export md --gap-report --suggest  # + rewrite aid
+python3 class_profile.py --file essays/ --target-level B1 --interleave   # spaced introduction schedule
 python3 class_profile.py --file essays/ --pre-enrich             # warm the deck cache once
 python3 class_profile.py --file sample-readings/                 # try it on the bundled demo folder
 ```
@@ -434,7 +453,21 @@ It reports:
   (`essays-summary-B1.md`) aggregates the pooled distribution plus each
   text's verdict and %-above in one page, next to the per-text lists.
   (A re-run over the same folder skips these handouts — it never re-profiles
-  its own exports.)
+  its own exports.) `--suggest` adds a **Simpler alternative** column to the
+  per-text handouts: a curated lower-band swap (`purchase → buy`) for each
+  above-target word, from the same list the text report uses.
+  `--gap-report` adds a **Grammar gaps** section to each per-text handout —
+  the target-level constructions the text does not use yet (e.g. the second
+  conditional), the same list `text_report.py` reports, so a folder run shows
+  every text's missing grammar at a glance.
+- **Spaced introduction (`--interleave`)** — build a **vocabulary
+  interleaving schedule** across the whole set: each reading introduces at
+  most `--new-words-per-reading` new above-target words (overflow is deferred
+  to the next reading with room), words that recur later are flagged for
+  **spaced review**, and words absent for two or more readings are marked
+  **due**. With `--export md|csv` it writes a `<set>-interleave-<LEVEL>.md|csv`
+  schedule next to the handouts — the teacher's plan for introducing a
+  folder's vocabulary at a controlled rate across repeated readings.
 - **`--pre-enrich`** — prime the dictionary cache from the **whole folder's
   distinct vocabulary** in one polite, rate-limited pass, then exit:
   subsequent `--export flashcards` runs answer from the cache with zero
@@ -456,6 +489,10 @@ Flags:
 | `--export-vocab`    | write one CSV per CEFR band (distinct words × occurrences × texts) into the given directory |
 | `--export`          | `csv`, `md`, or `flashcards` — per-text pre-teaching lists (requires `--target-level`) |
 | `--cloze`           | `--export md\|csv` only: render exported examples as `{{...}}` fill-the-gap sentences |
+| `--suggest`         | `--export md\|csv` only: suggest a simpler alternative for each word above the target in the handouts |
+| `--gap-report`      | `--export md\|csv` only: list the target-level constructions each text does not use yet, per handout |
+| `--interleave`      | build a spaced-introduction schedule across the set (new words per reading, review + due flags) |
+| `--new-words-per-reading` | `--interleave` only: max new words introduced per reading (default 5) |
 | `--no-enrich`       | `--export flashcards` only: skip the Free Dictionary API               |
 | `--output`          | `--export` only: write all lists into this directory (default: next to each source) |
 | `--pre-enrich`      | prime the dictionary cache from the whole folder's distinct vocabulary in one rate-limited pass, then exit |

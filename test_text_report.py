@@ -157,6 +157,100 @@ _p2 = tr.analyze(_CAT, with_grammar=False)
 check("analyze no target -> no verdict", _p2["verdict"] is None
       and _p2["coverage"] is None and _p2["aboveTarget"] is None)
 
+# --- unit: simpler-synonym suggestions (--suggest) ----------------------------
+_syns = tr.load_synonyms(os.path.join(_BASE, "synonyms.csv"))
+check("synonyms loaded from the bundled list", len(_syns) > 20)
+check("synonyms entry shape", _syns.get("purchase") == {"word": "buy", "level": "A1"})
+check("synonyms missing file is empty",
+      tr.load_synonyms(os.path.join(_BASE, "does-not-exist.csv")) == {})
+
+_ps = tr.analyze("We purchase fresh bread daily.", target_level="A2",
+                 with_grammar=False, suggest=True)
+_pw = next(d for d in _ps["aboveTarget"]["words"] if d["word"] == "purchase")
+check("suggest annotates the above-target word",
+      _pw.get("suggestion") == {"word": "buy", "level": "A1"})
+_pn = tr.analyze("We purchase fresh bread daily.", target_level="A2",
+                 with_grammar=False)
+_pwn = next(d for d in _pn["aboveTarget"]["words"] if d["word"] == "purchase")
+check("no --suggest -> no suggestion key", "suggestion" not in _pwn)
+
+_md_sugg = tr.export_markdown(_ps)
+check("md with suggestions gains the Simpler column",
+      "| Word | Level | Occurrences | Simpler alternative | Example |" in _md_sugg
+      and "| buy (A1) |" in _md_sugg)
+_md_plain = tr.export_markdown(_pn)
+check("md without suggestions keeps the old shape",
+      "| Word | Level | Occurrences | Example |" in _md_plain
+      and "Simpler alternative" not in _md_plain)
+_buf3 = io.StringIO()
+tr.render_pretty(_ps, "p.txt", stream=_buf3)
+check("pretty shows the suggestion arrow",
+      "purchase (B2) → buy (A1)" in _buf3.getvalue())
+rc, out, err = run(["--target-level", "A2", "--no-grammar", "--suggest",
+                    "--text", "We purchase fresh bread daily."])
+_ds = json.loads(out)
+_dw = next(w for w in _ds["aboveTarget"]["words"] if w["word"] == "purchase")
+check("cli --suggest carries the suggestion",
+      rc == 0 and _dw["suggestion"] == {"word": "buy", "level": "A1"})
+rc, _, err = run(["--suggest", "--text", "hi"])
+check("cli --suggest without target rc==1",
+      rc == 1 and "--suggest requires --target-level" in err)
+
+# --- unit: grammar gap report (--gap-report) ----------------------------------
+_gcefrj = gp.load_cefrj_levels(os.path.join(HERE, "GrammarProfile"))
+_full_b1 = gp.constructions_at_level(_gcefrj, "B1")
+check("constructions_at_level: B1 set is non-empty", len(_full_b1) > 10)
+check("constructions_at_level: sorted by category then name",
+      [(d["category"], d["name"]) for d in _full_b1]
+      == sorted((d["category"], d["name"]) for d in _full_b1))
+_gap_empty = tr.grammar_gap_report({}, _gcefrj, "B1")
+check("gap report with nothing used lists the whole set",
+      _gap_empty["missingCount"] == _gap_empty["total"] > 10
+      and _gap_empty["targetLevel"] == "B1"
+      and all(m["name"] and m["category"] for m in _gap_empty["missing"]))
+_name1 = _full_b1[0]["name"]
+_gap_used = tr.grammar_gap_report(
+    {"B1": {"x": {"name": _name1}}}, _gcefrj, "B1")
+check("gap report excludes used constructions",
+      _gap_used["missingCount"] == _gap_used["total"] - 1
+      and _name1 not in [m["name"] for m in _gap_used["missing"]])
+
+_pgap = tr.analyze(_CAT, target_level="B1", with_grammar=False, gap_report=True)
+check("gap report degrades gracefully without grammar",
+      _pgap["grammarGap"] is None and _pgap["grammarGapError"] is not None)
+_fake_gap = dict(_pgap)
+_fake_gap["grammarGap"] = {
+    "targetLevel": "B1", "total": 19, "missingCount": 2,
+    "missing": [{"name": "Second conditional", "category": "Conditional"},
+                 {"name": "Modal: may", "category": "Modality"}]}
+_md_gap = tr.export_markdown(_fake_gap)
+check("md with a gap gains the introduce section",
+      "## Constructions to introduce at B1 (2 of 19 not used)" in _md_gap
+      and "Second conditional" in _md_gap and "Modality" in _md_gap)
+check("md without a gap has no introduce section",
+      "Constructions to introduce" not in tr.export_markdown(_pgap))
+_bufg = io.StringIO()
+tr.render_pretty(_fake_gap, "g.txt", stream=_bufg)
+check("pretty shows the gap section",
+      "Gap report — B1 constructions not used (2 of 19)" in _bufg.getvalue()
+      and "Second conditional" in _bufg.getvalue())
+
+rc, _, err = run(["--gap-report", "--text", _CAT])
+check("cli --gap-report without target rc==1",
+      rc == 1 and "--gap-report requires --target-level" in err)
+rc, _, err = run(["--gap-report", "--target-level", "B1", "--no-grammar",
+                  "--text", _CAT])
+check("cli --gap-report with --no-grammar rc==1",
+      rc == 1 and "--gap-report needs the grammar side" in err)
+rc, out, err = run(["--gap-report", "--target-level", "B1", "--text", _CAT])
+_dg = json.loads(out)
+if _dg["grammarGap"] is not None:
+    check("cli gap report shape",
+          _dg["grammarGap"]["targetLevel"] == "B1"
+          and 0 <= _dg["grammarGap"]["missingCount"] <= _dg["grammarGap"]["total"])
+else:
+    check("cli gap report degraded gracefully", _dg["grammarGapError"] is not None)
+
 # --- in-process analyze with grammar (needs spaCy) ----------------------------
 if HAVE_GRAMMAR:
     _pg = tr.analyze(_CAT, target_level="B1", with_grammar=True)

@@ -377,6 +377,75 @@ jobs:
           finally:
               shutil.rmtree(outdir, ignore_errors=True)
 
+          # Interleave pass: the spaced-introduction schedule across the set.
+          # --interleave --export md writes the per-text handouts + summary
+          # plus the <set>-interleave-<LEVEL>.md handout, and the run's own
+          # JSON payload carries the schedule: one reading per text, at most
+          # the budget of new words per reading, every scheduled word strictly
+          # above the target, and the md word index == the payload index.
+          outdir = tempfile.mkdtemp(prefix="classprof-golden-interleave-")
+          try:
+              rc, out, err = run_cli(["--file", "sample-readings/", "--target-level", "B1",
+                                      "--no-grammar", "--interleave",
+                                      "--new-words-per-reading", "4",
+                                      "--export", "md", "--output", outdir])
+              assert rc == 0, err
+              stems = [os.path.splitext(f)[0] for f in files]
+              assert set(os.listdir(outdir)) == {f"{s}-preteaching-B1.md" for s in stems} \
+                                                 | {"sample-readings-summary-B1.md",
+                                                    "sample-readings-interleave-B1.md"}, \
+                  os.listdir(outdir)
+              il = json.loads(out)["interleave"]
+              assert il["targetLevel"] == "B1" and il["budget"] == 4, il
+              assert len(il["readings"]) == len(files), il  # one reading per text
+              assert all(os.path.basename(r["file"]) in files for r in il["readings"]), il["readings"]
+              assert [r["index"] for r in il["readings"]] == list(range(1, len(files) + 1)), il
+              idx = {w["word"]: w for w in il["words"]}
+              assert len(idx) == len(il["words"]), "schedule words are distinct"
+              assert all(w["level"] in ("B2", "C1", "C2") for w in il["words"]), il["words"]
+              assert all(1 <= w["introducedAt"] <= len(files) and w["appearsIn"]
+                         and all(1 <= i <= len(files) for i in w["appearsIn"])
+                         for w in il["words"]), il["words"]
+              for r in il["readings"]:
+                  assert len(r["introduce"]) <= il["budget"], r
+                  for d in r["introduce"]:
+                      assert d["word"] in idx, d
+                      assert idx[d["word"]]["introducedAt"] == r["index"], d
+                      assert idx[d["word"]]["level"] == d["level"], d
+                  assert all(d["word"] in idx for d in r["due"]), r
+              assert any(r["introduce"] for r in il["readings"]), il
+              md = open(os.path.join(outdir, "sample-readings-interleave-B1.md"),
+                        encoding="utf-8").read()
+              assert (f"# Vocabulary interleaving — Target B1 ({len(files)} readings, "
+                      f"4 new words/reading)") in md, md
+              assert "## Reading 1 — " in md and f"## Reading {len(files)} — " in md, md
+              assert "**Introduce" in md and "Due for review" in md, md
+              assert "## Word index" in md \
+                     and "| Word | Level | Introduced at | Appears in |" in md, md
+              idx_rows = [ln for ln in md.splitlines() if ln.startswith("| `")]
+              assert len(idx_rows) == len(il["words"]), (len(idx_rows), len(il["words"]))
+              assert all(ln.split("|")[2].strip() in ("B2", "C1", "C2")
+                         for ln in idx_rows), md
+              # csv schedule: same words, deferral column consistent with payload.
+              rc, out, err = run_cli(["--file", "sample-readings/", "--target-level", "B1",
+                                      "--no-grammar", "--interleave",
+                                      "--new-words-per-reading", "4",
+                                      "--export", "csv", "--output", outdir])
+              assert rc == 0, err
+              csv_rows = list(csv.reader(open(os.path.join(outdir,
+                                                           "sample-readings-interleave-B1.csv"),
+                                              encoding="utf-8")))
+              assert csv_rows[0] == ["word", "level", "introducedAt", "appearsIn", "deferredFrom"], csv_rows[0]
+              assert len(csv_rows) - 1 == len(il["words"]), (len(csv_rows), len(il["words"]))
+              for r in csv_rows[1:]:
+                  word, lvl, at, seen, df = r
+                  w = idx[word]
+                  assert lvl == w["level"] and int(at) == w["introducedAt"], r
+                  assert seen == ";".join(str(i) for i in w["appearsIn"]), r
+                  assert df == "" or int(df) == w.get("deferredFrom"), r
+          finally:
+              shutil.rmtree(outdir, ignore_errors=True)
+
           print(f"golden check OK: {len(files)} texts profiled, ranked A1 to C2, exports shaped")
           EOF
 

@@ -77,6 +77,18 @@ for cid, (name, cat, code, fb) in gp._CONSTRUCTIONS.items():
         print(f"  bad level for {cid}: {lvl}")
 check("all constructions resolve to a CEFR band", _all_ok)
 
+# --- unit: the grammar gap report's full-set enumeration ----------------------
+_at_b1 = gp.constructions_at_level(_LEVELS, "B1")
+check("constructions_at_level: B1 set is non-empty", len(_at_b1) > 5)
+check("constructions_at_level: every entry named and categorised",
+      all(d["name"] and d["category"] for d in _at_b1))
+check("constructions_at_level: sorted by category then name",
+      [(d["category"], d["name"]) for d in _at_b1]
+      == sorted((d["category"], d["name"]) for d in _at_b1))
+check("constructions_at_level: bands partition the registry",
+      sum(len(gp.constructions_at_level(_LEVELS, lvl))
+          for lvl in gp._CEFR_ORDER) == len(gp._CONSTRUCTIONS))
+
 # --- unit: --format resolution -------------------------------------------------
 check("format auto+tty -> pretty", gp.resolve_format("auto", True) == "pretty")
 check("format auto+pipe -> json", gp.resolve_format("auto", False) == "json")

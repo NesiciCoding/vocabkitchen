@@ -26,6 +26,7 @@ SCRIPT = os.path.join(HERE, "class_profile.py")
 import class_profile as cp  # noqa: E402
 import vocab_profile as vp  # noqa: E402
 import grammar_profile as gp  # noqa: E402
+import text_report as tr  # noqa: E402
 
 try:
     _NLP = gp.load_nlp()
@@ -208,19 +209,25 @@ try:
     with open(os.path.join(_tmp, "essays-summary-B1.md"), "w",
               encoding="utf-8") as f:
         f.write(_EASY)
+    with open(os.path.join(_tmp, "essays-interleave-B1.md"), "w",
+              encoding="utf-8") as f:
+        f.write(_EASY)
     names = [os.path.basename(f) for f in cp.discover_files(_tmp)]
     check("discover skips the tool's own export artifacts",
           "easy-preteaching-B1.md" not in names
           and "essays-summary-B1.md" not in names
+          and "essays-interleave-B1.md" not in names
           and "hard.txt" in names)
     check("is_export_artifact recognises decks and indexes",
           cp.is_export_artifact("essays-preteaching-B1-deck.csv")
           and cp.is_export_artifact("essays-preteaching-B1-index.md")
           and cp.is_export_artifact("class-summary-C2.md")
+          and cp.is_export_artifact("essays-interleave-B1.md")
           and not cp.is_export_artifact("lesson-notes.md")
           and not cp.is_export_artifact("handout-summary.docx"))
     os.remove(os.path.join(_tmp, "easy-preteaching-B1.md"))
     os.remove(os.path.join(_tmp, "essays-summary-B1.md"))
+    os.remove(os.path.join(_tmp, "essays-interleave-B1.md"))
 
     one = cp.discover_files(os.path.join(_tmp, "easy.txt"))
     check("discover single file", one == [os.path.join(_tmp, "easy.txt")])
@@ -296,6 +303,44 @@ try:
           all(d.get("context") for d in payload["aboveTarget"]["words"]))
     check("export payload above-target nonempty", payload["aboveTarget"]["wordCount"] >= 1)
 
+    # --- unit: --suggest annotates the per-text payload -----------------------
+    _prof_p = cp.build_row("We purchase fresh bread daily, and the "
+                           "circumstances rarely change.", "p.txt", _LEVELS,
+                           None, None, False, "B1")
+    _pp = cp.export_payload(_prof_p[0], _prof_p[1], _prof_p[2], "B1", suggest=True)
+    _pw = next(d for d in _pp["aboveTarget"]["words"] if d["word"] == "purchase")
+    check("export payload suggest annotates the word",
+          _pw.get("suggestion") == {"word": "buy", "level": "A1"})
+    _pn = cp.export_payload(_prof_p[0], _prof_p[1], _prof_p[2], "B1")
+    _pwn = next(d for d in _pn["aboveTarget"]["words"] if d["word"] == "purchase")
+    check("export payload without suggest: no suggestion key",
+          "suggestion" not in _pwn)
+
+    # --- unit: --gap-report wires text_report's gap report per text -----------
+    _gap_prof = cp.build_row(_EASY, "g.txt", _LEVELS, None, None, False, "B1")
+    _gap_p = cp.export_payload(_gap_prof[0], _gap_prof[1], _gap_prof[2], "B1",
+                               gap_report=True)
+    check("export payload gap report w/o engine sets grammarGapError",
+          _gap_p.get("grammarGap") is None
+          and bool(_gap_p.get("grammarGapError")))
+    check("export payload without gap report: no grammarGap key",
+          "grammarGap" not in cp.export_payload(_gap_prof[0], _gap_prof[1],
+                                                _gap_prof[2], "B1"))
+    if HAVE_GRAMMAR:
+        _gap_full = cp.build_row(_MID, "g.txt", _LEVELS, _NLP, _CEFRJ, True, "B1")
+        _gap_pf = cp.export_payload(_gap_full[0], _gap_full[1], _gap_full[2],
+                                    "B1", gap_report=True)
+        _gap = _gap_pf.get("grammarGap")
+        check("gap report lists the B1 constructions",
+              _gap is not None and _gap["targetLevel"] == "B1"
+              and 0 < _gap["missingCount"] <= _gap["total"])
+        check("gap report entries carry name and category",
+              all(set(d) == {"name", "category"} for d in _gap["missing"]))
+        check("gap handout renders the constructions-to-introduce section",
+              "## Constructions to introduce at B1" in tr.export_markdown(_gap_pf))
+    else:
+        skipped += 1
+
     # --- unit: folder vocabulary + combined deck ------------------------------
     prof_a = cp.build_row(_EASY, "a", _LEVELS, None, None, False, None)
     prof_b = cp.build_row(_HARD, "b", _LEVELS, None, None, False, None)
@@ -364,6 +409,80 @@ try:
           and "easy.txt" in summ_md and "hard.txt" in summ_md
           and "pre-teach" in summ_md)
     check("summary marks fits and misses", "✓" in summ_md and "✗" in summ_md)
+
+    # --- unit: vocabulary interleaving ----------------------------------------
+    def _ord(b2=(), c1=()):
+        return [("A1", "0", []), ("A2", "0", []), ("B1", "0", []),
+                ("B2", "0", [(w, 1) for w in b2]),
+                ("C1", "0", [(w, 1) for w in c1]), ("C2", "0", [])]
+
+    _il_prof = [
+        ({"file": "r1.txt"}, _ord(b2=("alpha", "bravo", "charlie")), {}),
+        ({"file": "r2.txt"}, _ord(b2=("delta",)), {}),
+        ({"file": "r3.txt"}, _ord(), {}),
+    ]
+    sch = cp.interleave_schedule(_il_prof, "B1", budget=2)
+    check("interleave target and budget",
+          sch["targetLevel"] == "B1" and sch["budget"] == 2)
+    check("reading 1 introduces within budget",
+          [d["word"] for d in sch["readings"][0]["introduce"]]
+          == ["alpha", "bravo"])
+    _r2 = sch["readings"][1]
+    check("overflow deferred to the next reading",
+          any(d["word"] == "charlie" and d.get("deferredFrom") == 1
+              for d in _r2["introduce"]))
+    check("deferred reading also introduces its own new word",
+          any(d["word"] == "delta" for d in _r2["introduce"]))
+    check("word index marks the deferred word",
+          any(w["word"] == "charlie" and w["introducedAt"] == 2
+              and w.get("deferredFrom") == 1 for w in sch["words"]))
+    _il2 = [
+        ({"file": "r1.txt"}, _ord(b2=("alpha",)), {}),
+        ({"file": "r2.txt"}, _ord(b2=("alpha",)), {}),
+        ({"file": "r3.txt"}, _ord(c1=("gamma",)), {}),
+    ]
+    sch2 = cp.interleave_schedule(_il2, "B1", budget=5)
+    check("recurring word is listed for review",
+          [d["word"] for d in sch2["readings"][1]["review"]] == ["alpha"])
+    check("recurring word is not due", sch2["readings"][1]["due"] == [])
+    _il3 = [
+        ({"file": "r1.txt"}, _ord(b2=("alpha",)), {}),
+        ({"file": "r2.txt"}, _ord(c1=("gamma",)), {}),
+        ({"file": "r3.txt"}, _ord(c1=("delta",)), {}),
+    ]
+    sch3 = cp.interleave_schedule(_il3, "B1", budget=5)
+    check("absent word not yet due after one gap",
+          sch3["readings"][1]["due"] == [])
+    check("absent word is due after two readings",
+          [d["word"] for d in sch3["readings"][2]["due"]] == ["alpha"])
+    _il_md = cp.interleave_markdown(sch, None)
+    check("interleave md header names target, count, budget",
+          "# Vocabulary interleaving — Target B1 (3 readings, 2 new words/reading)"
+          in _il_md)
+    check("interleave md has per-reading sections",
+          "## Reading 1 — r1.txt" in _il_md and "**Introduce (2):**" in _il_md)
+    check("interleave md flags the deferral", "deferred from reading 1" in _il_md)
+    check("interleave md has the word index table",
+          "| Word | Level | Introduced at | Appears in |" in _il_md)
+    _il_csv = cp.interleave_csv(sch)
+    _ilc_rows = list(_csv.reader(_il_csv.splitlines()))
+    check("interleave csv header",
+          _ilc_rows[0] == ["word", "level", "introducedAt", "appearsIn",
+                           "deferredFrom"])
+    check("interleave csv carries the deferred word",
+          any(r[0] == "charlie" and r[2] == "2" and r[4] == "1"
+              for r in _ilc_rows[1:]))
+    check("interleave path named after source folder",
+          cp.interleave_path(_tmp, "B1", None)
+          == os.path.join(_tmp, os.path.basename(_tmp) + "-interleave-B1.md"))
+    check("interleave path csv ext into --output",
+          cp.interleave_path(None, "B1", os.path.join(_tmp, "decks"), "csv")
+          == os.path.join(_tmp, "decks", "class-interleave-B1.csv"))
+    _il_pretty = cp.render_interleave_pretty(sch)
+    check("interleave pretty one line per reading",
+          len(_il_pretty) == 1 + len(sch["readings"])
+          and "Reading 1 (r1.txt):" in _il_pretty[1]
+          and "1 deferred from earlier reading(s)" in _il_pretty[2])
 
     rows = []
     for label, text in [("b", _EASY), ("a", _HARD)]:
@@ -586,6 +705,122 @@ try:
         _p = os.path.join(_tmp, _h)
         if os.path.isfile(_p):
             os.remove(_p)
+
+    # --- integration: --suggest in the per-text handouts -----------------------
+    _sug_in = tempfile.mkdtemp(prefix="classprof_sug_")
+    try:
+        with open(os.path.join(_sug_in, "purchase.txt"), "w",
+                  encoding="utf-8") as f:
+            f.write("We purchase fresh bread daily, and the circumstances "
+                    "rarely change.")
+        _sug_out = os.path.join(_sug_in, "out")
+        rc, out, err = run(["--file", _sug_in, "--target-level", "B1", "--no-grammar",
+                            "--export", "md", "--suggest", "--output", _sug_out])
+        check("class --suggest rc==0", rc == 0)
+        with open(os.path.join(_sug_out, "purchase-preteaching-B1.md"),
+                  encoding="utf-8") as f:
+            _sug_md = f.read()
+        check("class --suggest handout suggests the swaps",
+              "Simpler alternative" in _sug_md
+              and "| buy (A1) |" in _sug_md
+              and "| situation (A2) |" in _sug_md)
+        rc, _, err = run(["--file", _sug_in, "--target-level", "B1", "--suggest"])
+        check("class --suggest without export rc==1",
+              rc == 1 and "--suggest requires --export" in err)
+        rc, _, err = run(["--file", _sug_in, "--target-level", "B1",
+                          "--export", "flashcards", "--suggest", "--no-enrich"])
+        check("class --suggest with flashcards rc==1",
+              rc == 1 and "applies to the md/csv" in err)
+    finally:
+        shutil.rmtree(_sug_in, ignore_errors=True)
+
+    # --- integration: --gap-report in the per-text handouts -------------------
+    if HAVE_GRAMMAR:
+        _gap_out = os.path.join(_tmp, "gapout")
+        rc, out, err = run(["--file", _tmp, "--target-level", "B1",
+                            "--gap-report", "--export", "md", "--output", _gap_out])
+        check("class --gap-report rc==0", rc == 0)
+        with open(os.path.join(_gap_out, "easy-preteaching-B1.md"),
+                  encoding="utf-8") as f:
+            _gap_md = f.read()
+        check("class --gap-report handout lists missing constructions",
+              "## Constructions to introduce at B1" in _gap_md
+              and "not used" in _gap_md)
+        check("class --gap-report only on request",
+              "Constructions to introduce" not in handout)
+    else:
+        skipped += 1
+    rc, _, err = run(["--file", _tmp, "--target-level", "B1", "--gap-report"])
+    check("class --gap-report without export rc==1",
+          rc == 1 and "--gap-report requires --export" in err)
+    rc, _, err = run(["--file", _tmp, "--target-level", "B1",
+                      "--export", "flashcards", "--gap-report", "--no-enrich"])
+    check("class --gap-report with flashcards rc==1",
+          rc == 1 and "applies to the md/csv" in err)
+
+    # --- integration: --interleave spaced introduction schedule ---------------
+    _il_in = tempfile.mkdtemp(prefix="classprof_il_")
+    try:
+        with open(os.path.join(_il_in, "a.txt"), "w", encoding="utf-8") as f:
+            f.write("We purchase fresh bread and the circumstances matter. "
+                    "We utilize the tools and acquire the equipment.")
+        with open(os.path.join(_il_in, "b.txt"), "w", encoding="utf-8") as f:
+            f.write("The committee will announce the outcome next week.")
+        _il_out = os.path.join(_il_in, "out")
+        rc, out, err = run(["--file", _il_in, "--target-level", "B1",
+                            "--no-grammar", "--interleave", "--export", "md",
+                            "--output", _il_out])
+        check("class --interleave rc==0", rc == 0)
+        _sched = os.path.join(_il_out, os.path.basename(_il_in)
+                              + "-interleave-B1.md")
+        check("interleave schedule written next to the handouts",
+              os.path.isfile(_sched))
+        with open(_sched, encoding="utf-8") as f:
+            _il_md = f.read()
+        check("interleave schedule header and sections",
+              "# Vocabulary interleaving — Target B1 (2 readings, "
+              "5 new words/reading)" in _il_md
+              and "## Reading 1 — a.txt" in _il_md
+              and "## Reading 2 — b.txt" in _il_md
+              and "## Word index" in _il_md)
+        rc, out, err = run(["--file", _il_in, "--target-level", "B1",
+                            "--no-grammar", "--interleave", "--format", "json"])
+        d = json.loads(out)
+        _il = d["interleave"]
+        check("interleave json key with readings and word index",
+              _il["targetLevel"] == "B1" and len(_il["readings"]) == 2
+              and len(_il["words"]) >= 1
+              and all(r["file"].endswith(".txt") for r in _il["readings"]))
+        rc, out, err = run(["--file", _il_in, "--target-level", "B1",
+                            "--no-grammar", "--interleave", "--export", "csv",
+                            "--output", _il_out])
+        _ilcsv = os.path.join(_il_out, os.path.basename(_il_in)
+                              + "-interleave-B1.csv")
+        with open(_ilcsv, encoding="utf-8") as f:
+            _ilc_rows = list(_csv.reader(f))
+        check("interleave csv shape",
+              _ilc_rows[0] == ["word", "level", "introducedAt", "appearsIn",
+                               "deferredFrom"] and len(_ilc_rows) >= 2)
+        # A schedule written next to the sources must not be re-profiled.
+        rc, _, _ = run(["--file", _il_in, "--target-level", "B1", "--no-grammar",
+                        "--interleave", "--export", "md", "--output", _il_in])
+        _il_names = [os.path.basename(f) for f in cp.discover_files(_il_in)]
+        check("re-scan skips the interleave schedule",
+              not any(f.endswith("-interleave-B1.md") for f in _il_names)
+              and "a.txt" in _il_names)
+        rc, _, err = run(["--file", _il_in, "--interleave"])
+        check("class --interleave without target rc==1",
+              rc == 1 and "--interleave builds a spaced" in err)
+        rc, _, err = run(["--file", _il_in, "--target-level", "B1",
+                          "--interleave", "--export", "flashcards", "--no-enrich"])
+        check("class --interleave with flashcards rc==1",
+              rc == 1 and "writes a csv/md schedule" in err)
+        rc, _, err = run(["--file", _il_in, "--target-level", "B1",
+                          "--interleave", "--new-words-per-reading", "0"])
+        check("class --new-words-per-reading 0 rc==1",
+              rc == 1 and "at least 1" in err)
+    finally:
+        shutil.rmtree(_il_in, ignore_errors=True)
 
     rc, out, err = run(["--file", os.path.join(_tmp, "easy.txt"), "--target-level", "B1",
                         "--no-grammar", "--export", "csv"])
@@ -992,6 +1227,81 @@ if os.path.isdir(_sample):
                   _n == _agg["levels"][_lvl]["distinctWordCount"])
     finally:
         shutil.rmtree(_golden_vocab, ignore_errors=True)
+
+    # The interleave pass of the CI golden check: the spaced-introduction
+    # schedule across the set — one reading per text, at most the budget of
+    # new above-target words per reading, and the md handout's word index
+    # matching the run's own schedule payload (csv too).
+    _golden_il = tempfile.mkdtemp(prefix="classprof_golden_il_")
+    try:
+        rc, out, err = run(["--file", _sample, "--target-level", "B1", "--no-grammar",
+                            "--interleave", "--new-words-per-reading", "4",
+                            "--export", "md", "--output", _golden_il])
+        check("sample interleave: rc==0", rc == 0)
+        _stems = [os.path.splitext(f)[0] for f in files]
+        check("sample interleave: per-text handouts + summary + schedule",
+              set(os.listdir(_golden_il))
+              == {f"{s}-preteaching-B1.md" for s in _stems}
+              | {"sample-readings-summary-B1.md", "sample-readings-interleave-B1.md"})
+        _il = json.loads(out)["interleave"]
+        check("sample interleave: target and budget in the payload",
+              _il["targetLevel"] == "B1" and _il["budget"] == 4)
+        check("sample interleave: one reading per text on real files",
+              len(_il["readings"]) == len(files)
+              and [r["index"] for r in _il["readings"]] == list(range(1, len(files) + 1))
+              and all(os.path.basename(r["file"]) in files for r in _il["readings"]))
+        _il_idx = {w["word"]: w for w in _il["words"]}
+        check("sample interleave: words distinct and strictly above B1",
+              len(_il_idx) == len(_il["words"])
+              and all(w["level"] in ("B2", "C1", "C2") for w in _il["words"]))
+        check("sample interleave: introduction point and appearances sane",
+              all(1 <= w["introducedAt"] <= len(files) and w["appearsIn"]
+                  and all(1 <= i <= len(files) for i in w["appearsIn"])
+                  for w in _il["words"]))
+        check("sample interleave: budget respected, intro matches the index",
+              all(len(r["introduce"]) <= _il["budget"]
+                  and all(d["word"] in _il_idx
+                          and _il_idx[d["word"]]["introducedAt"] == r["index"]
+                          and _il_idx[d["word"]]["level"] == d["level"]
+                          for d in r["introduce"])
+                  and all(d["word"] in _il_idx for d in r["due"])
+                  for r in _il["readings"]))
+        check("sample interleave: at least one word scheduled",
+              any(r["introduce"] for r in _il["readings"]))
+        with open(os.path.join(_golden_il, "sample-readings-interleave-B1.md"),
+                  encoding="utf-8") as f:
+            _il_md = f.read()
+        check("sample interleave: md schedule shape",
+              f"# Vocabulary interleaving — Target B1 ({len(files)} readings, "
+              "4 new words/reading)" in _il_md
+              and "## Reading 1 — " in _il_md
+              and f"## Reading {len(files)} — " in _il_md
+              and "**Introduce" in _il_md and "Due for review" in _il_md
+              and "## Word index" in _il_md
+              and "| Word | Level | Introduced at | Appears in |" in _il_md)
+        _il_rows = [ln for ln in _il_md.splitlines() if ln.startswith("| `")]
+        check("sample interleave: md word index == payload index",
+              len(_il_rows) == len(_il["words"])
+              and all(ln.split("|")[2].strip() in ("B2", "C1", "C2")
+                      for ln in _il_rows))
+        rc, out, err = run(["--file", _sample, "--target-level", "B1", "--no-grammar",
+                            "--interleave", "--new-words-per-reading", "4",
+                            "--export", "csv", "--output", _golden_il])
+        check("sample interleave csv: rc==0", rc == 0)
+        with open(os.path.join(_golden_il, "sample-readings-interleave-B1.csv"),
+                  encoding="utf-8") as f:
+            _il_csv = list(_csv.reader(f))
+        check("sample interleave csv: documented shape",
+              _il_csv[0] == ["word", "level", "introducedAt", "appearsIn", "deferredFrom"]
+              and len(_il_csv) - 1 == len(_il["words"]))
+        for _r in _il_csv[1:]:
+            _w = _il_idx[_r[0]]
+            check(f"sample interleave csv: {_r[0]} row matches the payload",
+                  _r[1] == _w["level"] and int(_r[2]) == _w["introducedAt"]
+                  and _r[3] == ";".join(str(i) for i in _w["appearsIn"])
+                  and (_r[4] == "" or int(_r[4]) == _w.get("deferredFrom")))
+    finally:
+        shutil.rmtree(_golden_il, ignore_errors=True)
 else:
     skipped += 1
 

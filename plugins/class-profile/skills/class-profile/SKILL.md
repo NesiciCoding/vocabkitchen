@@ -55,7 +55,20 @@ doesn't have.
   **set-level summary handout** (`essays-summary-B1.md`) aggregates the
   pooled distribution plus each text's verdict and %-above in one page.
   (A re-run over the same folder skips these handouts — it never re-profiles
-  its own exports.)
+  its own exports.) `--suggest` adds a **Simpler alternative** column to the
+  per-text handouts: a curated lower-band swap (`purchase → buy`) for each
+  above-target word, from the same list the text report uses.
+  `--gap-report` adds a **Grammar gaps** section to each per-text handout —
+  the target-level constructions the text does not use yet (e.g. the second
+  conditional), so a folder run shows every text's missing grammar.
+- **Spaced introduction (`--interleave`)** — build a **vocabulary
+  interleaving schedule** across the whole set: each reading introduces at
+  most `--new-words-per-reading` new above-target words (overflow is deferred
+  to the next reading with room), words that recur later are flagged for
+  **spaced review**, and words absent for two or more readings are marked
+  **due**. With `--export md|csv` it writes a `<set>-interleave-<LEVEL>.md|csv`
+  schedule next to the handouts — the plan for introducing the folder's
+  vocabulary at a controlled rate across repeated readings.
 - **`--pre-enrich`** — prime the dictionary cache from the **whole folder's
   distinct vocabulary** in one polite, rate-limited pass, then exit, so
   subsequent `--export flashcards` runs answer from the cache with zero
@@ -100,6 +113,8 @@ class-profile --file essays/ --max-level B1           # "which of these suits B1
 class-profile --file essays/ --targets A2,B1,B2       # fit across classes
 class-profile --file essays/ --export-vocab vocab-lists/   # glossaries per band
 class-profile --file essays/ --target-level B1 --export md --output pret/  # handouts
+class-profile --file essays/ --target-level B1 --export md --gap-report --suggest  # + rewrite aid
+class-profile --file essays/ --target-level B1 --interleave   # spaced introduction schedule
 class-profile --file essays/ --pre-enrich             # warm the deck cache once
 ```
 
@@ -117,6 +132,10 @@ Flags:
 | `--export-vocab`    | write one CSV per CEFR band (distinct words × occurrences × texts) into the given directory |
 | `--export`          | `csv`, `md`, or `flashcards` — per-text pre-teaching lists (requires `--target-level`) |
 | `--cloze`           | `--export md\|csv` only: render exported examples as `{{...}}` fill-the-gap sentences |
+| `--suggest`         | `--export md\|csv` only: suggest a simpler alternative for each word above the target in the handouts |
+| `--gap-report`      | `--export md\|csv` only: list the target-level constructions each text does not use yet, per handout |
+| `--interleave`      | build a spaced-introduction schedule across the set (new words per reading, review + due flags) |
+| `--new-words-per-reading` | `--interleave` only: max new words introduced per reading (default 5) |
 | `--no-enrich`       | `--export flashcards` only: skip the Free Dictionary API               |
 | `--output`          | `--export` only: write all lists into this directory (default: next to each source) |
 | `--pre-enrich`      | prime the dictionary cache from the whole folder's distinct vocabulary in one rate-limited pass, then exit |

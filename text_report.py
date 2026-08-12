@@ -62,6 +62,20 @@ Flags:
                       RubricMaker's native fill-the-gap syntax, so the handout
                       doubles as a worksheet and pastes straight into a
                       fill-the-gap question there. Applies to --export md|csv.
+    --suggest         the Phase 3 rewriting aid: for each word above the
+                      target, suggest a simpler alternative from the bundled
+                      curated list (WordLists/synonyms.csv) — shown in the
+                      above-target list (purchase → buy (A1)), carried in
+                      JSON as aboveTarget.words[i].suggestion, and added as a
+                      'Simpler alternative' column in the --export md handout.
+                      Requires --target-level.
+    --gap-report      the Phase 3 grammar gap report: with --target-level (and
+                      the grammar side on), list the target-level
+                      constructions the text does NOT use yet — the
+                      'introduce these structures' list for graded-reader
+                      authors. Carried in JSON as grammarGap.missing and
+                      added as a 'Constructions to introduce' section in the
+                      --export md handout. Incompatible with --no-grammar.
     --no-enrich       --export flashcards only: skip the Free Dictionary API
                       (the back of each card stays the in-text context
                       sentence instead of a plain definition)
@@ -258,6 +272,33 @@ def coverage_figure(ordered, target):
     }
 
 
+def load_synonyms(path=None):
+    """The curated simpler-synonym list: word -> ``{"word", "level"}``.
+
+    Reads ``WordLists/synonyms.csv`` (columns ``word,simpler,level``) — the
+    Phase 3 rewriting aid. Returns an empty dict when the file is absent, so
+    suggestions are an opt-in enhancement, never a hard dependency. The list
+    is validated by ``build_wordlists.py --check`` against ``levels.json``.
+    """
+    if path is None:
+        path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                            "WordLists", "synonyms.csv")
+    out = {}
+    if not os.path.exists(path):
+        return out
+    import csv
+    with open(path, encoding="utf-8") as f:
+        rows = list(csv.reader(f))
+    for row in rows[1:]:
+        if len(row) != 3 or not all(cell.strip() for cell in row):
+            continue
+        word = row[0].strip().lower()
+        lvl = row[2].strip().upper()
+        if lvl in _LEVEL_INDEX:
+            out[word] = {"word": row[1].strip().lower(), "level": lvl}
+    return out
+
+
 def words_above_target(ordered, target):
     """Distinct recognised words at a CEFR level above *target*, ranked by use."""
     out = []
@@ -286,6 +327,26 @@ def structures_above_target(results, target):
                         "examples": entry["examples"][:2]})
     out.sort(key=lambda d: (-d["count"], d["name"]))
     return out
+
+
+def grammar_gap_report(gresults, cefrj_levels, target):
+    """The Phase 3 grammar gap report: target-level constructions the text
+    does **not** use yet.
+
+    The full set of constructions at *target* (from the grammar profile's
+    registry, resolved exactly like the profiler) minus the ones detected in
+    the text — the "introduce these structures" list for graded-reader
+    authors, the mirror of the above-target "remove these" list.
+    """
+    all_at = gp.constructions_at_level(cefrj_levels, target)
+    used = {e["name"] for e in (gresults or {}).get(target, {}).values()}
+    missing = [c for c in all_at if c["name"] not in used]
+    return {
+        "targetLevel": target,
+        "total": len(all_at),
+        "missingCount": len(missing),
+        "missing": missing,
+    }
 
 
 def word_contexts(text, word_forms):
@@ -344,8 +405,16 @@ def blend_level(vocab_coverage, grammar_typical):
 # ---------------------------------------------------------------------------
 
 def analyze(text, target_level=None, wordlists_dir=None, grammar_dir=None,
-            with_grammar=True, with_readability=True):
-    """Run both profilers and readability over *text*; return the report payload."""
+            with_grammar=True, with_readability=True, suggest=False,
+            gap_report=False):
+    """Run both profilers and readability over *text*; return the report payload.
+
+    With ``suggest=True`` (and a *target_level*), each above-target word that
+    has an entry in the bundled synonyms list carries a ``suggestion`` — the
+    simpler alternative to rewrite it with. With ``gap_report=True`` (and a
+    *target_level*), ``grammarGap`` lists the target-level constructions the
+    text does not use yet.
+    """
     script_dir = os.path.dirname(os.path.abspath(__file__))
 
     # Vocabulary (always runs; dependency-free).
@@ -371,6 +440,8 @@ def analyze(text, target_level=None, wordlists_dir=None, grammar_dir=None,
         "coverage": None,
         "estimatedLevel": None,
         "verdict": None,
+        "grammarGap": None,
+        "grammarGapError": None,
         "readability": compute_readability(text, total) if with_readability else None,
     }
 
@@ -407,6 +478,12 @@ def analyze(text, target_level=None, wordlists_dir=None, grammar_dir=None,
             ctx = word_contexts(text, [d["word"] for d in words])
             for d in words:
                 d["context"] = ctx.get(d["word"])
+        if suggest:
+            syns = load_synonyms(os.path.join(vocab_base, "synonyms.csv"))
+            for d in words:
+                s = syns.get(d["word"])
+                if s:
+                    d["suggestion"] = s
         payload["aboveTarget"] = {
             "maxLevel": max(bands, key=lambda lvl: _LEVEL_INDEX[lvl]) if bands else None,
             "words": words,
@@ -416,6 +493,16 @@ def analyze(text, target_level=None, wordlists_dir=None, grammar_dir=None,
         }
         payload["coverage"] = coverage_figure(ordered, target_level)
         payload["verdict"] = build_verdict(words, structures, grammar_available)
+
+    if gap_report:
+        if target_level is None:
+            payload["grammarGapError"] = "requires --target-level"
+        elif not grammar_available:
+            payload["grammarGapError"] = (payload["grammarError"]
+                                          or "not analysed")
+        else:
+            payload["grammarGap"] = grammar_gap_report(
+                gresults, cefrj_levels, target_level)
 
     grammar_typical = gmeta["estimatedLevel"]["typical"] if gmeta else None
     payload["estimatedLevel"] = blend_level(coverage, grammar_typical)
@@ -493,12 +580,20 @@ def render_pretty(payload, source_label, stream=None):
         structures = above.get("structures") or []
         if words:
             shown = words[:12]
-            parts = [f"{d['word']} ({d['level']})"
-                     + (f" ×{d['occurrences']}" if d['occurrences'] > 1 else "")
-                     for d in shown]
+            parts = []
+            for d in shown:
+                occ = f" ×{d['occurrences']}" if d['occurrences'] > 1 else ""
+                s = d.get("suggestion")
+                if s:
+                    parts.append(f"{d['word']} ({d['level']}){occ} → "
+                                 f"{s['word']} ({s['level']})")
+                else:
+                    parts.append(f"{d['word']} ({d['level']}){occ}")
             if len(words) > 12:
                 parts.append(f"+{len(words) - 12} more")
             out.append(f"  {bold(f'Above {target} — words:')} {', '.join(parts)}")
+            if any(d.get("suggestion") for d in words):
+                out.append(dim("  → suggests a simpler alternative (rewrite aid)"))
         if structures:
             shown = structures[:12]
             parts = [f"{d['name']} ({d['level']})"
@@ -511,6 +606,24 @@ def render_pretty(payload, source_label, stream=None):
         if verdict:
             out.append("")
             out.append(f"{bold('Verdict:')} {bold(verdict)}")
+        gap = payload.get("grammarGap")
+        if gap is not None:
+            missing = gap.get("missing") or []
+            out.append("")
+            out.append(bold(f"Gap report — {target} constructions not used "
+                            f"({gap['missingCount']} of {gap['total']})"))
+            if not missing:
+                out.append(dim("  every target-level construction is present"))
+            else:
+                for d in missing:
+                    out.append(f"  • {d['name']} — {d['category']}")
+            out.append(dim("  (the structures a graded-reader author should "
+                           "introduce; grammar gap report)"))
+        elif payload.get("grammarGapError"):
+            out.append("")
+            out.append(bold("Gap report"))
+            out.append(dim("  unavailable — "
+                           + payload["grammarGapError"].splitlines()[0]))
 
     read = payload["readability"]
     if read:
@@ -754,14 +867,25 @@ def export_markdown(payload, cloze=False):
         lines.append(f"## Words above {target} ({len(words)})" if target
                      else f"## Words above target ({len(words)})")
         lines.append("")
-        lines.append("| Word | Level | Occurrences | Example |")
-        lines.append("|---|---|---|---|")
+        has_sugg = any(d.get("suggestion") for d in words)
+        if has_sugg:
+            lines.append("| Word | Level | Occurrences | Simpler alternative | Example |")
+            lines.append("|---|---|---|---|---|")
+        else:
+            lines.append("| Word | Level | Occurrences | Example |")
+            lines.append("|---|---|---|---|")
         for d in words:
             ex = (d.get("context") or "").replace("\n", " ")
             if cloze:
                 ex = blank_gap(ex, d["word"])
             ex = ex.replace("|", "\\|")
-            lines.append(f"| {d['word']} | {d['level']} | {d['occurrences']} | {ex} |")
+            if has_sugg:
+                s = d.get("suggestion")
+                cell = f"{s['word']} ({s['level']})" if s else ""
+                lines.append(f"| {d['word']} | {d['level']} | {d['occurrences']} "
+                             f"| {cell} | {ex} |")
+            else:
+                lines.append(f"| {d['word']} | {d['level']} | {d['occurrences']} | {ex} |")
         lines.append("")
     if structures:
         lines.append(f"## Structures above {target} ({len(structures)})" if target
@@ -779,6 +903,15 @@ def export_markdown(payload, cloze=False):
             ex = ex.replace("\n", " ").replace("|", "\\|")
             lines.append(f"| {d['name']} | {d['level']} | {d.get('category', '')}"
                          f" | {ex} |")
+        lines.append("")
+    gap = payload.get("grammarGap")
+    if gap is not None and (gap.get("missing") or []):
+        tgt = gap.get("targetLevel") or target or "target"
+        lines.append(f"## Constructions to introduce at {tgt} "
+                     f"({gap['missingCount']} of {gap['total']} not used)")
+        lines.append("")
+        for d in gap["missing"]:
+            lines.append(f"- **{d['name']}** ({d['category']})")
         lines.append("")
     read = payload.get("readability")
     if read:
@@ -990,6 +1123,15 @@ def _validate_args(args, target):
     if args.export is not None and target is None:
         return ("--export requires --target-level (the pre-teaching list is the "
                 "words and structures above the class's level).")
+    if args.suggest and target is None:
+        return ("--suggest requires --target-level (it suggests a simpler "
+                "alternative for each word above the class's level).")
+    if args.gap_report and target is None:
+        return ("--gap-report requires --target-level (it lists the target-level "
+                "constructions the text does not use yet).")
+    if args.gap_report and args.no_grammar:
+        return ("--gap-report needs the grammar side; it can't be combined "
+                "with --no-grammar.")
     if args.cloze and args.export is None:
         return ("--cloze requires --export (it renders the exported examples as "
                 "fill-the-gap sentences).")
@@ -1051,6 +1193,12 @@ def main(argv=None):
     parser.add_argument("--no-readability", action="store_true")
     parser.add_argument("--export", choices=["csv", "md", "flashcards"], default=None)
     parser.add_argument("--cloze", action="store_true")
+    parser.add_argument("--suggest", action="store_true",
+                        help="suggest a simpler alternative (WordLists/synonyms.csv) for "
+                             "each word above --target-level — the Phase 3 rewriting aid")
+    parser.add_argument("--gap-report", action="store_true",
+                        help="list the target-level constructions the text does not use yet "
+                             "(the Phase 3 grammar gap report; needs the grammar side)")
     parser.add_argument("--no-enrich", action="store_true",
                         help="--export flashcards only: skip the Free Dictionary API; "
                              "the back of each card stays the in-text context sentence")
@@ -1143,6 +1291,8 @@ def main(argv=None):
             grammar_dir=args.grammar_profile,
             with_grammar=not args.no_grammar,
             with_readability=not args.no_readability,
+            suggest=args.suggest,
+            gap_report=args.gap_report,
         )
     except vp.WordListError as ex:
         sys.stderr.write(str(ex) + "\n")

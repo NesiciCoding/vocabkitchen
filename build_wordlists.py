@@ -226,6 +226,63 @@ def check(list_dir, olp_csv=_DEFAULT_OLP, octanove_csv=_DEFAULT_OCT):
     else:
         print("  ! levels.json missing — run: python3 build_wordlists.py --merge")
         problems += 1
+
+    # The synonym-suggestion list (WordLists/synonyms.csv) must agree with
+    # levels.json: both words recognised, the level column matching the
+    # simpler word's band, and the simpler word strictly lower than the word
+    # it replaces — the invariant that makes a suggestion a *simplification*.
+    syn_path = os.path.join(os.path.dirname(list_dir), "synonyms.csv")
+    if not os.path.exists(syn_path):
+        print("  ! synonyms.csv missing — create it alongside the CEFR lists")
+        problems += 1
+    else:
+        index_words = None
+        if os.path.exists(index_path):
+            try:
+                index_words = json.load(open(index_path, encoding="utf-8")).get("words")
+            except ValueError:
+                index_words = None
+        with open(syn_path, encoding="utf-8") as f:
+            rows = list(csv.reader(f))
+        if not rows or rows[0][:3] != ["word", "simpler", "level"]:
+            print("  ! synonyms.csv must start with a word,simpler,level header")
+            problems += 1
+        if not isinstance(index_words, dict):
+            print("  ! synonyms.csv validation skipped — levels.json unavailable")
+        else:
+            valid = 0
+            for i, row in enumerate(rows[1:], start=2):
+                ok = True
+                if len(row) != 3 or not all(cell.strip() for cell in row):
+                    print(f"  ! synonyms.csv line {i}: expected word,simpler,level")
+                    problems += 1
+                    continue
+                word, simpler = (cell.strip().lower() for cell in row[:2])
+                lvl = row[2].strip().upper()
+                if lvl not in _LEVELS:
+                    print(f"  ! synonyms.csv line {i}: unknown level '{lvl}'")
+                    ok = False
+                if word not in index_words:
+                    print(f"  ! synonyms.csv line {i}: '{word}' not in levels.json")
+                    ok = False
+                if simpler not in index_words:
+                    print(f"  ! synonyms.csv line {i}: '{simpler}' not in levels.json")
+                    ok = False
+                if not ok:
+                    problems += 1
+                    continue
+                wlvl = index_words[word]["level"]
+                slvl = index_words[simpler]["level"]
+                if slvl != lvl:
+                    print(f"  ! synonyms.csv line {i}: '{simpler}' is {slvl} in "
+                          f"levels.json, not {lvl}")
+                    problems += 1
+                if _LEVELS.index(slvl) >= _LEVELS.index(wlvl):
+                    print(f"  ! synonyms.csv line {i}: '{simpler}' ({slvl}) is not "
+                          f"simpler than '{word}' ({wlvl})")
+                    problems += 1
+                valid += 1
+            print(f"  synonyms.csv: {valid} of {len(rows) - 1} entries valid")
     return problems
 
 
