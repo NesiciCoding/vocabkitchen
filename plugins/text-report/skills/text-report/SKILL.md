@@ -165,7 +165,7 @@ Flags:
 | `--limit`          | `--pre-enrich` only: cap the number of new lookups |
 | `--output`          | where the `--export` file goes (default: `<stem>-preteaching-<LEVEL>.<ext>` next to the input, or `preteaching-<LEVEL>.<ext>` in the cwd; decks get a `-deck` suffix) |
 | `--watch`           | re-profile the `--file` input whenever it changes on disk (edit → re-check loop; optional interval in seconds, default 1) |
-| `--curriculum`      | check the text against a curriculum checklist file (`[vocabulary]` + `[grammar]` sections) and report pass/fail coverage; section headers are validated first (typos like `[grammer]` fail fast with a hint, empty sections warn) |
+| `--curriculum`      | check the text against a curriculum checklist file (`[vocabulary]` + `[grammar]` sections) and report pass/fail coverage; validated before profiling — header typos like `[grammer]` fail fast with a hint, empty sections and unrecognised grammar items (typos like `second conditinal`) warn with a suggestion |
 | `--cambridge`       | map the report's own CEFR bands to the matching Cambridge English Qualification (A2 Key, B1 Preliminary, B2 First, C1 Advanced, C2 Proficiency) |
 | `--cando`           | express the text's demands as CEFR global-scale Can-Do descriptors; with `--target-level`, also list the ones above the target's expectations |
 | (stdin)             | if neither `--text` nor `--file` is given, text is read from stdin      |

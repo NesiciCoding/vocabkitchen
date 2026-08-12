@@ -508,6 +508,7 @@ def _parse_curriculum(path):
         raise CurriculumError(f"curriculum file not found: {path}")
     sections = {"vocabulary": [], "grammar": []}
     current = "vocabulary"
+    grammar_lines = []  # (item, lineno) — resolved against the grammar list
     with open(path, encoding="utf-8") as f:
         for lineno, raw in enumerate(f, 1):
             line = raw.strip()
@@ -532,9 +533,30 @@ def _parse_curriculum(path):
                     "[grammar], alone on their line")
             else:
                 sections[current].append(line)
+                if current == "grammar":
+                    grammar_lines.append((line, lineno))
     warnings = [
         f"curriculum section [{name}] is empty — nothing required from it"
         for name in ("vocabulary", "grammar") if not sections[name]]
+    # Grammar items resolved against the construction list up front: an
+    # unrecognised or ambiguous entry is flagged here — before any profiling
+    # — with a *did you mean* hint where one exists. (The report would only
+    # show it as unrecognised later, so catching it early saves a run.)
+    candidates = sorted(
+        {cid for cid, (_n, _c, _f, _g) in gp._CONSTRUCTIONS.items()}
+        | {name for _cid, (name, _c, _f, _g) in gp._CONSTRUCTIONS.items()},
+        key=str.lower)
+    for item, lineno in grammar_lines:
+        if _resolve_construction(item) is None:
+            close = difflib.get_close_matches(item.strip().lower(),
+                                              [c.lower() for c in candidates],
+                                              n=1)
+            hint = f" Did you mean '{close[0]}'?" if close else ""
+            tip = ("" if hint else " Check the name or id against "
+                                          "grammar_profile.py --list.")
+            warnings.append(
+                f"curriculum grammar item on line {lineno}: '{item}' is not "
+                f"recognised as a construction.{hint}{tip}")
     return sections, warnings
 
 

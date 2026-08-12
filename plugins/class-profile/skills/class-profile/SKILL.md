@@ -170,7 +170,7 @@ Flags:
 | `--gap-report`      | `--export md\|csv` only: list the target-level constructions each text does not use yet, per handout |
 | `--interleave`      | build a spaced-introduction schedule across the set (new words per reading, review + due flags) |
 | `--new-words-per-reading` | `--interleave` only: max new words introduced per reading (default 5) |
-| `--curriculum`      | check every text against a curriculum checklist file (md: per-text sections; csv: the folder-level coverage grid; json: `curriculumCoverage` in the payload) |
+| `--curriculum`      | check every text against a curriculum checklist file (md: per-text sections; csv: the folder-level coverage grid; json: `curriculumCoverage` in the payload); validated before profiling — header typos fail fast, empty sections and unrecognised grammar items warn with a hint |
 | `--cando`           | add each text's CEFR Can-Do descriptors + the ones above the target's expectations to the handouts (md\|csv), or write a combined Can-Do reference deck (flashcards) |
 | `--cando-diff`      | `--export md\|csv` only: add the set-level Can-Do demands section to the summary handout — which above-target descriptors the texts share (implies `--cando`) |
 | `--cando-diff-sort` | `--cando-diff` only: order the demands by text count (`texts`, default) or by the CEFR band ladder ascending (`band`) |

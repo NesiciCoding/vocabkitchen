@@ -306,6 +306,24 @@ check("curriculum: validate returns sections + warnings",
       and _warns == ["curriculum section [grammar] is empty — nothing required from it"])
 check("curriculum: clean file has no warnings",
       tr.validate_curriculum(_curr_path)[1] == [])
+with open(os.path.join(_curr_dir, "gramtypo.txt"), "w", encoding="utf-8") as f:
+    f.write("[grammar]\nsecond conditinal\nfrobnicate\nconditional\npast perfect\n")
+_gw = tr.validate_curriculum(os.path.join(_curr_dir, "gramtypo.txt"))[1]
+check("curriculum: typo'd grammar item suggests the construction",
+      any("'second conditinal' is not recognised" in w
+          and "Did you mean 'second conditional'?" in w for w in _gw))
+check("curriculum: unknown grammar item points at the list",
+      any("'frobnicate' is not recognised" in w
+          and "grammar_profile.py --list" in w for w in _gw))
+check("curriculum: ambiguous grammar item is flagged, known items are not",
+      any("'conditional' is not recognised" in w for w in _gw)
+      and not any("past perfect" in w for w in _gw))
+rc, out, err = run(["--curriculum", os.path.join(_curr_dir, "gramtypo.txt"),
+                    "--file", os.path.join(HERE, "sample-readings/news-report.txt"),
+                    "--no-grammar"])
+check("cli: grammar-item warnings print before profiling, run continues",
+      rc == 0 and "Did you mean 'second conditional'?" in err
+      and "frobnicate" in err and "totalWordCount" in out)
 
 check("curriculum resolver: by construction id",
       tr._resolve_construction("cond_second")[0] == "cond_second")

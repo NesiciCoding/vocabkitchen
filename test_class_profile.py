@@ -1053,6 +1053,16 @@ try:
                           "--curriculum", os.path.join(_curr_cl_dir, "nope.txt")])
         check("class --curriculum missing file rc==1",
               rc == 1 and "curriculum file not found" in err)
+        # Grammar items are resolved against the construction list up front:
+        # a typo'd name warns (with a hint) before profiling, run continues.
+        _typo_curr = os.path.join(_curr_cl_dir, "gramtypo.txt")
+        with open(_typo_curr, "w", encoding="utf-8") as f:
+            f.write("[grammar]\nsecond conditinal\n")
+        rc, out, err = run(["--file", _curr_in, "--target-level", "B1", "--no-grammar",
+                            "--format", "json", "--curriculum", _typo_curr])
+        check("class --curriculum grammar-item warning before profiling",
+              rc == 0 and "Did you mean 'second conditional'?" in err
+              and "is not recognised" in err)
         # --export csv --curriculum: the folder-level coverage grid.
         _cc_csv_out = os.path.join(_curr_in, "csvout")
         rc, out, err = run(["--file", _curr_in, "--target-level", "B1", "--no-grammar",

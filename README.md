@@ -401,7 +401,7 @@ Flags:
 | `--limit`          | `--pre-enrich` only: cap the number of new lookups |
 | `--output`          | where the `--export` file goes (default: `<stem>-preteaching-<LEVEL>.<ext>` next to the input, or `preteaching-<LEVEL>.<ext>` in the cwd; decks get a `-deck` suffix) |
 | `--watch`           | re-profile the `--file` input whenever it changes on disk (edit → re-check loop; optional interval in seconds, default 1) |
-| `--curriculum`      | check the text against a curriculum checklist file (`[vocabulary]` + `[grammar]` sections) and report pass/fail coverage; section headers are validated first (typos like `[grammer]` fail fast with a hint, empty sections warn) |
+| `--curriculum`      | check the text against a curriculum checklist file (`[vocabulary]` + `[grammar]` sections) and report pass/fail coverage; validated before profiling — header typos like `[grammer]` fail fast with a hint, empty sections and unrecognised grammar items (typos like `second conditinal`) warn with a suggestion |
 | `--cambridge`       | map the report's own CEFR bands to the matching Cambridge English Qualification (A2 Key, B1 Preliminary, B2 First, C1 Advanced, C2 Proficiency) |
 | `--cando`           | express the text's demands as CEFR global-scale Can-Do descriptors; with `--target-level`, also list the ones above the target's expectations |
 | (stdin)             | if neither `--text` nor `--file` is given, text is read from stdin      |
@@ -568,7 +568,7 @@ Flags:
 | `--gap-report`      | `--export md\|csv` only: list the target-level constructions each text does not use yet, per handout |
 | `--interleave`      | build a spaced-introduction schedule across the set (new words per reading, review + due flags) |
 | `--new-words-per-reading` | `--interleave` only: max new words introduced per reading (default 5) |
-| `--curriculum`      | check every text against a curriculum checklist file (md: per-text sections; csv: the folder-level coverage grid; json: `curriculumCoverage` in the payload); section headers are validated first (typos like `[grammer]` fail fast with a hint, empty sections warn) |
+| `--curriculum`      | check every text against a curriculum checklist file (md: per-text sections; csv: the folder-level coverage grid; json: `curriculumCoverage` in the payload); validated before profiling — header typos fail fast, empty sections and unrecognised grammar items warn with a hint |
 | `--cando`           | add each text's CEFR Can-Do descriptors + the ones above the target's expectations to the handouts (md\|csv), or write a combined Can-Do reference deck (flashcards) |
 | `--cando-diff`      | `--export md\|csv` only: add the set-level Can-Do demands section to the summary handout — which above-target descriptors the texts share (implies `--cando`) |
 | `--cando-diff-sort` | `--cando-diff` only: order the demands by text count (`texts`, default) or by the CEFR band ladder ascending (`band`) |
