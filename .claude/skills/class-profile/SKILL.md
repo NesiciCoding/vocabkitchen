@@ -157,7 +157,7 @@ Flags:
 | `--cando`           | add each text's CEFR Can-Do descriptors + the ones above the target's expectations to the handouts (md\|csv), or write a combined Can-Do reference deck (flashcards) |
 | `--cando-diff`      | `--export md\|csv` only: add the set-level Can-Do demands section to the summary handout — which above-target descriptors the texts share (implies `--cando`) |
 | `--cando-diff-sort` | `--cando-diff` only: order the demands by text count (`texts`, default) or by the CEFR band ladder ascending (`band`) |
-| `--comments`        | add the full apply-as-comment rubric to each per-text handout: one comment per construction (used / not used yet) plus one comment per above-target vocabulary word (folder runs always carry a target) |
+| `--comments`        | add the full apply-as-comment rubric to each per-text handout: one comment per construction (used / not used yet, filtered to the class level — used above-target constructions become "pre-teach or rewrite" notes) plus one comment per above-target vocabulary word |
 | `--schema`          | print the versioned analysis payload schema (`analysis.schema.json` — the RubricMaker report contract, currently 1.0) as JSON and exit |
 | `--watch`           | re-profile the `--file` input whenever any text in it changes on disk (edit → re-check loop; optional interval in seconds, default 1) |
 | `--no-enrich`       | `--export flashcards` only: skip the Free Dictionary API               |

@@ -312,17 +312,23 @@ jobs:
 
           # --comments turns that criteria list into one rubric comment per
           # construction (the apply-as-comment reference implementation),
-          # plus one comment per above-target word — the vocabulary half.
+          # filtered to the class level — plus one comment per above-target
+          # word, the vocabulary half.
           rc, out, err = run_cli(["--file", os.path.join("sample-readings", files[0]),
                                   "--target-level", "B1", "--comments",
                                   "--format", "json"], script="text_report.py")
           assert rc == 0, err
           cp_pl = json.loads(out)
           gcm = cp_pl["grammarComments"]
-          assert gcm is not None and len(gcm) == gc["total"], gcm
-          assert all(c["status"] in ("used", "not used")
+          idx = analysis._LEVEL_INDEX
+          assert gcm is not None and 0 < len(gcm) < gc["total"], gcm
+          assert all(c["kind"] in ("rubric", "pre-teach")
+                     and c["status"] in ("used", "not used")
                      and c["pass"] == (c["status"] == "used")
-                     and c["comment"].startswith(("Uses the ", "Doesn't use the "))
+                     and ((c["kind"] == "rubric" and idx[c["level"]] <= idx["B1"])
+                          or (c["kind"] == "pre-teach" and c["pass"]
+                              and idx[c["level"]] > idx["B1"]
+                              and "pre-teach or rewrite" in c["comment"]))
                      for c in gcm), gcm
           vcm = cp_pl["vocabComments"]
           above_words = (cp_pl.get("aboveTarget") or {}).get("words") or []

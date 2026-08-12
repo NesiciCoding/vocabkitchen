@@ -68,7 +68,7 @@ check("engine payload matches text_report's shape",
           tr.analyze(_CAT, with_grammar=False)))
 
 # --- Phase 5: the payload contract (schema version + grammar criteria) --------
-check("SCHEMA_VERSION is 1.1", engine.SCHEMA_VERSION == "1.1")
+check("SCHEMA_VERSION is 1.2", engine.SCHEMA_VERSION == "1.2")
 _schema_doc = json.load(open(os.path.join(HERE, "analysis.schema.json"),
                              encoding="utf-8"))
 check("analysis.schema.json matches payload_schema()",
@@ -121,7 +121,8 @@ if HAVE_GRAMMAR:
     check("grammar_comments one comment per criterion, full shape",
           len(_gcm) == _gc["total"]
           and all(set(c) == {"id", "name", "category", "level", "status",
-                             "pass", "comment"} for c in _gcm))
+                             "pass", "kind", "comment"} for c in _gcm)
+          and all(c["kind"] == "rubric" for c in _gcm))
     _gcm_used = [c for c in _gcm if c["pass"]]
     check("grammar_comments used comments carry evidence",
           bool(_gcm_used)
@@ -132,15 +133,41 @@ if HAVE_GRAMMAR:
               and c["comment"].startswith("Doesn't use the ")
               and c["comment"].endswith("yet.")
               for c in _gcm if not c["pass"]))
+    _gcm_t = engine.grammar_comments(_gc, "B1")
+    _at_below = [c for c in _gc["criteria"]
+                 if engine._LEVEL_INDEX[c["level"]]
+                 <= engine._LEVEL_INDEX["B1"]]
+    _used_above = [c for c in _gc["criteria"]
+                   if c["pass"] and engine._LEVEL_INDEX[c["level"]]
+                   > engine._LEVEL_INDEX["B1"]]
+    check("grammar_comments with target filters to the class level",
+          len(_gcm_t) == len(_at_below) + len(_used_above)
+          and all(c["kind"] == "rubric"
+                  and engine._LEVEL_INDEX[c["level"]]
+                  <= engine._LEVEL_INDEX["B1"]
+                  for c in _gcm_t if c["kind"] == "rubric")
+          and all(c["kind"] == "pre-teach" and c["pass"]
+                  and engine._LEVEL_INDEX[c["level"]]
+                  > engine._LEVEL_INDEX["B1"]
+                  and "pre-teach or rewrite" in c["comment"]
+                  for c in _gcm_t if c["kind"] == "pre-teach"))
+    check("grammar_comments drops unused above-target constructions",
+          all(not (c["pass"] is False
+                   and engine._LEVEL_INDEX[c["level"]]
+                   > engine._LEVEL_INDEX["B1"])
+              for c in _gcm_t))
     _gcm_p = engine.analyze(_ACADEMIC, target_level="B1", comments=True)
-    check("payload with comments=True carries grammarComments",
+    check("payload with comments+target filters grammarComments",
           _gcm_p["grammarComments"] is not None
-          and len(_gcm_p["grammarComments"]) == _gc["total"])
+          and len(_gcm_p["grammarComments"]) < _gc["total"]
+          and any(c.get("kind") == "pre-teach"
+                  for c in _gcm_p["grammarComments"]))
     check("payload without comments: grammarComments null",
           _gc_p["grammarComments"] is None)
     check("comments handout renders the Rubric comments section",
           "## Rubric comments" in tr.export_markdown(_gcm_p)
-          and "not used yet" in tr.export_markdown(_gcm_p))
+          and "not used yet" in tr.export_markdown(_gcm_p)
+          and "pre-teach" in tr.export_markdown(_gcm_p))
 
     # vocabComments: the vocabulary half of the apply-as-comment pass.
     _vc = _gcm_p["vocabComments"]

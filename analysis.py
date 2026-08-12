@@ -42,7 +42,11 @@ validated against :func:`payload_schema` (also checked in as
                    consumes for its apply-as-comment breakdown) or null.
 ``grammarComments`` per-construction rubric comments derived from
                    ``grammarCriteria`` (the apply-as-comment reference
-                   implementation), or null unless ``comments`` is on.
+                   implementation), or null unless ``comments`` is on; with
+                   a ``targetLevel`` the list is filtered to it — at/below
+                   entries keep their pass/fail comments (``kind``
+                   ``"rubric"``), used above-target ones become
+                   ``"pre-teach"`` notes, unused above-target ones drop.
 ``vocabComments``   the vocabulary half of the apply-as-comment pass: one
                    comment per above-target word, or null unless ``comments``
                    is on with a ``targetLevel``.
@@ -66,6 +70,11 @@ validated against :func:`payload_schema` (also checked in as
 Version history
 ~~~~~~~~~~~~~~~
 
+``1.2`` — ``grammarComments`` entries gain ``kind`` (``"rubric"`` /
+``"pre-teach"``) and, under a ``targetLevel``, are filtered to the class
+level: at/below constructions keep their pass/fail comments, used
+above-target ones become pre-teach-or-rewrite notes, unused above-target
+ones are dropped.
 ``1.1`` — added ``vocabComments``, the vocabulary half of the apply-as-comment
 pass (one comment per above-target word), completing the rubric coverage.
 ``1.0`` — initial documented contract: the payload keys above, including the
@@ -82,7 +91,7 @@ import grammar_profile as gp
 
 # The payload contract version. Bump when the payload shape changes
 # incompatibly; RubricMaker and any other consumer should key off this.
-SCHEMA_VERSION = "1.1"
+SCHEMA_VERSION = "1.2"
 
 _CEFR_ORDER = ["A1", "A2", "B1", "B2", "C1", "C2"]
 _LEVEL_INDEX = {lvl: i for i, lvl in enumerate(_CEFR_ORDER)}
@@ -161,6 +170,7 @@ def payload_schema():
                     "level": {"type": "string"},
                     "status": {"enum": ["used", "not used"]},
                     "pass": {"type": "boolean"},
+                    "kind": {"enum": ["rubric", "pre-teach"]},
                     "comment": {"type": "string"},
                 }}},
             "vocabComments": {"type": ["array", "null"], "items": {
@@ -403,7 +413,7 @@ def grammar_gap_report(gresults, cefrj_levels, target):
     }
 
 
-def grammar_comments(gc):
+def grammar_comments(gc, target_level=None):
     """Turn ``grammarCriteria`` into per-construction rubric comments.
 
     The apply-as-comment reference implementation: one comment per
@@ -413,9 +423,35 @@ def grammar_comments(gc):
     construction without writing its own phrasing. Each entry keeps the
     criterion's identity (``id``/``name``/``category``/``level``,
     ``status``/``pass``) alongside the generated ``comment`` text.
+
+    With a *target_level* the list is **filtered to the class level**: only
+    constructions at or below the target are commented (``kind``
+    ``"rubric"`` — the pass/fail comments above). A construction the text
+    **uses** above the target is a demand, so it becomes a ``"pre-teach"``
+    entry instead (``Uses the … — above the {target} target: pre-teach or
+    rewrite.``, mirroring the above-target vocabulary words); a construction
+    **not used** above the target is dropped entirely — a B1 class isn't
+    expected to produce C2 structures, so flagging them as gaps would be
+    noise. Without a target, every construction keeps its rubric comment
+    (``kind`` ``"rubric"``), as before.
     """
     out = []
+    tgt = _LEVEL_INDEX.get(target_level) if target_level is not None else None
     for c in (gc or {}).get("criteria") or []:
+        idx = _LEVEL_INDEX.get(c["level"])
+        if tgt is not None and idx is not None and idx > tgt:
+            if not c["pass"]:
+                continue  # above the class level and unused: not a demand
+            comment = (f"Uses the {c['name']} ({c['level']}) — above the "
+                       f"{target_level} target: pre-teach or rewrite.")
+            ex = (c.get("examples") or [{}])[0].get("span")
+            if ex:
+                comment += f' E.g. "{ex.replace("|", "\\|")}"'
+            out.append({"id": c["id"], "name": c["name"],
+                        "category": c["category"], "level": c["level"],
+                        "status": c["status"], "pass": c["pass"],
+                        "kind": "pre-teach", "comment": comment})
+            continue
         if c["pass"]:
             comment = f"Uses the {c['name']} ({c['level']})."
             ex = (c.get("examples") or [{}])[0].get("span")
@@ -426,7 +462,7 @@ def grammar_comments(gc):
         out.append({"id": c["id"], "name": c["name"],
                     "category": c["category"], "level": c["level"],
                     "status": c["status"], "pass": c["pass"],
-                    "comment": comment})
+                    "kind": "rubric", "comment": comment})
     return out
 
 
@@ -964,7 +1000,9 @@ def payload(pieces, text, vocab_base, target_level=None, suggest=False,
     when the grammar side is available) **and** ``vocabComments`` (per
     above-target word, when a ``target_level`` is given) — the rubric
     reference implementation for RubricMaker's grammar and vocabulary
-    linkers.
+    linkers. Under a ``target_level``, ``grammarComments`` is filtered to
+    the class level (see :func:`grammar_comments`): used above-target
+    constructions become ``"pre-teach"`` notes instead of rubric comments.
     """
     ordered = pieces["ordered"]
     total = pieces["total"]
@@ -992,7 +1030,7 @@ def payload(pieces, text, vocab_base, target_level=None, suggest=False,
                          else (None if grammar_available
                                else grammar_unavailable_note)),
         "grammarCriteria": gc_obj,
-        "grammarComments": (grammar_comments(gc_obj)
+        "grammarComments": (grammar_comments(gc_obj, target_level)
                             if gc_obj is not None and comments else None),
         "vocabComments": None,
         "targetLevel": target_level,

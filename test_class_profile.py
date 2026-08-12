@@ -380,9 +380,14 @@ try:
         _cm_full = cp.export_payload(_gap_full[0], _gap_full[1], _gap_full[2],
                                      "B1", comments=True)
         _cm_list = _cm_full["grammarComments"]
-        check("export payload comments=True carries one comment per criterion",
-              _cm_list is not None and len(_cm_list) == _gc_full["total"]
-              and all(c["comment"].startswith(("Uses the ", "Doesn't use the "))
+        _idx = engine._LEVEL_INDEX
+        check("export payload comments=True filters to the class level",
+              _cm_list is not None and len(_cm_list) < _gc_full["total"]
+              and all((c["kind"] == "rubric"
+                       and _idx[c["level"]] <= _idx["B1"])
+                      or (c["kind"] == "pre-teach" and c["pass"]
+                          and _idx[c["level"]] > _idx["B1"]
+                          and "pre-teach or rewrite" in c["comment"])
                       for c in _cm_list))
         check("export payload comments=True carries the vocabulary half",
               _cm_full["vocabComments"] is not None

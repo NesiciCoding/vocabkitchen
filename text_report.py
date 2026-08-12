@@ -359,15 +359,20 @@ def render_pretty(payload, source_label, stream=None):
 
     comments = payload.get("grammarComments")
     if comments is not None:
-        used_c = [c for c in comments if c["pass"]]
-        not_c = [c for c in comments if not c["pass"]]
+        pre_c = [c for c in comments if c.get("kind") == "pre-teach"]
+        used_c = [c for c in comments if c.get("kind") != "pre-teach"
+                  and c["pass"]]
+        not_c = [c for c in comments if c.get("kind") != "pre-teach"
+                 and not c["pass"]]
         out.append("")
         out.append(bold("Rubric comments"))
-        if not used_c:
+        if not used_c and not pre_c:
             out.append(dim("  no constructions used — below the grammar "
                            "profile's floor"))
         for c in used_c:
             out.append(f"  ✓ {c['comment']}")
+        for c in pre_c:
+            out.append(f"  ▲ {c['comment']}")
         if not_c:
             out.append(dim(f"  {len(not_c)} constructions not used yet — "
                            "--export md for the full apply-as-comment list"))
@@ -844,16 +849,24 @@ def export_markdown(payload, cloze=False):
             lines.append("")
     gcm = payload.get("grammarComments")
     if gcm is not None:
-        used_c = [c for c in gcm if c["pass"]]
-        not_c = [c for c in gcm if not c["pass"]]
-        lines.append(f"## Rubric comments — {len(used_c)} used · "
-                     f"{len(not_c)} not used yet")
+        pre_c = [c for c in gcm if c.get("kind") == "pre-teach"]
+        used_c = [c for c in gcm if c.get("kind") != "pre-teach"
+                  and c["pass"]]
+        not_c = [c for c in gcm if c.get("kind") != "pre-teach"
+                 and not c["pass"]]
+        head = f"## Rubric comments — {len(used_c)} used · " \
+               f"{len(not_c)} not used yet"
+        if pre_c:
+            head += (f" · {len(pre_c)} above "
+                     f"{payload['targetLevel']} (pre-teach)")
+        lines.append(head)
         lines.append("")
-        lines.append("| Construction | Level | Comment |")
-        lines.append("|---|---|---|")
+        lines.append("| Construction | Level | Kind | Comment |")
+        lines.append("|---|---|---|---|")
         for c in gcm:
             cm = c["comment"].replace("|", "\\|")
-            lines.append(f"| {c['name']} | {c['level']} | {cm} |")
+            kind = "pre-teach" if c.get("kind") == "pre-teach" else "rubric"
+            lines.append(f"| {c['name']} | {c['level']} | {kind} | {cm} |")
         lines.append("")
     vcom = payload.get("vocabComments")
     if vcom is not None:
