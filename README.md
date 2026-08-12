@@ -362,6 +362,12 @@ It reports:
   rendered as a **Cambridge English mapping** section in the `--export md`
   handout — the answer to "what exam is a student at this level working
   toward?".
+- **CEFR Can-Do framing** — `--cando` expresses the text's **demands as
+  Can-Do descriptors** (the CEFR global scale): what a learner at the
+  reached / estimated band can actually do, in the language rubrics and
+  self-assessment forms already use. Carried in JSON as `cando`, shown in
+  the terminal, and rendered as a **Can-Do descriptors** section in the
+  `--export md` handout.
 
 Flags:
 
@@ -390,6 +396,7 @@ Flags:
 | `--watch`           | re-profile the `--file` input whenever it changes on disk (edit → re-check loop; optional interval in seconds, default 1) |
 | `--curriculum`      | check the text against a curriculum checklist file (`[vocabulary]` + `[grammar]` sections) and report pass/fail coverage |
 | `--cambridge`       | map the report's own CEFR bands to the matching Cambridge English Qualification (A2 Key, B1 Preliminary, B2 First, C1 Advanced, C2 Proficiency) |
+| `--cando`           | express the text's demands as CEFR global-scale Can-Do descriptors (what a learner at the reached/estimated band can do) |
 | (stdin)             | if neither `--text` nor `--file` is given, text is read from stdin      |
 
 The vocabulary half is dependency-free Python 3. The grammar half needs spaCy
@@ -500,20 +507,24 @@ It reports:
   the checklist file (`[vocabulary]` + `[grammar]` sections, same format as
   the text report). With `--export md` it adds a **Curriculum checklist**
   section to each per-text handout (words and constructions marked present /
-  missing); with `--export csv` it writes a **folder-level coverage grid**
+  missing) and the same **coverage matrix** to the set-level summary
+  handout; with `--export csv` it writes the matrix as a spreadsheet
   (`essays-curriculum-coverage-B1.csv`) — one row per text, one column per
   required item, with a pass verdict — so which texts cover the unit's
   requirements is visible at a glance.
 - **Folder watch mode** — `--watch` keeps re-profiling the `--file` input
   whenever any text in it changes on disk (polling every second,
   `--watch 0.2` for faster), until Ctrl-C — the edit → re-check loop for a
-  whole folder, not just one text.
+  whole folder, not just one text. Every cycle rebuilds all the exports,
+  so the flashcard decks and band glossaries stay **warm** while you edit.
 - **`--pre-enrich`** — prime the dictionary cache from the **whole folder's
   distinct vocabulary** in one polite, rate-limited pass, then exit:
   subsequent `--export flashcards` runs answer from the cache with zero
-  requests. `--delay SECONDS` spaces requests out (default 0.25), `--limit N`
-  caps new lookups; `--dictionary-cache` / `--dictionary-url` point the
-  lookups at a shared or test cache/server.
+  requests. Combined with `--interleave`, it primes **exactly the words the
+  schedule will introduce** — the reading handouts and decks then never hit
+  the network, even mid-watch. `--delay SECONDS` spaces requests out
+  (default 0.25), `--limit N` caps new lookups; `--dictionary-cache` /
+  `--dictionary-url` point the lookups at a shared or test cache/server.
 
 Flags:
 
@@ -537,7 +548,7 @@ Flags:
 | `--watch`           | re-profile the `--file` input whenever any text in it changes on disk (edit → re-check loop; optional interval in seconds, default 1) |
 | `--no-enrich`       | `--export flashcards` only: skip the Free Dictionary API               |
 | `--output`          | `--export` only: write all lists into this directory (default: next to each source) |
-| `--pre-enrich`      | prime the dictionary cache from the whole folder's distinct vocabulary in one rate-limited pass, then exit |
+| `--pre-enrich`      | prime the dictionary cache in one rate-limited pass, then exit (the whole folder's vocabulary, or — with `--interleave` — exactly the schedule's words) |
 | `--delay`           | `--pre-enrich` only: seconds between requests (default 0.25; `0` for none) |
 | `--limit`           | `--pre-enrich` only: cap the number of new lookups                     |
 | `--dictionary-cache`| JSON cache file for dictionary lookups (default `~/.cache/vocabkitchen/dictionary.json`) |

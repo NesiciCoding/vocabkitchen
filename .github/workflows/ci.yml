@@ -87,7 +87,7 @@ jobs:
                                 "--new-words-per-reading", "--curriculum",
                                 "--watch"],
               "text-report": ["--suggest", "--gap-report", "--watch",
-                              "--curriculum", "--cambridge"],
+                              "--curriculum", "--cambridge", "--cando"],
           }
           for name in sorted(os.listdir("plugins")):
               d = os.path.join("plugins", name)
@@ -411,6 +411,19 @@ jobs:
               assert len(mrows) == 1 + len(files), mrows  # one row per text
               assert all(r[0] in files for r in mrows[1:]), mrows
               assert all(c in ("yes", "no") for r in mrows[1:] for c in r[1:]), mrows
+              # md run: per-text sections plus the same grid in the set summary.
+              rc, out, err = run_cli(["--file", "sample-readings/", "--target-level", "B1",
+                                      "--no-grammar", "--export", "md",
+                                      "--curriculum", curr, "--output", outdir])
+              assert rc == 0, err
+              summ_md = open(os.path.join(outdir, "sample-readings-summary-B1.md"),
+                             encoding="utf-8").read()
+              assert "## Curriculum coverage" in summ_md \
+                     and "| Text | purchase | mat | Passive (present) | pass |" in summ_md \
+                     and all(f in summ_md for f in files), summ_md
+              with open(os.path.join(outdir, "academic-essay-preteaching-B1.md"),
+                        encoding="utf-8") as f:
+                  assert "## Curriculum checklist" in f.read()
           finally:
               shutil.rmtree(outdir, ignore_errors=True)
 

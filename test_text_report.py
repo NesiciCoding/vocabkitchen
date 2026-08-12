@@ -433,6 +433,42 @@ check("cli --cambridge carries the mapping",
       rc == 0 and _dcm["cambridge"]["vocabulary"]["reaches"]
       == "B2 First (FCE)")
 
+# --- unit: CEFR Can-Do framing (--cando) -------------------------------------
+check("cando: B2 has a descriptor",
+      tr.cando_for("B2") is not None and "complex text" in tr.cando_for("B2"))
+check("cando: all six bands have descriptors",
+      all(tr.cando_for(b) for b in ("A1", "A2", "B1", "B2", "C1", "C2")))
+check("cando: unknown band is None", tr.cando_for("XX") is None)
+_pcd = tr.analyze("We purchase fresh bread daily.", with_grammar=False,
+                   cando=True)
+_cd = _pcd["cando"]
+check("analyze carries the can-do mapping",
+      _cd["vocabulary"]["reaches"] == tr.cando_for("B2")
+      and _cd["estimated"] == tr.cando_for("B2")
+      and _cd["grammar"] == {"typical": None, "reaches": None})
+check("analyze without --cando has no mapping",
+      tr.analyze("We purchase fresh bread daily.", with_grammar=False)
+      .get("cando") is None)
+_bufcd = io.StringIO()
+tr.render_pretty(_pcd, "cd.txt", stream=_bufcd)
+check("pretty shows the Can-Do block",
+      "Can-Do (CEFR global scale)" in _bufcd.getvalue()
+      and "complex text on both concrete and abstract topics"
+      in _bufcd.getvalue())
+_md_cd = tr.export_markdown(_pcd)
+check("md gains the Can-Do descriptors section",
+      "## Can-Do descriptors" in _md_cd
+      and "| Demand level | Can-Do descriptor (CEFR global scale) |" in _md_cd
+      and "| Estimated level (B2) |" in _md_cd)
+check("md without --cando has no Can-Do section",
+      "Can-Do" not in tr.export_markdown(
+          tr.analyze("We purchase fresh bread daily.", with_grammar=False)))
+rc, out, err = run(["--cando", "--text", "We purchase fresh bread daily.",
+                    "--no-grammar"])
+_dcd = json.loads(out)
+check("cli --cando carries the mapping",
+      rc == 0 and _dcd["cando"]["vocabulary"]["reaches"] == tr.cando_for("B2"))
+
 # --- unit: cached definitions (no-network lookups for handouts) ---------------
 _cache_path = os.path.join(_curr_dir, "dict-cache.json")
 with open(_cache_path, "w", encoding="utf-8") as f:

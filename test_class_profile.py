@@ -411,6 +411,34 @@ try:
           and "pre-teach" in summ_md)
     check("summary marks fits and misses", "✓" in summ_md and "✗" in summ_md)
 
+    # --- unit: curriculum coverage matrix in the set summary ------------------
+    _cc_pays = [
+        {"file": "a.txt", "verdict": "on level", "curriculum": {
+            "vocabulary": [{"word": "purchase", "present": True},
+                           {"word": "mat", "present": False}],
+            "grammar": [{"name": "Passive (present)", "present": False}],
+            "pass": False}},
+        {"file": "b.txt", "verdict": "on level", "curriculum": {
+            "vocabulary": [{"word": "purchase", "present": False},
+                           {"word": "mat", "present": True}],
+            "grammar": [{"name": "Passive (present)", "present": True}],
+            "pass": False}},
+    ]
+    _cc_summ_md = cp.set_summary_markdown(_srows, summ, _cc_pays, "B1")
+    check("summary md gains the curriculum coverage matrix",
+          "## Curriculum coverage" in _cc_summ_md
+          and "| Text | purchase | mat | Passive (present) | pass |" in _cc_summ_md
+          and "| easy.txt | ✓ | ✗ | ✗ | ✗ |" in _cc_summ_md
+          and "| hard.txt | ✗ | ✓ | ✓ | ✗ |" in _cc_summ_md)
+    check("summary without curriculum has no matrix",
+          "Curriculum coverage" not in cp.set_summary_markdown(
+              _srows, summ, _spays, "B1"))
+    check("curriculum_items shares the csv column list",
+          cp.curriculum_items(_cc_pays[0])
+          == [("vocabulary", "purchase"), ("vocabulary", "mat"),
+              ("grammar", "Passive (present)")]
+          and cp.curriculum_items({"file": "x"}) == [])
+
     # --- unit: vocabulary interleaving ----------------------------------------
     def _ord(b2=(), c1=()):
         return [("A1", "0", []), ("A2", "0", []), ("B1", "0", []),
@@ -1058,6 +1086,74 @@ try:
     finally:
         shutil.rmtree(_wcli_in, ignore_errors=True)
 
+    # --- integration: --pre-enrich --interleave primes the schedule's words ---
+    _pe_in = tempfile.mkdtemp(prefix="classprof_pe_")
+    try:
+        with open(os.path.join(_pe_in, "a.txt"), "w", encoding="utf-8") as f:
+            f.write("We purchase fresh bread and the circumstances matter.")
+        with open(os.path.join(_pe_in, "b.txt"), "w", encoding="utf-8") as f:
+            f.write("The committee will announce the outcome.")
+        _pe_cache = os.path.join(_pe_in, "cache.json")
+        rc, out, err = run(["--file", _pe_in, "--target-level", "B1", "--no-grammar",
+                            "--pre-enrich", "--interleave", "--dictionary-cache",
+                            _pe_cache, "--dictionary-url", _dict_url])
+        check("interleave pre-enrich rc==0 and scoped note",
+              rc == 0 and "interleave schedule's words" in err)
+        with open(_pe_cache, encoding="utf-8") as f:
+            _pe_data = json.load(f)
+        _pe_bucket = list(_pe_data["entries"].values())[0]
+        check("interleave pre-enrich primes exactly the schedule's words",
+              set(_pe_bucket) == {"circumstances", "outcome", "purchase"})
+    finally:
+        shutil.rmtree(_pe_in, ignore_errors=True)
+
+    # --- integration: --watch rebuilds decks and band exports on each save ----
+    _warm_in = tempfile.mkdtemp(prefix="classprof_warm_")
+    try:
+        with open(os.path.join(_warm_in, "a.txt"), "w", encoding="utf-8") as f:
+            f.write("We purchase fresh bread daily.")
+        with open(os.path.join(_warm_in, "b.txt"), "w", encoding="utf-8") as f:
+            f.write("The cat sat on the mat.")
+        _warm_out = os.path.join(_warm_in, "out")
+        rc, out, err = run(["--file", _warm_in, "--target-level", "B1", "--no-grammar",
+                            "--export", "flashcards", "--no-enrich", "--export-vocab",
+                            _warm_out, "--output", _warm_out])
+        check("warm run rc==0", rc == 0)
+        _deck_path = os.path.join(_warm_out, os.path.basename(_warm_in)
+                                  + "-preteaching-B1-deck.csv")
+        _deck1 = open(_deck_path, encoding="utf-8").read()
+        _b2_path = os.path.join(_warm_out, "vocab-b2.csv")
+        _b2_1 = open(_b2_path, encoding="utf-8").read()
+        check("warm artifacts lack the new word",
+              "purchase" in _deck1 and "circumstances" not in _deck1
+              and "circumstances" not in _b2_1)
+        _wlog = open(os.path.join(_warm_in, "watch.log"), "w")
+        _wproc = subprocess.Popen(
+            [sys.executable, SCRIPT, "--file", _warm_in, "--target-level", "B1",
+             "--no-grammar", "--watch", "0.05", "--export", "flashcards",
+             "--no-enrich", "--export-vocab", _warm_out, "--output", _warm_out],
+            stdout=_wlog, stderr=subprocess.STDOUT, cwd=HERE)
+        try:
+            time.sleep(1.2)
+            with open(os.path.join(_warm_in, "a.txt"), "a", encoding="utf-8") as f:
+                f.write(" The committee will analyse the circumstances.")
+            time.sleep(1.2)
+        finally:
+            _wproc.terminate()
+            try:
+                _wproc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                _wproc.kill()
+            _wlog.close()
+        _deck2 = open(_deck_path, encoding="utf-8").read()
+        _b2_2 = open(_b2_path, encoding="utf-8").read()
+        check("watch rebuilds the combined deck with the new word",
+              "circumstances" in _deck2)
+        check("watch rebuilds the band export with the new word",
+              "circumstances" in _b2_2)
+    finally:
+        shutil.rmtree(_warm_in, ignore_errors=True)
+
     rc, out, err = run(["--file", os.path.join(_tmp, "easy.txt"), "--target-level", "B1",
                         "--no-grammar", "--export", "csv"])
     check("export csv written next to source",
@@ -1575,6 +1671,22 @@ if os.path.isdir(_sample):
               len(_mrows) == 1 + len(files)
               and all(r[0] in files for r in _mrows[1:])
               and all(c in ("yes", "no") for r in _mrows[1:] for c in r[1:]))
+        # md run: per-text sections plus the same grid in the set summary.
+        rc, out, err = run(["--file", _sample, "--target-level", "B1", "--no-grammar",
+                            "--export", "md", "--curriculum", _curr_path,
+                            "--output", _golden_curr])
+        check("sample curriculum md: rc==0", rc == 0)
+        with open(os.path.join(_golden_curr, "sample-readings-summary-B1.md"),
+                  encoding="utf-8") as f:
+            _cc_summary = f.read()
+        check("sample curriculum md: summary carries the coverage matrix",
+              "## Curriculum coverage" in _cc_summary
+              and "| Text | purchase | mat | Passive (present) | pass |" in _cc_summary
+              and all(f in _cc_summary for f in files))
+        with open(os.path.join(_golden_curr, "academic-essay-preteaching-B1.md"),
+                  encoding="utf-8") as f:
+            check("sample curriculum md: per-text handout carries the checklist",
+                  "## Curriculum checklist" in f.read())
     finally:
         shutil.rmtree(_golden_curr, ignore_errors=True)
 else:
@@ -1606,6 +1718,15 @@ if all(os.path.isfile(p) for p in (_skill_local, _skill_plugin, _plugin_json)):
                   "--curriculum", "--watch"):
         check(f"class-profile skill documents {_flag} in both copies",
               _flag in _sl and _flag in _sp)
+    with open(os.path.join(HERE, ".claude", "skills", "text-report", "SKILL.md"),
+              encoding="utf-8") as f:
+        _tl = f.read()
+    with open(os.path.join(HERE, "plugins", "text-report", "skills",
+                           "text-report", "SKILL.md"), encoding="utf-8") as f:
+        _tp = f.read()
+    for _flag in ("--cambridge", "--cando"):
+        check(f"text-report skill documents {_flag} in both copies",
+              _flag in _tl and _flag in _tp)
     _manifest = json.load(open(_plugin_json, encoding="utf-8"))
     check("class-profile plugin.json declares the command",
           [c["name"] for c in _manifest.get("commands", [])] == ["class-profile"])

@@ -85,9 +85,11 @@ doesn't have.
 - **`--pre-enrich`** — prime the dictionary cache from the **whole folder's
   distinct vocabulary** in one polite, rate-limited pass, then exit, so
   subsequent `--export flashcards` runs answer from the cache with zero
-  requests. `--delay SECONDS` spaces requests out (default 0.25), `--limit N`
-  caps new lookups; `--dictionary-cache` / `--dictionary-url` point the
-  lookups at a shared or test cache/server.
+  requests. Combined with `--interleave`, it primes **exactly the words the
+  schedule will introduce** — the reading handouts and decks then never hit
+  the network, even mid-watch. `--delay SECONDS` spaces requests out
+  (default 0.25), `--limit N` caps new lookups; `--dictionary-cache` /
+  `--dictionary-url` point the lookups at a shared or test cache/server.
 
 The vocabulary side is dependency-free Python 3 and reuses `vocab_profile`'s
 tokenizer, word lists and percentage rounding verbatim. The grammar side
@@ -136,7 +138,7 @@ Flags:
 | `--watch`           | re-profile the `--file` input whenever any text in it changes on disk (edit → re-check loop; optional interval in seconds, default 1) |
 | `--no-enrich`       | `--export flashcards` only: skip the Free Dictionary API               |
 | `--output`          | `--export` only: write all lists into this directory (default: next to each source) |
-| `--pre-enrich`      | prime the dictionary cache from the whole folder's distinct vocabulary in one rate-limited pass, then exit |
+| `--pre-enrich`      | prime the dictionary cache in one rate-limited pass, then exit (the whole folder's vocabulary, or — with `--interleave` — exactly the schedule's words) |
 | `--delay`           | `--pre-enrich` only: seconds between requests (default 0.25; `0` for none) |
 | `--limit`           | `--pre-enrich` only: cap the number of new lookups                     |
 | `--dictionary-cache`| JSON cache file for dictionary lookups (default `~/.cache/vocabkitchen/dictionary.json`) |

@@ -117,6 +117,13 @@ Flags:
                       Carried in JSON as `cambridge`, shown in pretty mode,
                       and rendered as a 'Cambridge English mapping' section in
                       the --export md handout.
+    --cando           the Phase 4 Can-Do framing: express the text's demands
+                      as CEFR global-scale Can-Do descriptors — what a learner
+                      at the reached/estimated band can do, the language
+                      rubrics and self-assessment forms already use. Carried
+                      in JSON as `cando`, shown in pretty mode, and rendered
+                      as a 'Can-Do descriptors' section in the --export md
+                      handout.
     (stdin)           if neither --text nor --file is given, text is read from stdin
 
 Output: with --format json, a JSON object that is a superset of both profilers'
@@ -406,6 +413,44 @@ def cambridge_mapping(payload):
     }
 
 
+# CEFR global-scale Can-Do descriptors (condensed from the common reference
+# levels) — what a learner at each band can do, the language rubrics and
+# self-assessment forms already use.
+_CANDO = {
+    "A1": "understand and use familiar everyday expressions and very basic phrases",
+    "A2": "understand sentences and frequently used expressions about areas of "
+          "immediate relevance",
+    "B1": "deal with most situations while travelling; describe experiences, "
+          "events, and opinions",
+    "B2": "understand the main ideas of complex text on both concrete and "
+          "abstract topics",
+    "C1": "understand a wide range of demanding, longer texts and recognise "
+          "implicit meaning",
+    "C2": "understand with ease virtually everything heard or read",
+}
+
+
+def cando_for(band):
+    """The CEFR Can-Do descriptor for a band (None for unknown bands)."""
+    return _CANDO.get(band)
+
+
+def cando_mapping(payload):
+    """The report's own bands, each with its Can-Do descriptor — what a
+    learner at that band can do with the text's demands."""
+    v = payload.get("vocabulary") or {}
+    g = payload.get("grammar") or {}
+    gl = g.get("estimatedLevel") or {}
+    est = payload.get("estimatedLevel")
+    return {
+        "vocabulary": {"typical": cando_for(v.get("typical")),
+                        "reaches": cando_for(v.get("coverage"))},
+        "grammar": {"typical": cando_for(gl.get("typical")),
+                     "reaches": cando_for(gl.get("reaches"))},
+        "estimated": cando_for(est),
+    }
+
+
 class CurriculumError(Exception):
     """A problem with the --curriculum checklist file."""
 
@@ -571,7 +616,7 @@ def blend_level(vocab_coverage, grammar_typical):
 
 def analyze(text, target_level=None, wordlists_dir=None, grammar_dir=None,
             with_grammar=True, with_readability=True, suggest=False,
-            gap_report=False, curriculum=None, cambridge=False):
+            gap_report=False, curriculum=None, cambridge=False, cando=False):
     """Run both profilers and readability over *text*; return the report payload.
 
     With ``suggest=True`` (and a *target_level*), each above-target word that
@@ -580,8 +625,9 @@ def analyze(text, target_level=None, wordlists_dir=None, grammar_dir=None,
     *target_level*), ``grammarGap`` lists the target-level constructions the
     text does not use yet. With ``curriculum`` (a parsed checklist), the
     payload carries a ``curriculum`` pass/fail coverage report. With
-    ``cambridge=True``, the payload also maps its own bands to the matching
-    Cambridge English Qualifications (the Phase 4 exam-mapping item).
+    ``cambridge=True``/``cando=True``, the payload also maps its own bands to
+    the matching Cambridge English Qualifications / CEFR Can-Do descriptors
+    (the Phase 4 exam-mapping and Can-Do-framing items).
     """
     script_dir = os.path.dirname(os.path.abspath(__file__))
 
@@ -613,6 +659,7 @@ def analyze(text, target_level=None, wordlists_dir=None, grammar_dir=None,
         "curriculum": None,
         "curriculumError": None,
         "cambridge": None,
+        "cando": None,
         "readability": compute_readability(text, total) if with_readability else None,
     }
 
@@ -680,6 +727,8 @@ def analyze(text, target_level=None, wordlists_dir=None, grammar_dir=None,
 
     if cambridge:
         payload["cambridge"] = cambridge_mapping(payload)
+    if cando:
+        payload["cando"] = cando_mapping(payload)
 
     if curriculum:
         # Re-run the checklist with the grammar results now that the grammar
@@ -770,6 +819,21 @@ def render_pretty(payload, source_label, stream=None):
         if est is not None:
             out.append(f"  estimated {_lvl(est, colour)} → {_exam(cm['estimated'])}")
         out.append(dim("  (the exam a candidate at each reported band is working toward)"))
+
+    cd = payload.get("cando")
+    if cd is not None:
+        def _desc(d):
+            return ('"' + d + '"') if d else "—"
+        out.append("")
+        out.append(bold("Can-Do (CEFR global scale)"))
+        if v.get("coverage"):
+            out.append(f"  reaches {_lvl(v['coverage'], colour)}: "
+                       f"{_desc(cd['vocabulary']['reaches'])}")
+        if est is not None and est != v.get("coverage"):
+            out.append(f"  estimated {_lvl(est, colour)}: "
+                       f"{_desc(cd['estimated'])}")
+        out.append(dim("  (what a learner at the text's demand level can do — "
+                       "the language rubrics and self-assessment forms use)"))
 
     target = payload["targetLevel"]
     if target is not None:
@@ -1182,6 +1246,28 @@ def export_markdown(payload, cloze=False):
         for label, exam in rows:
             lines.append(f"| {label} | {exam or '—'} |")
         lines.append("")
+    cd = payload.get("cando")
+    if cd is not None:
+        lines.append("## Can-Do descriptors")
+        lines.append("")
+        lines.append("| Demand level | Can-Do descriptor (CEFR global scale) |")
+        lines.append("|---|---|")
+        v = payload.get("vocabulary") or {}
+        g = payload.get("grammar") or {}
+        gl = g.get("estimatedLevel") or {}
+        rows = [
+            (f"Vocabulary reaches ({v.get('coverage')})",
+             cd["vocabulary"]["reaches"]),
+        ]
+        if cd["grammar"]["reaches"]:
+            rows.append((f"Grammar reaches ({gl.get('reaches')})",
+                         cd["grammar"]["reaches"]))
+        est = payload.get("estimatedLevel")
+        if est:
+            rows.append((f"Estimated level ({est})", cd["estimated"]))
+        for label, desc in rows:
+            lines.append(f"| {label} | {desc or '—'} |")
+        lines.append("")
     read = payload.get("readability")
     if read:
         lines.append(f"Readability: Flesch–Kincaid grade "
@@ -1558,6 +1644,10 @@ def main(argv=None):
                         help="map the report's own CEFR bands to the matching Cambridge "
                              "English Qualification (A2 Key, B1 Preliminary, B2 First, "
                              "C1 Advanced, C2 Proficiency) — the Phase 4 exam mapping")
+    parser.add_argument("--cando", action="store_true",
+                        help="frame the text's demands as CEFR Can-Do descriptors — what a "
+                             "learner at the reached/estimated band can do, the language "
+                             "rubrics and self-assessment forms use (the Phase 4 Can-Do item)")
     parser.add_argument("positional", nargs="*", help=argparse.SUPPRESS)
     parser.add_argument("positional", nargs="*", help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
@@ -1652,6 +1742,7 @@ def main(argv=None):
                 gap_report=args.gap_report,
                 curriculum=curriculum,
                 cambridge=args.cambridge,
+                cando=args.cando,
             )
         except vp.WordListError as ex:
             sys.stderr.write(str(ex) + "\n")
