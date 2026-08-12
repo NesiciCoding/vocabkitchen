@@ -218,7 +218,8 @@ def _maybe_reexec_in_venv():
 
 def analyze(text, target_level=None, wordlists_dir=None, grammar_dir=None,
             with_grammar=True, with_readability=True, suggest=False,
-            gap_report=False, curriculum=None, cambridge=False, cando=False):
+            gap_report=False, curriculum=None, cambridge=False, cando=False,
+            comments=False):
     """Run both profilers and readability over *text*; return the report payload.
 
     The Phase 5 shared engine: this is the analysis module's pipeline (word
@@ -234,14 +235,16 @@ def analyze(text, target_level=None, wordlists_dir=None, grammar_dir=None,
     ``curriculum`` pass/fail coverage report. With ``cambridge=True`` /
     ``cando=True``, the payload also maps its own bands to the matching
     Cambridge English Qualifications / CEFR Can-Do descriptors (the Phase 4
-    exam-mapping and Can-Do-framing items).
+    exam-mapping and Can-Do-framing items). With ``comments=True`` (and the
+    grammar side), the payload carries ``grammarComments`` — the per-
+    construction rubric comments for RubricMaker's apply-as-comment.
     """
     return engine.analyze(
         text, target_level=target_level, wordlists_dir=wordlists_dir,
         grammar_dir=grammar_dir, with_grammar=with_grammar,
         with_readability=with_readability, suggest=suggest,
         gap_report=gap_report, curriculum=curriculum, cambridge=cambridge,
-        cando=cando)
+        cando=cando, comments=comments)
 
 
 # ---------------------------------------------------------------------------
@@ -353,6 +356,23 @@ def render_pretty(payload, source_label, stream=None):
             art = "an " if tgt.startswith("A") else "a "
             out.append(dim(f"  (demands beyond what {art + tgt} class is "
                            "expected to do yet — pre-teach or rewrite)"))
+
+    comments = payload.get("grammarComments")
+    if comments is not None:
+        used_c = [c for c in comments if c["pass"]]
+        not_c = [c for c in comments if not c["pass"]]
+        out.append("")
+        out.append(bold("Rubric comments"))
+        if not used_c:
+            out.append(dim("  no constructions used — below the grammar "
+                           "profile's floor"))
+        for c in used_c:
+            out.append(f"  ✓ {c['comment']}")
+        if not_c:
+            out.append(dim(f"  {len(not_c)} constructions not used yet — "
+                           "--export md for the full apply-as-comment list"))
+        out.append(dim("  (one comment per construction, for RubricMaker's "
+                       "apply-as-comment)"))
 
     target = payload["targetLevel"]
     if target is not None:
@@ -807,6 +827,19 @@ def export_markdown(payload, cloze=False):
             lines.append("_Demands beyond what " + art + tgt + " class is "
                          "expected to do yet — pre-teach or rewrite._")
             lines.append("")
+    gcm = payload.get("grammarComments")
+    if gcm is not None:
+        used_c = [c for c in gcm if c["pass"]]
+        not_c = [c for c in gcm if not c["pass"]]
+        lines.append(f"## Rubric comments — {len(used_c)} used · "
+                     f"{len(not_c)} not used yet")
+        lines.append("")
+        lines.append("| Construction | Level | Comment |")
+        lines.append("|---|---|---|")
+        for c in gcm:
+            cm = c["comment"].replace("|", "\\|")
+            lines.append(f"| {c['name']} | {c['level']} | {cm} |")
+        lines.append("")
     read = payload.get("readability")
     if read:
         lines.append(f"Readability: Flesch–Kincaid grade "
@@ -1295,6 +1328,10 @@ def main(argv=None):
                         help="frame the text's demands as CEFR Can-Do descriptors — what a "
                              "learner at the reached/estimated band can do, the language "
                              "rubrics and self-assessment forms use (the Phase 4 Can-Do item)")
+    parser.add_argument("--comments", action="store_true",
+                        help="add per-construction rubric comments (used / not used yet) "
+                             "derived from grammarCriteria — the apply-as-comment shape "
+                             "RubricMaker's grammar linker consumes (needs the grammar side)")
     parser.add_argument("--schema", action="store_true",
                         help="print the analysis report payload schema (the RubricMaker "
                              "contract, version " + engine.SCHEMA_VERSION + ") as JSON and exit")
@@ -1401,6 +1438,7 @@ def main(argv=None):
                 curriculum=curriculum,
                 cambridge=args.cambridge,
                 cando=args.cando,
+                comments=args.comments,
             )
         except vp.WordListError as ex:
             sys.stderr.write(str(ex) + "\n")

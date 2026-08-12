@@ -375,6 +375,18 @@ try:
         check("export payload grammarCriteria used entries have examples",
               all(c["count"] >= 1 and isinstance(c["examples"], list)
                   for c in _gc_full["criteria"] if c["pass"]))
+        # --comments: the per-construction rubric comments ride in the same
+        # payload (apply-as-comment reference), off by default.
+        _cm_full = cp.export_payload(_gap_full[0], _gap_full[1], _gap_full[2],
+                                     "B1", comments=True)
+        _cm_list = _cm_full["grammarComments"]
+        check("export payload comments=True carries one comment per criterion",
+              _cm_list is not None and len(_cm_list) == _gc_full["total"]
+              and all(c["comment"].startswith(("Uses the ", "Doesn't use the "))
+                      for c in _cm_list))
+        check("export payload without comments: grammarComments null",
+              cp.export_payload(_gap_full[0], _gap_full[1], _gap_full[2], "B1")
+              .get("grammarComments") is None)
     else:
         skipped += 1
 
@@ -1649,6 +1661,24 @@ if os.path.isdir(_sample):
               all(r["grammar"]["typical"] in vp.CEFR_ORDER
                   and r["grammar"]["reaches"] in vp.CEFR_ORDER
                   for r in d["rows"]))
+
+        # --comments over the folder: every per-text md handout carries the
+        # Rubric comments section (the apply-as-comment reference output).
+        _comments_out = tempfile.mkdtemp(prefix="classprof_golden_comments_")
+        try:
+            rc, out, err = run(["--file", _sample, "--target-level", "B1",
+                                "--comments", "--export", "md",
+                                "--output", _comments_out])
+            check("sample comments: rc==0", rc == 0)
+            _handouts = [os.path.join(_comments_out, f)
+                         for f in os.listdir(_comments_out)
+                         if f.endswith("-preteaching-B1.md")]
+            check("sample comments: every per-text handout has the section",
+                  bool(_handouts)
+                  and all("## Rubric comments" in open(h, encoding="utf-8").read()
+                          for h in _handouts))
+        finally:
+            shutil.rmtree(_comments_out, ignore_errors=True)
     else:
         skipped += 1
 
@@ -2037,7 +2067,7 @@ if all(os.path.isfile(p) for p in (_skill_local, _skill_plugin, _plugin_json)):
     check("class-profile copies are deliberately different flavours", _sl != _sp)
     for _flag in ("--gap-report", "--interleave", "--new-words-per-reading",
                   "--curriculum", "--watch", "--cando", "--cando-diff",
-                  "--cando-diff-sort", "--schema"):
+                  "--cando-diff-sort", "--schema", "--comments"):
         check(f"class-profile skill documents {_flag} in both copies",
               _flag in _sl and _flag in _sp)
     with open(os.path.join(HERE, ".claude", "skills", "text-report", "SKILL.md"),
@@ -2046,7 +2076,7 @@ if all(os.path.isfile(p) for p in (_skill_local, _skill_plugin, _plugin_json)):
     with open(os.path.join(HERE, "plugins", "text-report", "skills",
                            "text-report", "SKILL.md"), encoding="utf-8") as f:
         _tp = f.read()
-    for _flag in ("--cambridge", "--cando", "--schema"):
+    for _flag in ("--cambridge", "--cando", "--schema", "--comments"):
         check(f"text-report skill documents {_flag} in both copies",
               _flag in _tl and _flag in _tp)
     _manifest = json.load(open(_plugin_json, encoding="utf-8"))

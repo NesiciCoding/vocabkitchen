@@ -115,6 +115,32 @@ if HAVE_GRAMMAR:
                   for c in _gc["criteria"]]
     check("grammarCriteria sorted by band ladder then name",
           _gc_levels == sorted(_gc_levels))
+
+    # grammarComments: the apply-as-comment reference implementation.
+    _gcm = engine.grammar_comments(_gc)
+    check("grammar_comments one comment per criterion, full shape",
+          len(_gcm) == _gc["total"]
+          and all(set(c) == {"id", "name", "category", "level", "status",
+                             "pass", "comment"} for c in _gcm))
+    _gcm_used = [c for c in _gcm if c["pass"]]
+    check("grammar_comments used comments carry evidence",
+          bool(_gcm_used)
+          and all(c["comment"].startswith("Uses the ") and "E.g." in c["comment"]
+                  for c in _gcm_used))
+    check("grammar_comments not-used comments neutral",
+          all(not c["pass"]
+              and c["comment"].startswith("Doesn't use the ")
+              and c["comment"].endswith("yet.")
+              for c in _gcm if not c["pass"]))
+    _gcm_p = engine.analyze(_ACADEMIC, target_level="B1", comments=True)
+    check("payload with comments=True carries grammarComments",
+          _gcm_p["grammarComments"] is not None
+          and len(_gcm_p["grammarComments"]) == _gc["total"])
+    check("payload without comments: grammarComments null",
+          _gc_p["grammarComments"] is None)
+    check("comments handout renders the Rubric comments section",
+          "## Rubric comments" in tr.export_markdown(_gcm_p)
+          and "not used yet" in tr.export_markdown(_gcm_p))
 else:
     skipped += 1
 
@@ -131,6 +157,13 @@ check("--schema prints the payload schema",
       _rc == 0 and json.loads(_out) == engine.payload_schema())
 check("--schema works with --no-grammar (no engine load)",
       run(["--schema", "--no-grammar"])[0] == 0)
+
+# --- Phase 5: --comments adds the rubric comments -----------------------------
+_rc, _out, _err = run(["--comments", "--format", "json"], text=_ACADEMIC)
+check("--comments CLI: grammarComments present iff grammar ran",
+      _rc == 0 and "grammarComments" in json.loads(_out)
+      and (json.loads(_out)["grammarComments"] is None)
+      == (json.loads(_out)["grammar"] is None))
 
 
 # --- unit: the venv re-exec is skipped in vocabulary-only modes -------------

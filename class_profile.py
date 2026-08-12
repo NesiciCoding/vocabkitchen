@@ -721,7 +721,8 @@ def export_vocab_lists(agg_words, out_dir):
 # ---------------------------------------------------------------------------
 
 def export_payload(row, ordered, ctx, target, suggest=False, gap_report=False,
-                   curriculum=None, cando=False, vocab_base=None):
+                   curriculum=None, cando=False, comments=False,
+                   vocab_base=None):
     """Build a text_report-shaped payload for one row's text.
 
     Phase 5: this is the **shared engine's payload builder** — the same one
@@ -761,7 +762,7 @@ def export_payload(row, ordered, ctx, target, suggest=False, gap_report=False,
     payload = engine.payload(
         pieces, text, vocab_base, target_level=target, suggest=suggest,
         gap_report=gap_report, curriculum=curriculum, cando=cando,
-        grammar_unavailable_note="not analysed")
+        comments=comments, grammar_unavailable_note="not analysed")
     payload["file"] = row["file"]
     return payload
 
@@ -1400,8 +1401,8 @@ def write_per_text_exports(profiled, target, fmt, cloze=False, enrich=True,
                            source_label=None, base_url=None, cache_path=None,
                            targets=None, rows=None, summary=None, suggest=False,
                            gap_report=False, curriculum=None, cando=False,
-                           cando_diff=False, cando_diff_sort="texts",
-                           payloads=None):
+                           comments=False, cando_diff=False,
+                           cando_diff_sort="texts", payloads=None):
     """Write the pre-teaching lists for *profiled* (the selected set).
 
     With a single *target*: one list per text next to its source (or into
@@ -1467,7 +1468,8 @@ def write_per_text_exports(profiled, target, fmt, cloze=False, enrich=True,
         # One combined class-wide deck (plus its markdown index) per level,
         # no per-text lists.
         for t in targets:
-            payloads = [export_payload(row, ordered, ctx, t, cando=cando)
+            payloads = [export_payload(row, ordered, ctx, t, cando=cando,
+                                       comments=comments)
                         for row, ordered, ctx in profiled]
             combined = _combined_deck_payload(payloads)
             _write(combined_deck_path(source_label, t, output_dir),
@@ -1485,7 +1487,8 @@ def write_per_text_exports(profiled, target, fmt, cloze=False, enrich=True,
         for row, ordered, ctx in profiled:
             payload = export_payload(row, ordered, ctx, target,
                                      suggest=suggest, gap_report=gap_report,
-                                     curriculum=curriculum, cando=cando)
+                                     curriculum=curriculum, cando=cando,
+                                     comments=comments)
             payloads.append(payload)
             if fmt == "flashcards":
                 content = _deck(payload)
@@ -1643,6 +1646,10 @@ def main(argv=None):
     parser.add_argument("--no-grammar", action="store_true")
     parser.add_argument("--wordlists", default=None)
     parser.add_argument("--grammar-profile", dest="grammar_profile", default=None)
+    parser.add_argument("--comments", action="store_true",
+                        help="add per-construction rubric comments (used / not used yet) "
+                             "to each per-text handout — the apply-as-comment shape "
+                             "RubricMaker's grammar linker consumes (needs the grammar side)")
     parser.add_argument("--schema", action="store_true",
                         help="print the analysis report payload schema (the RubricMaker "
                              "contract, version " + engine.SCHEMA_VERSION + ") as JSON and exit")
@@ -1959,7 +1966,8 @@ def main(argv=None):
                 export_payload(row, ordered, ctx, target,
                                suggest=args.suggest,
                                gap_report=args.gap_report,
-                               curriculum=curriculum, cando=cando)
+                               curriculum=curriculum, cando=cando,
+                               comments=args.comments)
                 for row, ordered, ctx in selected_profiled]
 
         # ---- Output ----------------------------------------------------------
@@ -2034,6 +2042,7 @@ def main(argv=None):
                 targets=targets, rows=rows, summary=summary,
                 suggest=args.suggest, gap_report=args.gap_report,
                 curriculum=curriculum, cando=cando,
+                comments=args.comments,
                 cando_diff=args.cando_diff,
                 cando_diff_sort=args.cando_diff_sort,
                 payloads=prebuilt_payloads)

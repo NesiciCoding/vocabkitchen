@@ -12,6 +12,7 @@
     "grammar",
     "grammarError",
     "grammarCriteria",
+    "grammarComments",
     "targetLevel",
     "aboveTarget",
     "coverage",
@@ -182,6 +183,41 @@
         },
         "total": {
           "type": "integer"
+        }
+      }
+    },
+    "grammarComments": {
+      "type": [
+        "array",
+        "null"
+      ],
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "category": {
+            "type": "string"
+          },
+          "level": {
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "used",
+              "not used"
+            ]
+          },
+          "pass": {
+            "type": "boolean"
+          },
+          "comment": {
+            "type": "string"
+          }
         }
       }
     },

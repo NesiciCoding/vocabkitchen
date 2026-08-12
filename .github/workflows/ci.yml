@@ -114,10 +114,11 @@ jobs:
               "class-profile": ["--gap-report", "--interleave",
                                 "--new-words-per-reading", "--curriculum",
                                 "--watch", "--cando", "--cando-diff",
-                                "--cando-diff-sort", "--schema"],
+                                "--cando-diff-sort", "--schema",
+                                "--comments"],
               "text-report": ["--suggest", "--gap-report", "--watch",
                               "--curriculum", "--cambridge", "--cando",
-                              "--schema"],
+                              "--schema", "--comments"],
           }
           for name in sorted(os.listdir("plugins")):
               d = os.path.join("plugins", name)
@@ -308,6 +309,19 @@ jobs:
                      for c in gc["criteria"]), gc
           assert all(c["count"] >= 1 and isinstance(c["examples"], list)
                      for c in gc["criteria"] if c["pass"]), gc
+
+          # --comments turns that criteria list into one rubric comment per
+          # construction (the apply-as-comment reference implementation).
+          rc, out, err = run_cli(["--file", os.path.join("sample-readings", files[0]),
+                                  "--target-level", "B1", "--comments",
+                                  "--format", "json"], script="text_report.py")
+          assert rc == 0, err
+          gcm = json.loads(out)["grammarComments"]
+          assert gcm is not None and len(gcm) == gc["total"], gcm
+          assert all(c["status"] in ("used", "not used")
+                     and c["pass"] == (c["status"] == "used")
+                     and c["comment"].startswith(("Uses the ", "Doesn't use the "))
+                     for c in gcm), gcm
 
           # Pre-teaching export: per-text decks + the combined class-wide deck
           # (named after the source folder) and its level-keyed index, in the

@@ -40,6 +40,9 @@ validated against :func:`payload_schema` (also checked in as
 ``grammarCriteria`` per-construction pass/fail over every registered
                    construction (the shape RubricMaker's grammar linker
                    consumes for its apply-as-comment breakdown) or null.
+``grammarComments`` per-construction rubric comments derived from
+                   ``grammarCriteria`` (the apply-as-comment reference
+                   implementation), or null unless ``comments`` is on.
 ``grammarError``   the reason grammar is missing (install note, "not
                    analysed", or null).
 ``targetLevel``    the class level the report was measured against.
@@ -102,8 +105,8 @@ def payload_schema():
         "type": "object",
         "required": ["schemaVersion", "totalWordCount", "vocabulary",
                      "grammar", "grammarError", "grammarCriteria",
-                     "targetLevel", "aboveTarget", "coverage",
-                     "estimatedLevel", "verdict", "grammarGap",
+                     "grammarComments", "targetLevel", "aboveTarget",
+                     "coverage", "estimatedLevel", "verdict", "grammarGap",
                      "grammarGapError", "curriculum", "curriculumError",
                      "cambridge", "cando", "readability"],
         "properties": {
@@ -144,6 +147,16 @@ def payload_schema():
                 "failedCount": {"type": "integer"},
                 "total": {"type": "integer"},
             }},
+            "grammarComments": {"type": ["array", "null"], "items": {
+                "type": "object", "properties": {
+                    "id": {"type": "string"},
+                    "name": {"type": "string"},
+                    "category": {"type": "string"},
+                    "level": {"type": "string"},
+                    "status": {"enum": ["used", "not used"]},
+                    "pass": {"type": "boolean"},
+                    "comment": {"type": "string"},
+                }}},
             "targetLevel": band,
             "aboveTarget": {"type": ["object", "null"], "properties": {
                 "maxLevel": band,
@@ -374,6 +387,33 @@ def grammar_gap_report(gresults, cefrj_levels, target):
         "missingCount": len(missing),
         "missing": missing,
     }
+
+
+def grammar_comments(gc):
+    """Turn ``grammarCriteria`` into per-construction rubric comments.
+
+    The apply-as-comment reference implementation: one comment per
+    construction — a positive one for each used criterion (with the first
+    detected span as evidence) and a next-step one for each not-used
+    criterion — so RubricMaker's grammar linker can attach a comment per
+    construction without writing its own phrasing. Each entry keeps the
+    criterion's identity (``id``/``name``/``category``/``level``,
+    ``status``/``pass``) alongside the generated ``comment`` text.
+    """
+    out = []
+    for c in (gc or {}).get("criteria") or []:
+        if c["pass"]:
+            comment = f"Uses the {c['name']} ({c['level']})."
+            ex = (c.get("examples") or [{}])[0].get("span")
+            if ex:
+                comment += f' E.g. "{ex.replace("|", "\\|")}"'
+        else:
+            comment = f"Doesn't use the {c['name']} ({c['level']}) yet."
+        out.append({"id": c["id"], "name": c["name"],
+                    "category": c["category"], "level": c["level"],
+                    "status": c["status"], "pass": c["pass"],
+                    "comment": comment})
+    return out
 
 
 def grammar_criteria(gresults, cefrj_levels, target_level=None):
@@ -866,7 +906,7 @@ def profile(text, engine, with_grammar=True, with_readability=True):
 
 def payload(pieces, text, vocab_base, target_level=None, suggest=False,
             gap_report=False, curriculum=None, cambridge=False, cando=False,
-            grammar_unavailable_note="not analysed"):
+            comments=False, grammar_unavailable_note="not analysed"):
     """Assemble the text_report-shaped payload from *pieces* (see
     :func:`profile`) — the single payload builder behind ``analyze`` and
     class_profile's per-text ``--export`` payloads, so both produce the same
@@ -874,7 +914,11 @@ def payload(pieces, text, vocab_base, target_level=None, suggest=False,
     report. *vocab_base* feeds the synonyms list for ``suggest``;
     *grammar_unavailable_note* is the ``grammarError`` shown when the
     grammar side neither ran nor failed (``text_report`` says "skipped
-    (--no-grammar)", the class profile says "not analysed").
+    (--no-grammar)", the class profile says "not analysed"). With
+    ``comments=True`` (and the grammar side available), the payload also
+    carries ``grammarComments`` — the per-construction rubric comments
+    derived from ``grammarCriteria``, the apply-as-comment reference
+    implementation for RubricMaker's grammar linker.
     """
     ordered = pieces["ordered"]
     total = pieces["total"]
@@ -882,6 +926,9 @@ def payload(pieces, text, vocab_base, target_level=None, suggest=False,
     gmeta = pieces["grammar_meta"]
     grammar_available = pieces["grammar_available"]
     grammar_error = pieces["grammar_error"]
+    gc_obj = (grammar_criteria(gresults, pieces["cefrj_levels"],
+                               target_level)
+              if grammar_available else None)
 
     payload = {
         "schemaVersion": SCHEMA_VERSION,
@@ -898,10 +945,9 @@ def payload(pieces, text, vocab_base, target_level=None, suggest=False,
                          if grammar_error
                          else (None if grammar_available
                                else grammar_unavailable_note)),
-        "grammarCriteria": (grammar_criteria(gresults,
-                                             pieces["cefrj_levels"],
-                                             target_level)
-                            if grammar_available else None),
+        "grammarCriteria": gc_obj,
+        "grammarComments": (grammar_comments(gc_obj)
+                            if gc_obj is not None and comments else None),
         "targetLevel": target_level,
         "aboveTarget": None,
         "coverage": None,
@@ -976,7 +1022,8 @@ def payload(pieces, text, vocab_base, target_level=None, suggest=False,
 
 def analyze(text, target_level=None, wordlists_dir=None, grammar_dir=None,
             with_grammar=True, with_readability=True, suggest=False,
-            gap_report=False, curriculum=None, cambridge=False, cando=False):
+            gap_report=False, curriculum=None, cambridge=False, cando=False,
+            comments=False):
     """Run both profilers and readability over *text*; return the report payload.
 
     The single-text pipeline — the same report ``text_report.py`` ships:
@@ -984,7 +1031,8 @@ def analyze(text, target_level=None, wordlists_dir=None, grammar_dir=None,
     *target_level*, the above-target words/structures, coverage figure and
     verdict. ``suggest``/``gap_report``/``curriculum``/``cambridge``/``cando``
     add the Phase 3/4 layers (rewrite aid, grammar gaps, the checklist, exam
-    mapping, Can-Do framing).
+    mapping, Can-Do framing); ``comments`` adds the per-construction rubric
+    comments (``grammarComments``) for RubricMaker's apply-as-comment.
     """
     engine = load_engine(wordlists_dir=wordlists_dir, grammar_dir=grammar_dir,
                          with_grammar=with_grammar)
@@ -993,6 +1041,6 @@ def analyze(text, target_level=None, wordlists_dir=None, grammar_dir=None,
     return payload(
         pieces, text, engine.vocab_base, target_level=target_level,
         suggest=suggest, gap_report=gap_report, curriculum=curriculum,
-        cambridge=cambridge, cando=cando,
+        cambridge=cambridge, cando=cando, comments=comments,
         grammar_unavailable_note="skipped (--no-grammar)"
         if not with_grammar else "not analysed")
