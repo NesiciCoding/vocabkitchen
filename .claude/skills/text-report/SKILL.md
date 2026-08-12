@@ -74,6 +74,12 @@ hand:
   used or not, `curriculum.pass` in JSON, and a **Curriculum checklist**
   section in the `--export md` handout. Grammar items are flagged unchecked
   when the grammar side is off.
+- **`--cambridge`** — the Phase 4 exam mapping: map the report's own CEFR
+  bands (vocabulary typical/reaches, grammar typical/reaches, estimated
+  level) to the matching Cambridge English Qualification — A2 Key, B1
+  Preliminary, B2 First, C1 Advanced, C2 Proficiency. Carried in JSON as
+  `cambridge`, shown in pretty mode, and rendered as a **Cambridge English
+  mapping** section in the `--export md` handout.
 - **`--pre-enrich`** — prime the dictionary cache for a whole class in one
   polite, rate-limited pass: point it at a word list (one word per line) or
   an essay (`--file`/`--text`/stdin), it looks each distinct word up against
@@ -131,6 +137,7 @@ Flags:
 | `--output`          | where the `--export` file goes (default: `<stem>-preteaching-<LEVEL>.<ext>` next to the input, or `preteaching-<LEVEL>.<ext>` in the cwd; decks get a `-deck` suffix) |
 | `--watch`           | re-profile the `--file` input whenever it changes on disk (edit → re-check loop; optional interval in seconds, default 1) |
 | `--curriculum`      | check the text against a curriculum checklist file (`[vocabulary]` + `[grammar]` sections) and report pass/fail coverage |
+| `--cambridge`       | map the report's own CEFR bands to the matching Cambridge English Qualification (A2 Key, B1 Preliminary, B2 First, C1 Advanced, C2 Proficiency) |
 | (stdin)             | if neither `--text` nor `--file` is given, text is read from stdin      |
 
 **Choosing input mode:** `--text` for a snippet, `--file` for a document on

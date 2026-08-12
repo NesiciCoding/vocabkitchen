@@ -145,6 +145,7 @@ import json
 import os
 import re
 import sys
+import time
 
 import vocab_profile as vp
 import grammar_profile as gp
@@ -210,7 +211,7 @@ def _maybe_reexec_in_venv():
 # ---------------------------------------------------------------------------
 
 _ARTIFACT_RE = re.compile(
-    r"-(?:preteaching|summary|interleave)-[A-C][12]"
+    r"-(?:preteaching|summary|interleave|curriculum(?:-coverage)?)-[A-C][12]"
     r"(?:-(?:deck|index))?\.(?:md|csv)$")
 
 
@@ -984,6 +985,91 @@ def set_summary_markdown(rows, summary, payloads, target):
     return "\n".join(lines) + "\n"
 
 
+def curriculum_coverage_path(source_label, target, output_dir):
+    """Where the folder-level curriculum grid goes — named after the source
+    folder like the other set-level artifacts
+    (``essays-curriculum-coverage-B1.csv``)."""
+    fname = f"{_set_name(source_label)}-curriculum-coverage-{target}.csv"
+    if output_dir:
+        return os.path.join(output_dir, fname)
+    if source_label and os.path.isdir(source_label):
+        return os.path.join(source_label, fname)
+    return fname
+
+
+def curriculum_coverage_csv(payloads, target):
+    """The folder-level pass/fail grid: one row per text, one column per
+    required item (vocabulary words then grammar constructions, in checklist
+    order) plus a ``pass`` verdict — the curriculum checklist as a
+    spreadsheet. Cells are ``yes``/``no`` for spreadsheet friendliness.
+    """
+    first = next((p for p in payloads if p.get("curriculum")), None)
+    if first is None:
+        return None
+    items = ([("vocabulary", d["word"])
+              for d in first["curriculum"]["vocabulary"]]
+             + [("grammar", d["name"])
+                for d in first["curriculum"]["grammar"]])
+    buf = io.StringIO()
+    writer = csv.writer(buf, lineterminator="\n")
+    writer.writerow(["text"] + [name for _kind, name in items] + ["pass"])
+    for p in payloads:
+        curr = p.get("curriculum")
+        if curr is None:
+            continue
+        status = {d["word"]: d["present"] for d in curr["vocabulary"]}
+        status.update({d["name"]: d["present"] for d in curr["grammar"]})
+        cells = ["yes" if status.get(name) else "no" for _kind, name in items]
+        writer.writerow([os.path.basename(p.get("file") or "(input)")]
+                        + cells + ["yes" if curr["pass"] else "no"])
+    return buf.getvalue()
+
+
+def _input_snapshot(path_spec):
+    """Change-detection snapshot of the --file input: the discovered files'
+    (mtime_ns, size) keyed by path (None when discovery fails). Added or
+    removed files change the key set, so watch re-profiles on structure
+    changes too."""
+    try:
+        paths = discover_files(path_spec)
+    except ClassProfileError:
+        return None
+    snap = {}
+    for p in paths:
+        try:
+            st = os.stat(p)
+        except OSError:
+            continue
+        snap[p] = (st.st_mtime_ns, st.st_size)
+    return snap
+
+
+def watch_input(path_spec, interval, callback, timeout=None):
+    """Re-run ``callback()`` whenever the --file input changes on disk.
+
+    The class profile's Phase 3 watch mode: poll the discovered input (its
+    files' mtime/size plus the file set itself) every ``interval`` seconds and
+    re-profile the folder on each change — an edit → re-check loop for a whole
+    set. Stops when nothing is discovered (or after ``timeout`` seconds, for
+    tests) and returns the number of re-runs.
+    """
+    last = _input_snapshot(path_spec)
+    runs = 0
+    deadline = (time.monotonic() + timeout) if timeout else None
+    while True:
+        if deadline is not None and time.monotonic() >= deadline:
+            return runs
+        time.sleep(interval)
+        snap = _input_snapshot(path_spec)
+        if snap is None or not snap:
+            sys.stderr.write(f"No input files found under {path_spec} — stopping.\n")
+            return runs
+        if snap != last:
+            last = snap
+            callback()
+            runs += 1
+
+
 # ---------------------------------------------------------------------------
 # Vocabulary interleaving — a spaced introduction schedule across a set of
 # readings (the folder, in scan order). Each reading introduces at most
@@ -1177,16 +1263,17 @@ def interleave_reading_path(source_label, target, index, output_dir=None):
     return fname
 
 
-def interleave_reading_markdown(schedule, reading, profiled):
+def interleave_reading_markdown(schedule, reading, profiled, lookup=None):
     """One printable handout per reading — that reading's Introduce / Review /
-    Due words, each with the sentence it appears in (the in-text definition
-    back, like the ``--no-enrich`` decks), for printing and handing out.
+    Due words, each with a definition, for printing and handing out.
 
-    Introduce and Review words are defined by the sentence in **this**
-    reading; Due words (absent here for two or more readings) by the sentence
-    from the reading where they were last seen. ``profiled`` is the
-    ``(row, ordered, ctx)`` list the schedule was built from (index-aligned
-    with the readings).
+    When ``lookup`` (a word → definition callable, e.g. from the dictionary
+    cache) returns a definition for a word, that is used; otherwise the word's
+    sentence in the reading it appears in — Introduce and Review words are
+    defined by the sentence in **this** reading, Due words (absent here for
+    two or more readings) by the sentence from the reading where they were
+    last seen. ``profiled`` is the ``(row, ordered, ctx)`` list the schedule
+    was built from (index-aligned with the readings).
     """
     idx = reading["index"]
     target = schedule["targetLevel"]
@@ -1198,7 +1285,11 @@ def interleave_reading_markdown(schedule, reading, profiled):
                  f"{len(reading['due'])} due for review.")
     lines.append("")
 
-    def _example_for(reading_index, word):
+    def _definition_for(word, reading_index):
+        if lookup is not None:
+            d = lookup(word)
+            if d:
+                return str(d).replace("\n", " ").replace("|", "\\|")
         text = profiled[reading_index - 1][2].get("text")
         if not text:
             return ""
@@ -1212,10 +1303,10 @@ def interleave_reading_markdown(schedule, reading, profiled):
             lines.append("_None._")
             lines.append("")
             return
-        lines.append("| Word | Level | Definition (in this text) |")
+        lines.append("| Word | Level | Definition |")
         lines.append("|---|---|---|")
         for d in entries:
-            ex = _example_for(example_src(d), d["word"])
+            ex = _definition_for(d["word"], example_src(d))
             ex = ex.replace("|", "\\|")
             lines.append(f"| `{d['word']}` | {d['level']} | {ex or '—'} |")
         lines.append("")
@@ -1345,6 +1436,13 @@ def write_per_text_exports(profiled, target, fmt, cloze=False, enrich=True,
         ordered_payloads = [payload_by_file[r["file"]] for r in rows]
         _write(set_summary_path(source_label, target, output_dir),
                set_summary_markdown(rows, summary, ordered_payloads, target))
+    # The folder-level curriculum grid: one row per text, one column per
+    # required item (with --curriculum and --export csv).
+    if fmt == "csv" and curriculum:
+        content = curriculum_coverage_csv(payloads, target)
+        if content is not None:
+            _write(curriculum_coverage_path(source_label, target, output_dir),
+                   content)
     return written, failed, deck_stats
 
 
@@ -1396,10 +1494,15 @@ def main(argv=None):
                         help="--interleave only: max new words introduced per "
                              "reading (default: 5)")
     parser.add_argument("--curriculum", default=None,
-                        help="--export md only: check every text against a curriculum "
-                             "checklist file (sections [vocabulary] and [grammar]) and "
-                             "add a pass/fail coverage section to each per-text handout "
-                             "(the Phase 4 curriculum checklist, per text)")
+                        help="--export md|csv only: check every text against a curriculum "
+                             "checklist file (sections [vocabulary] and [grammar]) — "
+                             "per-text coverage sections in the md handouts, or a "
+                             "folder-level pass/fail grid (<set>-curriculum-coverage-<LEVEL>.csv) "
+                             "for csv (the Phase 4 curriculum checklist)")
+    parser.add_argument("--watch", nargs="?", const=1.0, type=float, default=None,
+                        help="re-profile the --file input whenever any text in it changes "
+                             "on disk (the Phase 3 edit → re-check loop for a whole "
+                             "folder; interval in seconds, default 1)")
     parser.add_argument("--no-enrich", action="store_true",
                         help="--export flashcards only: skip the Free Dictionary API "
                              "(card backs stay the in-text context sentence)")
@@ -1527,10 +1630,18 @@ def main(argv=None):
             if not os.path.isfile(args.curriculum):
                 raise ClassProfileError(
                     f"curriculum file not found: {args.curriculum}")
-            if args.export != "md":
+            if args.export not in ("md", "csv"):
                 raise ClassProfileError(
-                    "--curriculum adds a coverage section to the per-text "
-                    "handouts; it requires --export md.")
+                    "--curriculum needs --export md (per-text coverage sections) "
+                    "or --export csv (the folder-level coverage grid).")
+        if args.watch is not None and not args.file:
+            raise ClassProfileError(
+                "--watch re-profiles the input on change; it requires --file "
+                "(a directory, glob, or single file to watch).")
+        if args.watch is not None and args.pre_enrich:
+            raise ClassProfileError(
+                "--watch and --pre-enrich don't combine (--pre-enrich primes "
+                "the cache and exits).")
     except ClassProfileError as ex:
         sys.stderr.write(str(ex) + "\n")
         return 1
@@ -1543,43 +1654,8 @@ def main(argv=None):
     cache_path = (None if args.no_dictionary_cache
                   else (args.dictionary_cache or tr.default_dictionary_cache_path()))
 
-    # ---- Input: directory | glob | single file | --text | stdin ----------
-    paths = []
-    single_text = None
-    single_label = None
-    if args.file:
-        try:
-            paths = discover_files(args.file)
-        except ClassProfileError as ex:
-            sys.stderr.write(str(ex) + "\n")
-            return 1
-        source_label = args.file
-    elif args.text is not None:
-        single_text = args.text
-        single_label = "(text)"
-        source_label = "(text)"
-    elif not sys.stdin.isatty():
-        single_text = sys.stdin.read()
-        single_label = "(stdin)"
-        source_label = "(stdin)"
-    else:
-        sys.stderr.write(
-            "Usage: class_profile.py --file DIR|GLOB|FILE [--target-level A1|A2|B1|B2|C1|C2] "
-            "[--targets A2,B1,B2] [--min-level L] [--max-level L] "
-            "[--sort level|typical|reached|words|name] "
-            "[--format auto|json|pretty|csv] [--export-vocab DIR] "
-            "[--export csv|md|flashcards [--cloze] [--suggest] [--gap-report] "
-            "[--no-enrich] [--output DIR]] "
-            "[--interleave [--new-words-per-reading N]] "
-            "[--pre-enrich [--delay SECONDS] [--limit N]] "
-            "[--no-grammar]\n"
-        )
-        return 1
-    if single_text is not None and single_text.strip() == "":
-        sys.stderr.write("No analysable text found in the input.\n")
-        return 1
-
-    # ---- Word lists + grammar engine (both loaded once) -------------------
+    # Word lists + grammar engine are static: loaded once here, reused by the
+    # watch loop's re-runs (spaCy reloads per call, so this matters).
     script_dir = os.path.dirname(os.path.abspath(__file__))
     base_dir = args.wordlists or os.path.join(script_dir, "WordLists")
     try:
@@ -1598,194 +1674,256 @@ def main(argv=None):
         if nlp is None:
             grammar_note = cefrj_levels  # the engine's unavailable note
 
-    # ---- Profile everything -------------------------------------------------
-    # --pre-enrich only needs the vocabulary, so skip the grammar side.
-    with_grammar = not args.no_grammar and not args.pre_enrich
-    profiled = []          # (row, ordered, ctx) for each analysable input
-    skipped = []
-    for path in paths:
-        try:
-            profiled.append(profile_file(path, path, levels, nlp, cefrj_levels,
-                                         with_grammar, profiling_targets))
-        except vp.DocumentError as ex:
-            skipped.append({"file": path, "error": str(ex)})
-    if single_text is not None:
-        profiled.append(build_row(single_text, single_label, levels, nlp,
-                                  cefrj_levels, with_grammar, profiling_targets))
+    # Cached dictionary definitions (no network) for the per-reading
+    # interleave handouts — real definitions when a --pre-enrich pass has
+    # primed the cache, in-text sentences otherwise.
+    defs = (tr.cached_definitions(cache_path, args.dictionary_url)
+            if cache_path else {})
 
-    if not profiled:
-        sys.stderr.write("No analysable text found in any of the inputs."
-                         + (" Skipped files: " + "; ".join(
-                             f"{s['file']} ({s['error']})" for s in skipped)
-                            if skipped else "")
-                         + "\n")
-        return 1
-
-    # ---- Pre-enrich: prime the dictionary cache for the whole folder -------
-    if args.pre_enrich:
-        words = folder_vocabulary(profiled)
-
-        def _progress(s):
+    def _run_once():
+        # ---- Input: directory | glob | single file | --text | stdin ----------
+        paths = []
+        single_text = None
+        single_label = None
+        if args.file:
+            try:
+                paths = discover_files(args.file)
+            except ClassProfileError as ex:
+                sys.stderr.write(str(ex) + "\n")
+                return 1
+            source_label = args.file
+        elif args.text is not None:
+            single_text = args.text
+            single_label = "(text)"
+            source_label = "(text)"
+        elif not sys.stdin.isatty():
+            single_text = sys.stdin.read()
+            single_label = "(stdin)"
+            source_label = "(stdin)"
+        else:
             sys.stderr.write(
-                f"  pre-enriching… {s['looked_up']} looked up "
-                f"({s['found']} found, {s['missed']} not found)\n")
+                "Usage: class_profile.py --file DIR|GLOB|FILE [--target-level A1|A2|B1|B2|C1|C2] "
+                "[--targets A2,B1,B2] [--min-level L] [--max-level L] "
+                "[--sort level|typical|reached|words|name] "
+                "[--format auto|json|pretty|csv] [--export-vocab DIR] "
+                "[--export csv|md|flashcards [--cloze] [--suggest] [--gap-report] "
+                "[--no-enrich] [--output DIR]] "
+                "[--interleave [--new-words-per-reading N]] "
+                "[--pre-enrich [--delay SECONDS] [--limit N]] "
+                "[--no-grammar]\n"
+            )
+            return 1
+        if single_text is not None and single_text.strip() == "":
+            sys.stderr.write("No analysable text found in the input.\n")
+            return 1
 
-        stats = tr.pre_enrich_words(
-            words, base_url=args.dictionary_url, cache_path=cache_path,
-            delay=args.delay, limit=args.limit, on_progress=_progress)
-        tail = " Offline — remaining words left unprimed." if stats["offline"] else ""
-        sys.stderr.write(
-            f"Pre-enriched {stats['looked_up']} word"
-            f"{'s' if stats['looked_up'] != 1 else ''} "
-            f"({stats['found']} found, {stats['missed']} not found); "
-            f"{stats['skipped']} of {stats['requested']} already cached."
-            + tail + "\n")
-        return 0
+        # ---- Profile everything ---------------------------------------------
+        # --pre-enrich only needs the vocabulary, so skip the grammar side.
+        with_grammar = not args.no_grammar and not args.pre_enrich
+        profiled = []          # (row, ordered, ctx) for each analysable input
+        skipped = []
+        for path in paths:
+            try:
+                profiled.append(profile_file(path, path, levels, nlp,
+                                             cefrj_levels, with_grammar,
+                                             profiling_targets))
+            except vp.DocumentError as ex:
+                skipped.append({"file": path, "error": str(ex)})
+        if single_text is not None:
+            profiled.append(build_row(single_text, single_label, levels, nlp,
+                                      cefrj_levels, with_grammar,
+                                      profiling_targets))
 
-    all_rows = [row for row, _o, _c in profiled]
-    selected = filter_rows(all_rows, min_level, max_level)
+        if not profiled:
+            sys.stderr.write("No analysable text found in any of the inputs."
+                             + (" Skipped files: " + "; ".join(
+                                 f"{s['file']} ({s['error']})" for s in skipped)
+                                if skipped else "")
+                             + "\n")
+            return 1
 
-    # ---- Pooled aggregate over the selected set -----------------------------
-    agg = new_aggregate()
-    for row, ordered, _ctx in profiled:
-        if any(r is row for r in selected):
-            add_to_aggregate(agg, ordered)
-    summary = aggregate_summary(agg)
+        # ---- Pre-enrich: prime the cache for the whole folder ---------------
+        if args.pre_enrich:
+            words = folder_vocabulary(profiled)
 
-    rows = sort_rows(selected, sort)
-    selected_profiled = [p for p in profiled if p[0] in selected]
+            def _progress(s):
+                sys.stderr.write(
+                    f"  pre-enriching… {s['looked_up']} looked up "
+                    f"({s['found']} found, {s['missed']} not found)\n")
 
-    # ---- Vocabulary interleaving: the spaced introduction schedule -----------
-    interleave = None
-    if args.interleave:
-        interleave = interleave_schedule(selected_profiled, target,
-                                         args.new_words_per_reading)
+            stats = tr.pre_enrich_words(
+                words, base_url=args.dictionary_url, cache_path=cache_path,
+                delay=args.delay, limit=args.limit, on_progress=_progress)
+            tail = " Offline — remaining words left unprimed." if stats["offline"] else ""
+            sys.stderr.write(
+                f"Pre-enriched {stats['looked_up']} word"
+                f"{'s' if stats['looked_up'] != 1 else ''} "
+                f"({stats['found']} found, {stats['missed']} not found); "
+                f"{stats['skipped']} of {stats['requested']} already cached."
+                + tail + "\n")
+            return 0
 
-    # ---- Export vocab lists by band (over the selected set) -----------------
-    if args.export_vocab:
-        written = export_vocab_lists(agg["words"], args.export_vocab)
-        sys.stderr.write(
-            f"Wrote {len(written)} vocabulary list{'s' if len(written) != 1 else ''} "
-            f"to {args.export_vocab}\n")
+        all_rows = [row for row, _o, _c in profiled]
+        selected = filter_rows(all_rows, min_level, max_level)
 
-    # ---- Output --------------------------------------------------------------
-    if target:
-        fits_count = sum(1 for r in all_rows if r["fits"] is True)
-    elif targets:
-        fits_count = {t: sum(1 for r in all_rows
-                             if (r.get("targets") or {}).get(t, {}).get("fits") is True)
-                      for t in targets}
-    else:
-        fits_count = None
-    payload = {
-        "source": source_label,
-        "texts": len(all_rows),
-        "skipped": skipped,
-        "targetLevel": target,
-        "targets": targets,
-        "minLevel": min_level,
-        "maxLevel": max_level,
-        "sort": sort,
-        "grammarError": grammar_note,
-        "fitsCount": fits_count,
-        "hiddenByFilter": len(all_rows) - len(selected),
-        "aggregate": summary,
-        "rows": rows,
-        "interleave": interleave,
-    }
+        # ---- Pooled aggregate over the selected set -------------------------
+        agg = new_aggregate()
+        for row, ordered, _ctx in profiled:
+            if any(r is row for r in selected):
+                add_to_aggregate(agg, ordered)
+        summary = aggregate_summary(agg)
 
-    if out_format == "pretty":
-        meta = {
+        rows = sort_rows(selected, sort)
+        selected_profiled = [p for p in profiled if p[0] in selected]
+
+        # ---- Vocabulary interleaving: the spaced schedule -------------------
+        interleave = None
+        if args.interleave:
+            interleave = interleave_schedule(selected_profiled, target,
+                                             args.new_words_per_reading)
+
+        # ---- Export vocab lists by band (over the selected set) -------------
+        if args.export_vocab:
+            written = export_vocab_lists(agg["words"], args.export_vocab)
+            sys.stderr.write(
+                f"Wrote {len(written)} vocabulary list"
+                f"{'s' if len(written) != 1 else ''} "
+                f"to {args.export_vocab}\n")
+
+        # ---- Output ----------------------------------------------------------
+        if target:
+            fits_count = sum(1 for r in all_rows if r["fits"] is True)
+        elif targets:
+            fits_count = {t: sum(1 for r in all_rows
+                                 if (r.get("targets") or {}).get(t, {})
+                                 .get("fits") is True)
+                          for t in targets}
+        else:
+            fits_count = None
+        payload = {
             "source": source_label,
             "texts": len(all_rows),
-            "selected": len(selected),
             "skipped": skipped,
-            "target": target,
+            "targetLevel": target,
             "targets": targets,
-            "fitsCount": payload["fitsCount"],
+            "minLevel": min_level,
+            "maxLevel": max_level,
             "sort": sort,
-            "min_level": min_level,
-            "max_level": max_level,
-            "hidden": payload["hiddenByFilter"],
-            "grammar_note": grammar_note,
+            "grammarError": grammar_note,
+            "fitsCount": fits_count,
+            "hiddenByFilter": len(all_rows) - len(selected),
+            "aggregate": summary,
+            "rows": rows,
+            "interleave": interleave,
         }
-        render_pretty(rows, summary, meta)
-        if interleave:
-            print()
-            print("\n".join(render_interleave_pretty(interleave)))
-    elif out_format == "csv":
-        sys.stdout.write(rows_to_csv(rows, target, targets))
-        if skipped:
-            sys.stderr.write(f"Skipped {len(skipped)} file(s): "
-                             + "; ".join(f"{s['file']} ({s['error']})"
-                                         for s in skipped) + "\n")
-        if payload["hiddenByFilter"]:
-            n = payload["hiddenByFilter"]
-            sys.stderr.write(f"{n} text{'' if n == 1 else 's'} hidden "
-                             "outside the selected band\n")
-    else:
-        print(json.dumps(payload, indent=2, ensure_ascii=False))
 
-    # ---- Per-text pre-teaching lists (over the selected set) ----------------
-    curriculum = None
-    if args.curriculum:
-        try:
-            curriculum = tr.load_curriculum(args.curriculum)
-        except tr.CurriculumError as ex:
-            sys.stderr.write(str(ex) + "\n")
-            return 1
-    if args.export:
-        written, failed, deck_stats = write_per_text_exports(
-            selected_profiled, target, args.export, cloze=args.cloze,
-            enrich=not args.no_enrich, wordlists_dir=args.wordlists,
-            output_dir=args.output, source_label=source_label,
-            base_url=args.dictionary_url, cache_path=cache_path, targets=targets,
-            rows=rows, summary=summary, suggest=args.suggest,
-            gap_report=args.gap_report, curriculum=curriculum)
-        if args.interleave and interleave is not None:
-            ext = "md" if args.export == "md" else "csv"
-            ipath = interleave_path(source_label, target, args.output, ext)
-            content = (interleave_markdown(interleave, source_label)
-                       if ext == "md" else interleave_csv(interleave))
+        if out_format == "pretty":
+            meta = {
+                "source": source_label,
+                "texts": len(all_rows),
+                "selected": len(selected),
+                "skipped": skipped,
+                "target": target,
+                "targets": targets,
+                "fitsCount": payload["fitsCount"],
+                "sort": sort,
+                "min_level": min_level,
+                "max_level": max_level,
+                "hidden": payload["hiddenByFilter"],
+                "grammar_note": grammar_note,
+            }
+            render_pretty(rows, summary, meta)
+            if interleave:
+                print()
+                print("\n".join(render_interleave_pretty(interleave)))
+        elif out_format == "csv":
+            sys.stdout.write(rows_to_csv(rows, target, targets))
+            if skipped:
+                sys.stderr.write(f"Skipped {len(skipped)} file(s): "
+                                 + "; ".join(f"{s['file']} ({s['error']})"
+                                             for s in skipped) + "\n")
+            if payload["hiddenByFilter"]:
+                n = payload["hiddenByFilter"]
+                sys.stderr.write(f"{n} text{'' if n == 1 else 's'} hidden "
+                                 "outside the selected band\n")
+        else:
+            print(json.dumps(payload, indent=2, ensure_ascii=False))
+
+        # ---- Per-text pre-teaching lists (over the selected set) ------------
+        curriculum = None
+        if args.curriculum:
             try:
-                with open(ipath, "w", encoding="utf-8") as f:
-                    f.write(content)
-                written.append(ipath)
-            except OSError as ex:
-                failed.append((ipath, str(ex)))
-            # One printable handout per reading (introduce/review/due words
-            # with the in-text sentence each appears in) — for printing.
-            if ext == "md":
-                for r in interleave["readings"]:
-                    rpath = interleave_reading_path(
-                        source_label, target, r["index"], args.output)
-                    rcontent = interleave_reading_markdown(
-                        interleave, r, selected_profiled)
-                    try:
-                        with open(rpath, "w", encoding="utf-8") as f:
-                            f.write(rcontent)
-                        written.append(rpath)
-                    except OSError as ex:
-                        failed.append((rpath, str(ex)))
-        for path in written:
-            sys.stderr.write(f"Wrote pre-teaching list to {path}\n")
-        for path, err in failed:
-            sys.stderr.write(f"Could not write pre-teaching list {path}: {err}\n")
-        if args.export == "flashcards":
-            if deck_stats["offline"]:
-                sys.stderr.write("Dictionary enrichment unavailable (offline?); "
-                                 "decks shipped with in-context backs. "
-                                 "Use --no-enrich to silence this.\n")
-            elif deck_stats["enriched"] or deck_stats["missed"]:
-                cache_clause = (f" ({deck_stats['cached']} from cache)"
-                                if deck_stats["cached"] else "")
-                sys.stderr.write(
-                    f"Dictionary enrichment: {deck_stats['enriched']} definition"
-                    f"{'s' if deck_stats['enriched'] != 1 else ''} added"
-                    f"{cache_clause}, {deck_stats['missed']} word"
-                    f"{'s' if deck_stats['missed'] != 1 else ''} not found.\n")
-        if failed:
-            return 1
+                curriculum = tr.load_curriculum(args.curriculum)
+            except tr.CurriculumError as ex:
+                sys.stderr.write(str(ex) + "\n")
+                return 1
+        if args.export:
+            written, failed, deck_stats = write_per_text_exports(
+                selected_profiled, target, args.export, cloze=args.cloze,
+                enrich=not args.no_enrich, wordlists_dir=args.wordlists,
+                output_dir=args.output, source_label=source_label,
+                base_url=args.dictionary_url, cache_path=cache_path,
+                targets=targets, rows=rows, summary=summary,
+                suggest=args.suggest, gap_report=args.gap_report,
+                curriculum=curriculum)
+            if args.interleave and interleave is not None:
+                ext = "md" if args.export == "md" else "csv"
+                ipath = interleave_path(source_label, target, args.output, ext)
+                content = (interleave_markdown(interleave, source_label)
+                           if ext == "md" else interleave_csv(interleave))
+                try:
+                    with open(ipath, "w", encoding="utf-8") as f:
+                        f.write(content)
+                    written.append(ipath)
+                except OSError as ex:
+                    failed.append((ipath, str(ex)))
+                # One printable handout per reading (introduce/review/due
+                # words, defined from the dictionary cache when primed,
+                # else the in-text sentence) — for printing.
+                if ext == "md":
+                    for r in interleave["readings"]:
+                        rpath = interleave_reading_path(
+                            source_label, target, r["index"], args.output)
+                        rcontent = interleave_reading_markdown(
+                            interleave, r, selected_profiled,
+                            lookup=defs.get)
+                        try:
+                            with open(rpath, "w", encoding="utf-8") as f:
+                                f.write(rcontent)
+                            written.append(rpath)
+                        except OSError as ex:
+                            failed.append((rpath, str(ex)))
+            for path in written:
+                sys.stderr.write(f"Wrote pre-teaching list to {path}\n")
+            for path, err in failed:
+                sys.stderr.write(f"Could not write pre-teaching list {path}: {err}\n")
+            if args.export == "flashcards":
+                if deck_stats["offline"]:
+                    sys.stderr.write("Dictionary enrichment unavailable (offline?); "
+                                     "decks shipped with in-context backs. "
+                                     "Use --no-enrich to silence this.\n")
+                elif deck_stats["enriched"] or deck_stats["missed"]:
+                    cache_clause = (f" ({deck_stats['cached']} from cache)"
+                                    if deck_stats["cached"] else "")
+                    sys.stderr.write(
+                        f"Dictionary enrichment: {deck_stats['enriched']} definition"
+                        f"{'s' if deck_stats['enriched'] != 1 else ''} added"
+                        f"{cache_clause}, {deck_stats['missed']} word"
+                        f"{'s' if deck_stats['missed'] != 1 else ''} not found.\n")
+            if failed:
+                return 1
+        return 0
+
+    rc = _run_once()
+    if rc:
+        return rc
+    if args.watch is not None:
+        sys.stderr.write(
+            f"Watching {args.file} (re-profile on change; Ctrl-C to stop)\n")
+        try:
+            watch_input(args.file, args.watch, _run_once)
+        except KeyboardInterrupt:
+            sys.stderr.write("\nStopped.\n")
     return 0
 
 

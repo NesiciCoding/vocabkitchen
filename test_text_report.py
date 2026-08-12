@@ -399,6 +399,54 @@ rc, _, err = run(["--watch", "--pre-enrich", "--file", _wf, "--text", "hi"])
 check("cli --watch rejects --pre-enrich",
       rc == 1 and "--watch and --pre-enrich don't combine" in err)
 
+# --- unit: Cambridge English exam mapping (--cambridge) -----------------------
+check("cambridge: B1 maps to Preliminary",
+      tr.cambridge_for("B1") == "B1 Preliminary (PET)")
+check("cambridge: A1 is below the exam ladder", tr.cambridge_for("A1") is None)
+check("cambridge: unknown band is None", tr.cambridge_for("XX") is None)
+_pcm = tr.analyze("We purchase fresh bread daily.", with_grammar=False,
+                   cambridge=True)
+_cm = _pcm["cambridge"]
+check("analyze carries the cambridge mapping",
+      _cm["vocabulary"]["reaches"] == "B2 First (FCE)"
+      and _cm["estimated"] == "B2 First (FCE)"
+      and _cm["grammar"] == {"typical": None, "reaches": None})
+check("analyze without --cambridge has no mapping",
+      tr.analyze("We purchase fresh bread daily.", with_grammar=False)
+      .get("cambridge") is None)
+_bufcm = io.StringIO()
+tr.render_pretty(_pcm, "cm.txt", stream=_bufcm)
+check("pretty shows the Cambridge English block",
+      "Cambridge English" in _bufcm.getvalue()
+      and "B2 First (FCE)" in _bufcm.getvalue())
+_md_cm = tr.export_markdown(_pcm)
+check("md gains the Cambridge English mapping section",
+      "## Cambridge English mapping" in _md_cm
+      and "| Vocabulary reaches (B2) | B2 First (FCE) |" in _md_cm)
+check("md without --cambridge has no mapping section",
+      "Cambridge English" not in tr.export_markdown(
+          tr.analyze("We purchase fresh bread daily.", with_grammar=False)))
+rc, out, err = run(["--cambridge", "--text", "We purchase fresh bread daily.",
+                    "--no-grammar"])
+_dcm = json.loads(out)
+check("cli --cambridge carries the mapping",
+      rc == 0 and _dcm["cambridge"]["vocabulary"]["reaches"]
+      == "B2 First (FCE)")
+
+# --- unit: cached definitions (no-network lookups for handouts) ---------------
+_cache_path = os.path.join(_curr_dir, "dict-cache.json")
+with open(_cache_path, "w", encoding="utf-8") as f:
+    json.dump({"version": tr._CACHE_VERSION,
+               "entries": {tr._DICT_API: {
+                   "purchase": {"definition": "to buy something",
+                                 "phonetic": "/p/", "partOfSpeech": "verb"},
+                   "miss": None}}}, f)
+_defs = tr.cached_definitions(_cache_path)
+check("cached_definitions returns real definitions only",
+      _defs == {"purchase": "to buy something"})
+check("cached_definitions of a missing cache is empty",
+      tr.cached_definitions(os.path.join(_curr_dir, "nope.json")) == {})
+
 # --- in-process analyze with grammar (needs spaCy) ----------------------------
 if HAVE_GRAMMAR:
     _pg = tr.analyze(_CAT, target_level="B1", with_grammar=True)

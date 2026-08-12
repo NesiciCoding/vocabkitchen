@@ -72,11 +72,16 @@ doesn't have.
   md` it also writes **one printable handout per reading**
   (`essays-interleave-B1-reading-2.md`) listing that reading's Introduce /
   Review / Due words with the sentence each appears in, for printing.
-- **`--curriculum`** — with `--export md`, check every text against a
-  curriculum checklist file (`[vocabulary]` + `[grammar]` sections, same
-  format as the text report) and add a pass/fail **Curriculum checklist**
-  section to each per-text handout — which texts cover the unit's
-  requirements at a glance.
+- **`--curriculum`** — check every text against a curriculum checklist file
+  (`[vocabulary]` + `[grammar]` sections, same format as the text report):
+  with `--export md`, a pass/fail **Curriculum checklist** section per
+  per-text handout; with `--export csv`, a **folder-level coverage grid**
+  (`essays-curriculum-coverage-B1.csv`) — one row per text, one column per
+  required item, with a pass verdict — so which texts cover the unit's
+  requirements is visible at a glance.
+- **`--watch`** — the edit → re-check loop for a whole folder: keep
+  re-profiling the `--file` input whenever any text in it changes on disk
+  (polls every second; `--watch 0.2` for faster) until Ctrl-C.
 - **`--pre-enrich`** — prime the dictionary cache from the **whole folder's
   distinct vocabulary** in one polite, rate-limited pass, then exit, so
   subsequent `--export flashcards` runs answer from the cache with zero
@@ -144,7 +149,8 @@ Flags:
 | `--gap-report`      | `--export md\|csv` only: list the target-level constructions each text does not use yet, per handout |
 | `--interleave`      | build a spaced-introduction schedule across the set (new words per reading, review + due flags) |
 | `--new-words-per-reading` | `--interleave` only: max new words introduced per reading (default 5) |
-| `--curriculum`      | `--export md` only: check every text against a curriculum checklist file and add a pass/fail coverage section to each handout |
+| `--curriculum`      | `--export md\|csv` only: check every text against a curriculum checklist file (md: per-text sections; csv: the folder-level coverage grid) |
+| `--watch`           | re-profile the `--file` input whenever any text in it changes on disk (edit → re-check loop; optional interval in seconds, default 1) |
 | `--no-enrich`       | `--export flashcards` only: skip the Free Dictionary API               |
 | `--output`          | `--export` only: write all lists into this directory (default: next to each source) |
 | `--pre-enrich`      | prime the dictionary cache from the whole folder's distinct vocabulary in one rate-limited pass, then exit |

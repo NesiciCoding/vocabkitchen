@@ -19,6 +19,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SCRIPT = os.path.join(HERE, "class_profile.py")
@@ -517,6 +518,85 @@ try:
           cp.interleave_reading_path(None, "B1", 2, os.path.join(_tmp, "decks"))
           == os.path.join(_tmp, "decks", "class-interleave-B1-reading-2.md"))
 
+    # Reading handouts reuse the dictionary cache for definitions when
+    # available (falling back to the in-text sentence offline).
+    _cached_rmd = cp.interleave_reading_markdown(
+        _ils, _ils["readings"][0], _il_rprof,
+        lookup={"alpha": "a Greek letter"}.get)
+    check("reading handout uses the cached definition when present",
+          "| `alpha` | B2 | a Greek letter |" in _cached_rmd
+          and "| `bravo` | B2 | The alpha result is bravo news |" in _cached_rmd)
+
+    # --- unit: folder-level curriculum coverage grid --------------------------
+    _cpays = [
+        {"file": "a.txt", "curriculum": {
+            "vocabulary": [{"word": "purchase", "present": True},
+                           {"word": "mat", "present": False}],
+            "grammar": [{"name": "Passive (present)", "present": False}],
+            "pass": False}},
+        {"file": "b.txt", "curriculum": {
+            "vocabulary": [{"word": "purchase", "present": False},
+                           {"word": "mat", "present": True}],
+            "grammar": [{"name": "Passive (present)", "present": True}],
+            "pass": False}},
+    ]
+    _grid = cp.curriculum_coverage_csv(_cpays, "B1")
+    _grid_rows = list(_csv.reader(_grid.splitlines()))
+    check("curriculum grid: one column per item + pass",
+          _grid_rows[0] == ["text", "purchase", "mat", "Passive (present)", "pass"])
+    check("curriculum grid: one row per text with yes/no cells",
+          _grid_rows[1] == ["a.txt", "yes", "no", "no", "no"]
+          and _grid_rows[2] == ["b.txt", "no", "yes", "yes", "no"])
+    check("curriculum grid: no curriculum -> None",
+          cp.curriculum_coverage_csv([{"file": "a.txt"}], "B1") is None)
+    check("curriculum grid path named after source folder",
+          cp.curriculum_coverage_path(_tmp, "B1", None)
+          == os.path.join(_tmp, os.path.basename(_tmp) + "-curriculum-coverage-B1.csv"))
+    check("curriculum grid path into --output dir",
+          cp.curriculum_coverage_path(None, "B1", os.path.join(_tmp, "decks"))
+          == os.path.join(_tmp, "decks", "class-curriculum-coverage-B1.csv"))
+    check("curriculum grid is an export artifact (re-scan skips it)",
+          cp.is_export_artifact("essays-curriculum-coverage-B1.csv"))
+
+    # --- unit: folder watch mode ----------------------------------------------
+    _wdir = tempfile.mkdtemp(prefix="classprof_watch_")
+    try:
+        with open(os.path.join(_wdir, "a.txt"), "w", encoding="utf-8") as f:
+            f.write(_EASY)
+        _snap1 = cp._input_snapshot(_wdir)
+        time.sleep(0.02)
+        with open(os.path.join(_wdir, "a.txt"), "w", encoding="utf-8") as f:
+            f.write(_EASY + " More words here.")
+        _snap2 = cp._input_snapshot(_wdir)
+        check("folder snapshot detects a change",
+              _snap1 is not None and _snap2 is not None and _snap1 != _snap2)
+        with open(os.path.join(_wdir, "b.txt"), "w", encoding="utf-8") as f:
+            f.write(_MID)
+        _snap3 = cp._input_snapshot(_wdir)
+        check("folder snapshot detects added files",
+              _snap3 is not None and set(_snap3) - set(_snap2))
+        check("folder snapshot of a missing dir is None",
+              cp._input_snapshot(os.path.join(_wdir, "nope")) is None)
+        _w_runs = []
+
+        def _w_cb():
+            _w_runs.append(cp._input_snapshot(_wdir))
+
+        _tw = threading.Thread(target=lambda: cp.watch_input(_wdir, 0.01, _w_cb,
+                                                             timeout=2), daemon=True)
+        _tw.start()
+        time.sleep(0.1)
+        with open(os.path.join(_wdir, "c.txt"), "w", encoding="utf-8") as f:
+            f.write(_HARD)
+        time.sleep(0.1)
+        for _f in os.listdir(_wdir):
+            os.remove(os.path.join(_wdir, _f))
+        _tw.join(3)
+        check("folder watch: re-runs on change and stops when empty",
+              len(_w_runs) >= 1)
+    finally:
+        shutil.rmtree(_wdir, ignore_errors=True)
+
     # --- unit: --curriculum wires the checklist per text ----------------------
     _curr_dir2 = tempfile.mkdtemp(prefix="classprof_curr_")
     _curr_path2 = os.path.join(_curr_dir2, "unit.txt")
@@ -816,18 +896,19 @@ try:
           rc == 1 and "applies to the md/csv" in err)
 
     # --- integration: --curriculum in the per-text handouts -------------------
+    _curr_cl_dir = tempfile.mkdtemp(prefix="classprof_currcl_")
+    _curr_cl = os.path.join(_curr_cl_dir, "unit.txt")
+    with open(_curr_cl, "w", encoding="utf-8") as f:
+        f.write("[vocabulary]\npurchase\nmat\n\n[grammar]\npassive_present\n")
     _curr_in = tempfile.mkdtemp(prefix="classprof_currcli_")
     try:
-        with open(os.path.join(_curr_in, "unit.txt"), "w",
-                  encoding="utf-8") as f:
-            f.write("[vocabulary]\npurchase\nmat\n\n[grammar]\npassive_present\n")
         with open(os.path.join(_curr_in, "purchase.txt"), "w",
                   encoding="utf-8") as f:
             f.write("We purchase fresh bread daily.")
         _curr_out = os.path.join(_curr_in, "out")
         rc, out, err = run(["--file", _curr_in, "--target-level", "B1",
                             "--no-grammar", "--export", "md", "--curriculum",
-                            os.path.join(_curr_in, "unit.txt"), "--output", _curr_out])
+                            _curr_cl, "--output", _curr_out])
         check("class --curriculum rc==0", rc == 0)
         with open(os.path.join(_curr_out, "purchase-preteaching-B1.md"),
                   encoding="utf-8") as f:
@@ -837,19 +918,32 @@ try:
               and "| purchase | vocabulary | present | B2 |" in _cc_md
               and "| mat | vocabulary | missing | — |" in _cc_md)
         rc, _, err = run(["--file", _curr_in, "--target-level", "B1",
-                          "--curriculum", os.path.join(_curr_in, "unit.txt")])
+                          "--curriculum", _curr_cl])
         check("class --curriculum without --export rc==1",
-              rc == 1 and "requires --export md" in err)
-        rc, _, err = run(["--file", _curr_in, "--target-level", "B1", "--export", "csv",
-                          "--curriculum", os.path.join(_curr_in, "unit.txt")])
-        check("class --curriculum with csv rc==1",
-              rc == 1 and "requires --export md" in err)
+              rc == 1 and "--curriculum needs --export md" in err)
         rc, _, err = run(["--file", _curr_in, "--target-level", "B1", "--export", "md",
-                          "--curriculum", os.path.join(_curr_in, "nope.txt")])
+                          "--curriculum", os.path.join(_curr_cl_dir, "nope.txt")])
         check("class --curriculum missing file rc==1",
               rc == 1 and "curriculum file not found" in err)
+        # --export csv --curriculum: the folder-level coverage grid.
+        _cc_csv_out = os.path.join(_curr_in, "csvout")
+        rc, out, err = run(["--file", _curr_in, "--target-level", "B1", "--no-grammar",
+                            "--export", "csv", "--curriculum", _curr_cl,
+                            "--output", _cc_csv_out])
+        check("class --curriculum csv grid rc==0", rc == 0)
+        with open(os.path.join(_cc_csv_out,
+                               os.path.basename(_curr_in) + "-curriculum-coverage-B1.csv"),
+                  encoding="utf-8") as f:
+            _cc_rows = list(_csv.reader(f))
+        check("class --curriculum csv grid shape",
+              _cc_rows[0] == ["text", "purchase", "mat", "Passive (present)", "pass"]
+              and len(_cc_rows) == 2
+              and _cc_rows[1][0] == "purchase.txt"
+              and _cc_rows[1][1] == "yes" and _cc_rows[1][2] == "no"
+              and _cc_rows[1][4] == "no")
     finally:
         shutil.rmtree(_curr_in, ignore_errors=True)
+        shutil.rmtree(_curr_cl_dir, ignore_errors=True)
 
     # --- integration: --interleave spaced introduction schedule ---------------
     _il_in = tempfile.mkdtemp(prefix="classprof_il_")
@@ -885,7 +979,7 @@ try:
         check("reading handout written with introduce definitions",
               "# Reading 1 — a.txt" in _rmd
               and "## Introduce (" in _rmd
-              and "| Word | Level | Definition (in this text) |" in _rmd
+              and "| Word | Level | Definition |" in _rmd
               and "| `purchase` | B2 |" in _rmd
               and "| `circumstances` | B2 |" in _rmd
               and "We purchase fresh bread and the circumstances matter" in _rmd)
@@ -927,6 +1021,42 @@ try:
               rc == 1 and "at least 1" in err)
     finally:
         shutil.rmtree(_il_in, ignore_errors=True)
+
+    # --- integration: --watch validation + cache-backed reading handouts ------
+    _wcli_in = tempfile.mkdtemp(prefix="classprof_watchcli_")
+    try:
+        with open(os.path.join(_wcli_in, "a.txt"), "w", encoding="utf-8") as f:
+            f.write("We purchase fresh bread and the circumstances matter.")
+        rc, _, err = run(["--watch", "--text", "hi"])
+        check("class --watch requires --file",
+              rc == 1 and "--watch re-profiles the input" in err)
+        rc, _, err = run(["--file", _wcli_in, "--no-grammar", "--watch",
+                          "--pre-enrich"])
+        check("class --watch rejects --pre-enrich",
+              rc == 1 and "--watch and --pre-enrich don't combine" in err)
+        # Reading handouts reuse the dictionary cache when primed.
+        _cache_path = os.path.join(_wcli_in, "cache.json")
+        with open(_cache_path, "w", encoding="utf-8") as f:
+            json.dump({"version": tr._CACHE_VERSION,
+                       "entries": {tr._DICT_API: {
+                           "purchase": {"definition": "to buy something",
+                                         "phonetic": "/p/",
+                                         "partOfSpeech": "verb"}}}},
+                      f)
+        _wcli_out = os.path.join(_wcli_in, "out")
+        rc, out, err = run(["--file", _wcli_in, "--target-level", "B1", "--no-grammar",
+                            "--interleave", "--export", "md", "--dictionary-cache",
+                            _cache_path, "--output", _wcli_out])
+        check("class reading handout with cache rc==0", rc == 0)
+        with open(os.path.join(_wcli_out, os.path.basename(_wcli_in)
+                               + "-interleave-B1-reading-1.md"),
+                  encoding="utf-8") as f:
+            _rh_md = f.read()
+        check("reading handout uses the cached definition",
+              "| `purchase` | B2 | to buy something |" in _rh_md
+              and "| `circumstances` | B2 | We purchase fresh bread" in _rh_md)
+    finally:
+        shutil.rmtree(_wcli_in, ignore_errors=True)
 
     rc, out, err = run(["--file", os.path.join(_tmp, "easy.txt"), "--target-level", "B1",
                         "--no-grammar", "--export", "csv"])
@@ -1399,7 +1529,7 @@ if os.path.isdir(_sample):
                 _rmd = f.read()
             check(f"sample interleave: reading {_i} handout shape",
                   f"# Reading {_i} — {os.path.basename(_r['file'])}" in _rmd
-                  and "| Word | Level | Definition (in this text) |" in _rmd
+                  and "| Word | Level | Definition |" in _rmd
                   and "## Introduce" in _rmd and "## Review" in _rmd
                   and "## Due for review" in _rmd)
             check(f"sample interleave: reading {_i} introduces its words",
@@ -1423,6 +1553,30 @@ if os.path.isdir(_sample):
                   and (_r[4] == "" or int(_r[4]) == _w.get("deferredFrom")))
     finally:
         shutil.rmtree(_golden_il, ignore_errors=True)
+
+    # The curriculum pass of the CI golden check: --export csv --curriculum
+    # writes the folder-level coverage grid — one row per text, one column
+    # per required item, with a pass verdict per text.
+    _golden_curr = tempfile.mkdtemp(prefix="classprof_golden_curr_")
+    try:
+        _curr_path = os.path.join(_golden_curr, "unit-checklist.txt")
+        with open(_curr_path, "w", encoding="utf-8") as f:
+            f.write("[vocabulary]\npurchase\nmat\n\n[grammar]\npassive_present\n")
+        rc, out, err = run(["--file", _sample, "--target-level", "B1", "--no-grammar",
+                            "--export", "csv", "--curriculum", _curr_path,
+                            "--output", _golden_curr])
+        check("sample curriculum grid: rc==0", rc == 0)
+        _matrix = "sample-readings-curriculum-coverage-B1.csv"
+        with open(os.path.join(_golden_curr, _matrix), encoding="utf-8") as f:
+            _mrows = list(_csv.reader(f))
+        check("sample curriculum grid: header with one column per item",
+              _mrows[0] == ["text", "purchase", "mat", "Passive (present)", "pass"])
+        check("sample curriculum grid: one row per text with yes/no cells",
+              len(_mrows) == 1 + len(files)
+              and all(r[0] in files for r in _mrows[1:])
+              and all(c in ("yes", "no") for r in _mrows[1:] for c in r[1:]))
+    finally:
+        shutil.rmtree(_golden_curr, ignore_errors=True)
 else:
     skipped += 1
 
@@ -1448,7 +1602,8 @@ if all(os.path.isfile(p) for p in (_skill_local, _skill_plugin, _plugin_json)):
     check("class-profile repo-local copy is repo-flavoured",
           "../../../" in _sl and "class_profile.py" in _sl)
     check("class-profile copies are deliberately different flavours", _sl != _sp)
-    for _flag in ("--gap-report", "--interleave", "--new-words-per-reading"):
+    for _flag in ("--gap-report", "--interleave", "--new-words-per-reading",
+                  "--curriculum", "--watch"):
         check(f"class-profile skill documents {_flag} in both copies",
               _flag in _sl and _flag in _sp)
     _manifest = json.load(open(_plugin_json, encoding="utf-8"))

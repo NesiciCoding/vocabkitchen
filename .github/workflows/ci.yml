@@ -84,8 +84,10 @@ jobs:
           ok = True
           required_flags = {
               "class-profile": ["--gap-report", "--interleave",
-                                "--new-words-per-reading"],
-              "text-report": ["--suggest", "--gap-report"],
+                                "--new-words-per-reading", "--curriculum",
+                                "--watch"],
+              "text-report": ["--suggest", "--gap-report", "--watch",
+                              "--curriculum", "--cambridge"],
           }
           for name in sorted(os.listdir("plugins")):
               d = os.path.join("plugins", name)
@@ -389,6 +391,29 @@ jobs:
           finally:
               shutil.rmtree(outdir, ignore_errors=True)
 
+          # Curriculum pass: --export csv --curriculum writes the folder-level
+          # coverage grid — one row per text, one column per required item,
+          # with a pass verdict per text, in the documented shape.
+          outdir = tempfile.mkdtemp(prefix="classprof-golden-curriculum-")
+          try:
+              curr = os.path.join(outdir, "unit-checklist.txt")
+              with open(curr, "w", encoding="utf-8") as f:
+                  f.write("[vocabulary]\npurchase\nmat\n\n[grammar]\npassive_present\n")
+              rc, out, err = run_cli(["--file", "sample-readings/", "--target-level", "B1",
+                                      "--no-grammar", "--export", "csv",
+                                      "--curriculum", curr, "--output", outdir])
+              assert rc == 0, err
+              matrix = "sample-readings-curriculum-coverage-B1.csv"
+              assert matrix in os.listdir(outdir), os.listdir(outdir)
+              mrows = list(csv.reader(open(os.path.join(outdir, matrix),
+                                           encoding="utf-8")))
+              assert mrows[0] == ["text", "purchase", "mat", "Passive (present)", "pass"], mrows[0]
+              assert len(mrows) == 1 + len(files), mrows  # one row per text
+              assert all(r[0] in files for r in mrows[1:]), mrows
+              assert all(c in ("yes", "no") for r in mrows[1:] for c in r[1:]), mrows
+          finally:
+              shutil.rmtree(outdir, ignore_errors=True)
+
           # Interleave pass: the spaced-introduction schedule across the set.
           # --interleave --export md writes the per-text handouts + summary
           # plus the <set>-interleave-<LEVEL>.md handout, and the run's own
@@ -416,7 +441,7 @@ jobs:
                   rmd = open(os.path.join(outdir, reading_files[i - 1]),
                              encoding="utf-8").read()
                   assert f"# Reading {i} — {os.path.basename(r['file'])}" in rmd, rmd
-                  assert "| Word | Level | Definition (in this text) |" in rmd, rmd
+                  assert "| Word | Level | Definition |" in rmd, rmd
                   assert "## Introduce" in rmd and "## Review" in rmd \
                          and "## Due for review" in rmd, rmd
                   for d in r["introduce"]:

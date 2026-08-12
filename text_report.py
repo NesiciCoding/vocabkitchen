@@ -109,6 +109,14 @@ Flags:
                       when recognised. Grammar items are unchecked when the
                       grammar side is off. Carried in JSON as `curriculum` and
                       rendered in pretty mode and the --export md handout.
+    --cambridge       the Phase 4 exam mapping: map the report's own CEFR
+                      bands (vocabulary typical/reaches, grammar
+                      typical/reaches, estimated level) to the matching
+                      Cambridge English Qualification — A2 Key, B1
+                      Preliminary, B2 First, C1 Advanced, C2 Proficiency.
+                      Carried in JSON as `cambridge`, shown in pretty mode,
+                      and rendered as a 'Cambridge English mapping' section in
+                      the --export md handout.
     (stdin)           if neither --text nor --file is given, text is read from stdin
 
 Output: with --format json, a JSON object that is a superset of both profilers'
@@ -361,6 +369,43 @@ def grammar_gap_report(gresults, cefrj_levels, target):
     }
 
 
+_CAMBRIDGE = {
+    "A1": None,                     # below the exam ladder
+    "A2": "A2 Key (KET)",
+    "B1": "B1 Preliminary (PET)",
+    "B2": "B2 First (FCE)",
+    "C1": "C1 Advanced (CAE)",
+    "C2": "C2 Proficiency (CPE)",
+}
+
+
+def cambridge_for(band):
+    """The Cambridge English Qualification matching a CEFR band
+    (None for A1 — below the exam ladder, and for unknown bands)."""
+    return _CAMBRIDGE.get(band)
+
+
+def cambridge_mapping(payload):
+    """The report's own bands, each mapped to its Cambridge qualification.
+
+    Built from the payload so it always matches what the report actually
+    shows: vocabulary typical/reaches, grammar typical/reaches (when
+    analysed), and the blended estimated level. Grammar stays null when the
+    grammar side didn't run.
+    """
+    v = payload.get("vocabulary") or {}
+    g = payload.get("grammar") or {}
+    gl = g.get("estimatedLevel") or {}
+    est = payload.get("estimatedLevel")
+    return {
+        "vocabulary": {"typical": cambridge_for(v.get("typical")),
+                        "reaches": cambridge_for(v.get("coverage"))},
+        "grammar": {"typical": cambridge_for(gl.get("typical")),
+                     "reaches": cambridge_for(gl.get("reaches"))},
+        "estimated": cambridge_for(est),
+    }
+
+
 class CurriculumError(Exception):
     """A problem with the --curriculum checklist file."""
 
@@ -526,7 +571,7 @@ def blend_level(vocab_coverage, grammar_typical):
 
 def analyze(text, target_level=None, wordlists_dir=None, grammar_dir=None,
             with_grammar=True, with_readability=True, suggest=False,
-            gap_report=False, curriculum=None):
+            gap_report=False, curriculum=None, cambridge=False):
     """Run both profilers and readability over *text*; return the report payload.
 
     With ``suggest=True`` (and a *target_level*), each above-target word that
@@ -534,7 +579,9 @@ def analyze(text, target_level=None, wordlists_dir=None, grammar_dir=None,
     simpler alternative to rewrite it with. With ``gap_report=True`` (and a
     *target_level*), ``grammarGap`` lists the target-level constructions the
     text does not use yet. With ``curriculum`` (a parsed checklist), the
-    payload carries a ``curriculum`` pass/fail coverage report.
+    payload carries a ``curriculum`` pass/fail coverage report. With
+    ``cambridge=True``, the payload also maps its own bands to the matching
+    Cambridge English Qualifications (the Phase 4 exam-mapping item).
     """
     script_dir = os.path.dirname(os.path.abspath(__file__))
 
@@ -565,6 +612,7 @@ def analyze(text, target_level=None, wordlists_dir=None, grammar_dir=None,
         "grammarGapError": None,
         "curriculum": None,
         "curriculumError": None,
+        "cambridge": None,
         "readability": compute_readability(text, total) if with_readability else None,
     }
 
@@ -629,6 +677,9 @@ def analyze(text, target_level=None, wordlists_dir=None, grammar_dir=None,
 
     grammar_typical = gmeta["estimatedLevel"]["typical"] if gmeta else None
     payload["estimatedLevel"] = blend_level(coverage, grammar_typical)
+
+    if cambridge:
+        payload["cambridge"] = cambridge_mapping(payload)
 
     if curriculum:
         # Re-run the checklist with the grammar results now that the grammar
@@ -702,6 +753,23 @@ def render_pretty(payload, source_label, stream=None):
                    + dim("  (blend: vocabulary coverage + grammar centre)"))
     else:
         out.append(f"{bold('Estimated level:')} {dim('—')}")
+
+    cm = payload.get("cambridge")
+    if cm is not None:
+        def _exam(d):
+            return d or "—"
+        out.append("")
+        out.append(bold("Cambridge English"))
+        out.append(f"  vocabulary typical {_lvl(v['typical'], colour)} → "
+                   f"{_exam(cm['vocabulary']['typical'])}"
+                   f"  ·  reaches {_lvl(v['coverage'], colour)} → "
+                   f"{_exam(cm['vocabulary']['reaches'])}")
+        if cm["grammar"]["typical"] or cm["grammar"]["reaches"]:
+            out.append(f"  grammar typical → {_exam(cm['grammar']['typical'])}"
+                       f"  ·  reaches → {_exam(cm['grammar']['reaches'])}")
+        if est is not None:
+            out.append(f"  estimated {_lvl(est, colour)} → {_exam(cm['estimated'])}")
+        out.append(dim("  (the exam a candidate at each reported band is working toward)"))
 
     target = payload["targetLevel"]
     if target is not None:
@@ -1090,6 +1158,30 @@ def export_markdown(payload, cloze=False):
             lines.append("_Grammar items unchecked — the grammar side was not "
                          "available._")
             lines.append("")
+    cm = payload.get("cambridge")
+    if cm is not None:
+        lines.append("## Cambridge English mapping")
+        lines.append("")
+        lines.append("| Reported band | Cambridge English |")
+        lines.append("|---|---|")
+        v = payload.get("vocabulary") or {}
+        g = payload.get("grammar") or {}
+        gl = g.get("estimatedLevel") or {}
+        rows = [
+            (f"Vocabulary typical ({v.get('typical')})", cm["vocabulary"]["typical"]),
+            (f"Vocabulary reaches ({v.get('coverage')})", cm["vocabulary"]["reaches"]),
+        ]
+        if cm["grammar"]["typical"] or cm["grammar"]["reaches"]:
+            rows.append((f"Grammar typical ({gl.get('typical')})",
+                         cm["grammar"]["typical"]))
+            rows.append((f"Grammar reaches ({gl.get('reaches')})",
+                         cm["grammar"]["reaches"]))
+        est = payload.get("estimatedLevel")
+        if est:
+            rows.append((f"Estimated level ({est})", cm["estimated"]))
+        for label, exam in rows:
+            lines.append(f"| {label} | {exam or '—'} |")
+        lines.append("")
     read = payload.get("readability")
     if read:
         lines.append(f"Readability: Flesch–Kincaid grade "
@@ -1105,6 +1197,23 @@ def export_markdown(payload, cloze=False):
                      "case-insensitively). For paper, replace {{...}} with a "
                      "blank; the word column is the answer key._")
     return "\n".join(lines) + "\n"
+
+
+def cached_definitions(cache_path, base_url=None):
+    """word -> definition from the dictionary cache, no network.
+
+    Lets cache-adjacent exports (the class profile's per-reading interleave
+    handouts) use real definitions when a ``--pre-enrich`` pass has primed
+    the cache, falling back to in-text sentences offline. An unreadable or
+    missing cache yields an empty dict, never an error.
+    """
+    try:
+        cache = load_dictionary_cache(cache_path)
+    except Exception:
+        return {}
+    bucket = cache.get(base_url or _DICT_API) or {}
+    return {w: e["definition"] for w, e in bucket.items()
+            if e and e.get("definition")}
 
 
 def _lookup_with_cache(word, url_key, cache, fetcher, offline):
@@ -1445,6 +1554,11 @@ def main(argv=None):
                         help="check the text against a curriculum checklist file "
                              "(sections [vocabulary] and [grammar]) and report pass/fail "
                              "coverage of the required words and constructions")
+    parser.add_argument("--cambridge", action="store_true",
+                        help="map the report's own CEFR bands to the matching Cambridge "
+                             "English Qualification (A2 Key, B1 Preliminary, B2 First, "
+                             "C1 Advanced, C2 Proficiency) — the Phase 4 exam mapping")
+    parser.add_argument("positional", nargs="*", help=argparse.SUPPRESS)
     parser.add_argument("positional", nargs="*", help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
 
@@ -1537,6 +1651,7 @@ def main(argv=None):
                 suggest=args.suggest,
                 gap_report=args.gap_report,
                 curriculum=curriculum,
+                cambridge=args.cambridge,
             )
         except vp.WordListError as ex:
             sys.stderr.write(str(ex) + "\n")
