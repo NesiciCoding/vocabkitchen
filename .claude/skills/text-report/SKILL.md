@@ -50,6 +50,48 @@ hand:
   there and the gap becomes an input blank (auto-graded case-insensitively);
   on paper the gap doubles as a worksheet blank with the item's row as answer
   key. Applies to `--export md|csv`.
+- **`--suggest`** — the rewrite aid: for each above-target word that has a
+  curated alternative in the bundled list (`WordLists/synonyms.csv`, validated
+  by `build_wordlists.py --check`), suggest the simpler word — shown inline in
+  the above-target list (`purchase → buy (A1)`), carried in JSON as
+  `aboveTarget.words[i].suggestion`, and added as a **Simpler alternative**
+  column in the `--export md|csv` handout. Requires `--target-level`.
+- **`--gap-report`** — the grammar gap report: with `--target-level`, list the
+  target-level constructions the text does **not** use yet — the "introduce
+  these structures" checklist for graded-reader authors, grouped by category
+  in the terminal, carried in JSON as `grammarGap.missing`, and added as a
+  **Constructions to introduce** section in the `--export md` handout. Needs
+  the grammar side (spaCy); incompatible with `--no-grammar`.
+- **`--watch`** — the edit → re-check loop: keep re-profiling the `--file`
+  input whenever it changes on disk (polls every second; `--watch 0.2` for
+  faster) until Ctrl-C — tighten a graded reader while the report updates on
+  each save.
+- **`--curriculum`** — the curriculum checklist: check the text against a
+  checklist file (sections `[vocabulary]`, one word per line, and
+  `[grammar]`, construction names as shown by the grammar profiler or their
+  ids) and report **pass/fail coverage** — each required word present or
+  missing (with its CEFR band when recognised), each required construction
+  used or not, `curriculum.pass` in JSON, and a **Curriculum checklist**
+  section in the `--export md` handout. Grammar items are flagged unchecked
+  when the grammar side is off.
+- **`--cambridge`** — the Phase 4 exam mapping: map the report's own CEFR
+  bands (vocabulary typical/reaches, grammar typical/reaches, estimated
+  level) to the matching Cambridge English Qualification — A2 Key, B1
+  Preliminary, B2 First, C1 Advanced, C2 Proficiency. Carried in JSON as
+  `cambridge`, shown in pretty mode, and rendered as a **Cambridge English
+  mapping** section in the `--export md` handout.
+- **`--cando`** — the Phase 4 Can-Do framing: express the text's demands as
+  CEFR global-scale Can-Do descriptors — what a learner at the reached /
+  estimated band can do, the language rubrics and self-assessment forms
+  already use. Carried in JSON as `cando`, shown in pretty mode, and
+  rendered as a **Can-Do descriptors** section in the `--export md` handout.
+  With `--target-level`, each dimension also reports **`aboveTarget`** — the
+  descriptors the text demands **beyond** what the class is expected to do
+  yet (every level strictly above the target up to the text's own band), as
+  an **Above the {target} target** block in pretty mode and the handout.
+  With `--export flashcards` it writes a companion **Can-Do reference deck**
+  (`essay-preteaching-B1-cando-deck.csv`) next to the word deck — the
+  demands as cards in the same RubricMaker import shape.
 - **`--pre-enrich`** — prime the dictionary cache for a whole class in one
   polite, rate-limited pass: point it at a word list (one word per line) or
   an essay (`--file`/`--text`/stdin), it looks each distinct word up against
@@ -94,6 +136,8 @@ Flags:
 | `--no-grammar`      | skip the grammar side even if spaCy is available                        |
 | `--no-readability`  | omit the Flesch–Kincaid / Flesch Reading Ease line                      |
 | `--export`          | `csv`, `md`, or `flashcards` — write the above-target items as a pre-teaching list (requires `--target-level`) |
+| `--suggest`         | rewrite aid: suggest a simpler alternative for each above-target word that has a curated mapping (requires `--target-level`) |
+| `--gap-report`      | grammar gap report: list the target-level constructions the text does not use yet (requires `--target-level`; needs spaCy) |
 | `--cloze`           | render exported examples as `{{...}}` fill-the-gap sentences (RubricMaker syntax; `--export md\|csv` only) |
 | `--no-enrich`       | `--export flashcards` only: skip the Free Dictionary API (card backs stay the in-text context sentence) |
 | `--dictionary-url`  | `--export flashcards` only: override the dictionary API base URL (proxy / test server) |
@@ -103,6 +147,12 @@ Flags:
 | `--delay`          | `--pre-enrich` only: seconds between requests (default 0.25; `0` for none) |
 | `--limit`          | `--pre-enrich` only: cap the number of new lookups |
 | `--output`          | where the `--export` file goes (default: `<stem>-preteaching-<LEVEL>.<ext>` next to the input, or `preteaching-<LEVEL>.<ext>` in the cwd; decks get a `-deck` suffix) |
+| `--watch`           | re-profile the `--file` input whenever it changes on disk (edit → re-check loop; optional interval in seconds, default 1) |
+| `--curriculum`      | check the text against a curriculum checklist file (`[vocabulary]` + `[grammar]` sections) and report pass/fail coverage; validated before profiling — header typos like `[grammer]` fail fast with a hint, empty sections and unrecognised grammar items (typos like `second conditinal`) warn with a suggestion |
+| `--cambridge`       | map the report's own CEFR bands to the matching Cambridge English Qualification (A2 Key, B1 Preliminary, B2 First, C1 Advanced, C2 Proficiency) |
+| `--cando`           | express the text's demands as CEFR global-scale Can-Do descriptors; with `--target-level`, also list the ones above the target's expectations |
+| `--comments`        | add the full apply-as-comment rubric: one comment per construction (used / not used yet, from `grammarCriteria`; filtered to the class level under `--target-level` — used above-target constructions become "pre-teach or rewrite" notes carrying a curated rewrite suggestion, unused ones drop) plus one comment per above-target vocabulary word |
+| `--schema`          | print the versioned analysis payload schema (`analysis.schema.json` — the RubricMaker report contract, currently 1.3) as JSON and exit |
 | (stdin)             | if neither `--text` nor `--file` is given, text is read from stdin      |
 
 **Choosing input mode:** `--text` for a snippet, `--file` for a document on

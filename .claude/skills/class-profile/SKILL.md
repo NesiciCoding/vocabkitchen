@@ -55,13 +55,60 @@ doesn't have.
   **set-level summary handout** (`essays-summary-B1.md`) aggregates the
   pooled distribution plus each text's verdict and %-above in one page.
   (A re-run over the same folder skips these handouts — it never re-profiles
-  its own exports.)
+  its own exports.) `--suggest` adds a **Simpler alternative** column to the
+  per-text handouts: a curated lower-band swap (`purchase → buy`) for each
+  above-target word, from the same list the text report uses.
+  `--gap-report` adds a **Grammar gaps** section to each per-text handout —
+  the target-level constructions the text does not use yet (e.g. the second
+  conditional), so a folder run shows every text's missing grammar.
+- **Spaced introduction (`--interleave`)** — build a **vocabulary
+  interleaving schedule** across the whole set: each reading introduces at
+  most `--new-words-per-reading` new above-target words (overflow is deferred
+  to the next reading with room), words that recur later are flagged for
+  **spaced review**, and words absent for two or more readings are marked
+  **due**. With `--export md|csv` it writes a `<set>-interleave-<LEVEL>.md|csv`
+  schedule next to the handouts — the plan for introducing the folder's
+  vocabulary at a controlled rate across repeated readings. With `--export
+  md` it also writes **one printable handout per reading**
+  (`essays-interleave-B1-reading-2.md`) listing that reading's Introduce /
+  Review / Due words with the sentence each appears in, for printing.
+- **`--curriculum`** — check every text against a curriculum checklist file
+  (`[vocabulary]` + `[grammar]` sections, same format as the text report):
+  with `--export md`, a pass/fail **Curriculum checklist** section per
+  per-text handout; with `--export csv`, a **folder-level coverage grid**
+  (`essays-curriculum-coverage-B1.csv`) — one row per text, one column per
+  required item, with a pass verdict — so which texts cover the unit's
+  requirements is visible at a glance. The same grid rides in the JSON
+  report as `curriculumCoverage` (items × rows × cells), for scripts.
+- **Can-Do framing (`--cando`)** — with `--export md|csv`, each per-text
+  handout gains the text's **CEFR Can-Do descriptors** (what a learner at
+  the text's demand level can do) plus an **Above the target** list — the
+  descriptors the text demands beyond what the class is expected to do yet,
+  the Phase 4 Can-Do framing per text. With `--export flashcards` the run
+  also writes a **combined Can-Do reference deck**
+  (`essays-preteaching-B1-cando-deck.csv`) next to the word decks: one card
+  per above-target demand in the same RubricMaker import shape, so a deck
+  doubles as Can-Do reference cards. Under `--targets A2,B1` each level
+  gets its own deck (`essays-preteaching-A2-cando-deck.csv`,
+  `essays-preteaching-B1-cando-deck.csv`), the demands measured against
+  that level.
+- **Set-level Can-Do diff (`--cando-diff`)** — with `--export md|csv`, the
+  summary handout gains a **Can-Do demands across the set** section: which
+  above-target descriptors the texts share, most-common first, with the
+  demanding texts listed — the class-level challenge in one table (implies
+  `--cando`). `--cando-diff-sort band` re-orders the section by the CEFR
+  ladder ascending, to see which demand levels to tackle in order.
+- **`--watch`** — the edit → re-check loop for a whole folder: keep
+  re-profiling the `--file` input whenever any text in it changes on disk
+  (polls every second; `--watch 0.2` for faster) until Ctrl-C.
 - **`--pre-enrich`** — prime the dictionary cache from the **whole folder's
   distinct vocabulary** in one polite, rate-limited pass, then exit, so
   subsequent `--export flashcards` runs answer from the cache with zero
-  requests. `--delay SECONDS` spaces requests out (default 0.25), `--limit N`
-  caps new lookups; `--dictionary-cache` / `--dictionary-url` point the
-  lookups at a shared or test cache/server.
+  requests. Combined with `--interleave`, it primes **exactly the words the
+  schedule will introduce** — the reading handouts and decks then never hit
+  the network, even mid-watch. `--delay SECONDS` spaces requests out
+  (default 0.25), `--limit N` caps new lookups; `--dictionary-cache` /
+  `--dictionary-url` point the lookups at a shared or test cache/server.
 
 The vocabulary side is dependency-free Python 3 and reuses `vocab_profile`'s
 tokenizer, word lists and percentage rounding verbatim. The grammar side
@@ -83,6 +130,8 @@ python3 class_profile.py --file essays/ --max-level B1           # "which of the
 python3 class_profile.py --file essays/ --targets A2,B1,B2       # fit across classes
 python3 class_profile.py --file essays/ --export-vocab vocab-lists/   # glossaries per band
 python3 class_profile.py --file essays/ --target-level B1 --export md --output pret/  # handouts
+python3 class_profile.py --file essays/ --target-level B1 --export md --gap-report --suggest  # + rewrite aid
+python3 class_profile.py --file essays/ --target-level B1 --interleave   # spaced introduction schedule
 python3 class_profile.py --file essays/ --pre-enrich             # warm the deck cache once
 ```
 
@@ -100,9 +149,20 @@ Flags:
 | `--export-vocab`    | write one CSV per CEFR band (distinct words × occurrences × texts) into the given directory |
 | `--export`          | `csv`, `md`, or `flashcards` — per-text pre-teaching lists (requires `--target-level`) |
 | `--cloze`           | `--export md\|csv` only: render exported examples as `{{...}}` fill-the-gap sentences |
+| `--suggest`         | `--export md\|csv` only: suggest a simpler alternative for each word above the target in the handouts |
+| `--gap-report`      | `--export md\|csv` only: list the target-level constructions each text does not use yet, per handout |
+| `--interleave`      | build a spaced-introduction schedule across the set (new words per reading, review + due flags) |
+| `--new-words-per-reading` | `--interleave` only: max new words introduced per reading (default 5) |
+| `--curriculum`      | check every text against a curriculum checklist file (md: per-text sections; csv: the folder-level coverage grid; json: `curriculumCoverage` in the payload); validated before profiling — header typos fail fast, empty sections and unrecognised grammar items warn with a hint |
+| `--cando`           | add each text's CEFR Can-Do descriptors + the ones above the target's expectations to the handouts (md\|csv), or write a combined Can-Do reference deck (flashcards) |
+| `--cando-diff`      | `--export md\|csv` only: add the set-level Can-Do demands section to the summary handout — which above-target descriptors the texts share (implies `--cando`) |
+| `--cando-diff-sort` | `--cando-diff` only: order the demands by text count (`texts`, default) or by the CEFR band ladder ascending (`band`) |
+| `--comments`        | add the full apply-as-comment rubric to each per-text handout: one comment per construction (used / not used yet, filtered to the class level — used above-target constructions become "pre-teach or rewrite" notes with a curated rewrite suggestion) plus one comment per above-target vocabulary word; `--export md` adds a **Demand scan** table to the set summary; `--export flashcards` writes a combined **rubric-comment deck** (one per `--targets` level) |
+| `--schema`          | print the versioned analysis payload schema (`analysis.schema.json` — the RubricMaker report contract, currently 1.3) as JSON and exit |
+| `--watch`           | re-profile the `--file` input whenever any text in it changes on disk (edit → re-check loop; optional interval in seconds, default 1) |
 | `--no-enrich`       | `--export flashcards` only: skip the Free Dictionary API               |
 | `--output`          | `--export` only: write all lists into this directory (default: next to each source) |
-| `--pre-enrich`      | prime the dictionary cache from the whole folder's distinct vocabulary in one rate-limited pass, then exit |
+| `--pre-enrich`      | prime the dictionary cache in one rate-limited pass, then exit (the whole folder's vocabulary, or — with `--interleave` — exactly the schedule's words) |
 | `--delay`           | `--pre-enrich` only: seconds between requests (default 0.25; `0` for none) |
 | `--limit`           | `--pre-enrich` only: cap the number of new lookups                     |
 | `--dictionary-cache`| JSON cache file for dictionary lookups (default `~/.cache/vocabkitchen/dictionary.json`) |
@@ -132,6 +192,7 @@ JSON on stdout. Shape:
   "targetLevel": "B1", "targets": null,
   "sort": "level", "minLevel": null, "maxLevel": "B1",
   "fitsCount": 7, "hiddenByFilter": 13,
+  "grammarError": null,
   "aggregate": {
     "totalWordCount": 12345,
     "typical": "A2", "coverage": "B1", "offListPercent": 5,
@@ -149,9 +210,22 @@ JSON on stdout. Shape:
       "fits": true,
       "targets": null
     }
-  ]
+  ],
+  "interleave": null
 }
 ```
+
+- `grammarError` at the top level is the set-wide grammar note (e.g.
+  "not analysed" when the grammar side didn't run); each row carries its own
+  per-text `grammarError` too.
+- With `--interleave`, the top-level `interleave` object carries the spaced
+  schedule: `{"targetLevel": "B1", "budget": 5, "readings": [{"index": 1,
+  "file": "...", "introduce": [{"word": "...", "level": "B2",
+  "deferredFrom": 1}], "review": [...], "due": [...]}], "words":
+  [{"word": "...", "level": "B2", "introducedAt": 1, "appearsIn": [1],
+  "deferredFrom": 1}]}` — the per-reading Introduce/Review/Due lists plus the
+  global word index, and `unscheduled` for words that never made it into an
+  introduction.
 
 - `rows` are sorted by `sort` (level by default, A1 first) and already
   filtered by `--min-level`/`--max-level`; `hiddenByFilter` is how many were

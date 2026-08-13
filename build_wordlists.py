@@ -226,6 +226,116 @@ def check(list_dir, olp_csv=_DEFAULT_OLP, octanove_csv=_DEFAULT_OCT):
     else:
         print("  ! levels.json missing — run: python3 build_wordlists.py --merge")
         problems += 1
+
+    # The synonym-suggestion list (WordLists/synonyms.csv) must agree with
+    # levels.json: both words recognised, the level column matching the
+    # simpler word's band, and the simpler word strictly lower than the word
+    # it replaces — the invariant that makes a suggestion a *simplification*.
+    syn_path = os.path.join(os.path.dirname(list_dir), "synonyms.csv")
+    if not os.path.exists(syn_path):
+        print("  ! synonyms.csv missing — create it alongside the CEFR lists")
+        problems += 1
+    else:
+        index_words = None
+        if os.path.exists(index_path):
+            try:
+                with open(index_path, encoding="utf-8") as f:
+                    index_words = json.load(f).get("words")
+            except ValueError:
+                index_words = None
+        with open(syn_path, encoding="utf-8") as f:
+            rows = list(csv.reader(f))
+        if not rows or rows[0][:3] != ["word", "simpler", "level"]:
+            print("  ! synonyms.csv must start with a word,simpler,level header")
+            problems += 1
+        if not isinstance(index_words, dict):
+            print("  ! synonyms.csv validation skipped — levels.json unavailable")
+        else:
+            valid = 0
+            for i, row in enumerate(rows[1:], start=2):
+                ok = True
+                if len(row) != 3 or not all(cell.strip() for cell in row):
+                    print(f"  ! synonyms.csv line {i}: expected word,simpler,level")
+                    problems += 1
+                    continue
+                word, simpler = (cell.strip().lower() for cell in row[:2])
+                lvl = row[2].strip().upper()
+                if lvl not in _LEVELS:
+                    print(f"  ! synonyms.csv line {i}: unknown level '{lvl}'")
+                    ok = False
+                if word not in index_words:
+                    print(f"  ! synonyms.csv line {i}: '{word}' not in levels.json")
+                    ok = False
+                if simpler not in index_words:
+                    print(f"  ! synonyms.csv line {i}: '{simpler}' not in levels.json")
+                    ok = False
+                if not ok:
+                    problems += 1
+                    continue
+                wlvl = index_words[word]["level"]
+                slvl = index_words[simpler]["level"]
+                row_ok = True
+                if slvl != lvl:
+                    print(f"  ! synonyms.csv line {i}: '{simpler}' is {slvl} in "
+                          f"levels.json, not {lvl}")
+                    problems += 1
+                    row_ok = False
+                if _LEVELS.index(slvl) >= _LEVELS.index(wlvl):
+                    print(f"  ! synonyms.csv line {i}: '{simpler}' ({slvl}) is not "
+                          f"simpler than '{word}' ({wlvl})")
+                    problems += 1
+                    row_ok = False
+                if row_ok:
+                    valid += 1
+            print(f"  synonyms.csv: {valid} of {len(rows) - 1} entries valid")
+
+    # The structure-rewrite hints (WordLists/structure-rewrites.csv) must
+    # key exactly the grammar registry's construction ids — the pre-teach
+    # rewordings for above-target constructions. Imported lazily: the
+    # registry lives in grammar_profile.py (stdlib-only).
+    rw_path = os.path.join(os.path.dirname(list_dir), "structure-rewrites.csv")
+    if not os.path.exists(rw_path):
+        print("  ! structure-rewrites.csv missing — create it alongside the CEFR lists")
+        problems += 1
+    else:
+        try:
+            import grammar_profile as gp
+            ids = set(gp._CONSTRUCTIONS)
+        except Exception as ex:
+            print(f"  ! structure-rewrites.csv validation skipped — "
+                  f"grammar registry unavailable: {ex}")
+            ids = None
+        with open(rw_path, encoding="utf-8") as f:
+            rows = list(csv.reader(f))
+        if not rows or rows[0][:2] != ["id", "simpler"]:
+            print("  ! structure-rewrites.csv must start with an id,simpler header")
+            problems += 1
+        elif ids is None:
+            pass  # already reported
+        else:
+            valid = 0
+            seen = set()
+            for i, row in enumerate(rows[1:], start=2):
+                if len(row) != 2 or not all(cell.strip() for cell in row):
+                    print(f"  ! structure-rewrites.csv line {i}: "
+                          f"expected id,simpler")
+                    problems += 1
+                    continue
+                cid = row[0].strip()
+                if cid not in ids:
+                    print(f"  ! structure-rewrites.csv line {i}: "
+                          f"unknown construction id '{cid}'")
+                    problems += 1
+                    continue
+                if cid in seen:
+                    print(f"  ! structure-rewrites.csv line {i}: "
+                          f"duplicate id '{cid}'")
+                    problems += 1
+                    continue
+                seen.add(cid)
+                valid += 1
+            print(f"  structure-rewrites.csv: {valid} of {len(rows) - 1} "
+                  f"entries valid")
     return problems
 
 

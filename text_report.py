@@ -62,6 +62,20 @@ Flags:
                       RubricMaker's native fill-the-gap syntax, so the handout
                       doubles as a worksheet and pastes straight into a
                       fill-the-gap question there. Applies to --export md|csv.
+    --suggest         the Phase 3 rewriting aid: for each above-target word
+                      that has a curated alternative in the bundled list
+                      (WordLists/synonyms.csv), suggest the simpler word —
+                      shown in the above-target list (purchase → buy (A1)),
+                      carried in JSON as aboveTarget.words[i].suggestion, and
+                      added as a 'Simpler alternative' column in the
+                      --export md|csv handout. Requires --target-level.
+    --gap-report      the Phase 3 grammar gap report: with --target-level (and
+                      the grammar side on), list the target-level
+                      constructions the text does NOT use yet — the
+                      'introduce these structures' list for graded-reader
+                      authors. Carried in JSON as grammarGap.missing and
+                      added as a 'Constructions to introduce' section in the
+                      --export md handout. Incompatible with --no-grammar.
     --no-enrich       --export flashcards only: skip the Free Dictionary API
                       (the back of each card stays the in-text context
                       sentence instead of a plain definition)
@@ -83,6 +97,33 @@ Flags:
                       <stem>-preteaching-<LEVEL>.<ext> next to the source;
                       otherwise preteaching-<LEVEL>.<ext> in the cwd; decks
                       get a -deck suffix)
+    --watch [SECONDS] the Phase 3 edit → re-check loop: keep re-profiling the
+                      --file input whenever it changes on disk (polling every
+                      SECONDS, default 1) until Ctrl-C — for tightening a
+                      graded reader while the report updates on each save
+    --curriculum FILE the Phase 4 curriculum checklist: check the text against
+                      a file with sections [vocabulary] (one word per line)
+                      and [grammar] (construction names as shown by the
+                      grammar profiler, or their ids) and report pass/fail
+                      coverage — vocabulary items also carry their CEFR band
+                      when recognised. Grammar items are unchecked when the
+                      grammar side is off. Carried in JSON as `curriculum` and
+                      rendered in pretty mode and the --export md handout.
+    --cambridge       the Phase 4 exam mapping: map the report's own CEFR
+                      bands (vocabulary typical/reaches, grammar
+                      typical/reaches, estimated level) to the matching
+                      Cambridge English Qualification — A2 Key, B1
+                      Preliminary, B2 First, C1 Advanced, C2 Proficiency.
+                      Carried in JSON as `cambridge`, shown in pretty mode,
+                      and rendered as a 'Cambridge English mapping' section in
+                      the --export md handout.
+    --cando           the Phase 4 Can-Do framing: express the text's demands
+                      as CEFR global-scale Can-Do descriptors — what a learner
+                      at the reached/estimated band can do, the language
+                      rubrics and self-assessment forms already use. Carried
+                      in JSON as `cando`, shown in pretty mode, and rendered
+                      as a 'Can-Do descriptors' section in the --export md
+                      handout.
     (stdin)           if neither --text nor --file is given, text is read from stdin
 
 Output: with --format json, a JSON object that is a superset of both profilers'
@@ -100,11 +141,35 @@ import re
 import sys
 import time
 
+import analysis as engine
 import vocab_profile as vp
-import grammar_profile as gp
 
-_CEFR_ORDER = ["A1", "A2", "B1", "B2", "C1", "C2"]
-_LEVEL_INDEX = {lvl: i for i, lvl in enumerate(_CEFR_ORDER)}
+# The shared engine (analysis.py) owns the report contract — constants,
+# readability, target flagging, Cambridge/Can-Do mapping, the curriculum
+# checklist, and the payload builder. Re-exported here so
+# `from text_report import X` keeps working (class_profile and the test
+# suites import these names from this module).
+from analysis import (
+    SCHEMA_VERSION, _CEFR_ORDER, _LEVEL_INDEX, _resolve_construction,
+    blend_level, build_verdict, cambridge_for, cambridge_mapping, cando_for,
+    cando_mapping, compute_readability, count_sentences, count_syllables,
+    coverage_figure, curriculum_report, grammar_criteria, grammar_gap_report,
+    load_curriculum, load_synonyms, payload_schema, structures_above_target,
+    validate_curriculum, word_contexts, words_above_target, CurriculumError,
+)
+
+# Re-exported for backwards compatibility (class_profile and the test suites
+# import these names from text_report); the shared engine owns them.
+__all__ = [
+    "SCHEMA_VERSION", "_CEFR_ORDER", "_LEVEL_INDEX", "_resolve_construction",
+    "blend_level", "build_verdict", "cambridge_for", "cambridge_mapping",
+    "cando_for", "cando_mapping", "compute_readability", "count_sentences",
+    "count_syllables", "coverage_figure", "curriculum_report",
+    "grammar_criteria", "grammar_gap_report", "load_curriculum",
+    "load_synonyms", "payload_schema", "structures_above_target",
+    "validate_curriculum", "word_contexts", "words_above_target",
+    "CurriculumError",
+]
 
 
 # ---------------------------------------------------------------------------
@@ -148,278 +213,38 @@ def _maybe_reexec_in_venv():
 
 
 # ---------------------------------------------------------------------------
-# Readability — classic indices computed with the stdlib alone (approximate,
-# reported alongside — never instead of — the CEFR bands).
-# ---------------------------------------------------------------------------
-
-_SENT_SPLIT_RE = re.compile(r"[.!?]+(?:\s+|$)")
-
-
-def count_sentences(text):
-    """Approximate sentence count for readability indices (no spaCy needed)."""
-    parts = [p for p in _SENT_SPLIT_RE.split(text) if p.strip()]
-    return max(len(parts), 1)
-
-
-def count_syllables(word):
-    """Approximate syllable count: vowel-group heuristic with silent -e / -ed / -le.
-
-    A standard written-method approximation, not a dictionary: strips a
-    trailing silent -e ("make"), drops the -ed of past tenses unless it follows
-    t/d ("walked" vs "wanted"), and keeps the -e of consonant+le ("table").
-    """
-    w = word.lower()
-    if len(w) <= 3:
-        return 1
-    extra = 0
-    if w.endswith("ed") and len(w) > 3:
-        w = w[:-2]  # walk(ed), want(ed) — drop the -ed ending
-        if w[-1] in "td":  # -ted/-ded keep their own syllable: wanted, needed
-            extra = 1
-    if w.endswith("e") and not (w.endswith("le") and len(w) > 2
-                                 and w[-3] not in "aeiou"):
-        w = w[:-1]  # make -> mak; keep the e in table
-    if not w:
-        return 1
-    count = 0
-    in_vowel = False
-    for ch in w:
-        if ch in "aeiouy":
-            if not in_vowel:
-                count += 1
-            in_vowel = True
-        else:
-            in_vowel = False
-    return max(count + extra, 1)
-
-
-def _flesch_description(fre):
-    if fre >= 90:
-        return "very easy"
-    if fre >= 80:
-        return "easy"
-    if fre >= 70:
-        return "fairly easy"
-    if fre >= 60:
-        return "plain English"
-    if fre >= 50:
-        return "fairly difficult"
-    if fre >= 30:
-        return "difficult"
-    return "very difficult"
-
-
-def compute_readability(text, word_count):
-    """Flesch Reading Ease + Flesch–Kincaid grade, or None when wordless.
-
-    Words are counted with the vocab profiler's tokenizer so the readability
-    figures line up with ``totalWordCount``.
-    """
-    if not word_count:
-        return None
-    sentences = count_sentences(text)
-    syllables = sum(count_syllables(t) for t in vp.tokenize(text)
-                    if t not in vp.PLACEHOLDERS)
-    words_per_sentence = word_count / sentences
-    syllables_per_word = syllables / word_count
-    fre = 206.835 - 1.015 * words_per_sentence - 84.6 * syllables_per_word
-    fk = 0.39 * words_per_sentence + 11.8 * syllables_per_word - 15.59
-    return {
-        "fleschReadingEase": round(fre, 1),
-        "fleschKincaidGrade": round(fk, 1),
-        "description": _flesch_description(fre),
-    }
-
-
-# ---------------------------------------------------------------------------
-# Target-level flagging: coverage figure, words/structures above the level,
-# the one-line verdict, and the blended estimated level.
-# ---------------------------------------------------------------------------
-
-def coverage_figure(ordered, target):
-    """Share of recognised running words at/below *target* — the teacher number.
-
-    Off-List tokens (names, typos, jargon) are excluded from both sides: they
-    aren't teachable vocabulary, so they shouldn't drag the figure down.
-    """
-    counts = {name: sum(occ for _w, occ in rows) for name, _pct, rows in ordered}
-    recognised = sum(counts.get(lvl, 0) for lvl in _CEFR_ORDER)
-    known = sum(counts.get(lvl, 0) for lvl in _CEFR_ORDER[:_LEVEL_INDEX[target] + 1])
-    if recognised == 0:
-        return None
-    pct = round(known / recognised * 100)
-    return {
-        "targetLevel": target,
-        "knownPercent": pct,
-        "knownWords": known,
-        "recognisedWords": recognised,
-        "sentence": (f"A {target} learner will already know ~{pct}% of the "
-                     "recognised running words."),
-    }
-
-
-def words_above_target(ordered, target):
-    """Distinct recognised words at a CEFR level above *target*, ranked by use."""
-    out = []
-    for name, _pct, rows in ordered:
-        if name not in _LEVEL_INDEX or _LEVEL_INDEX[name] <= _LEVEL_INDEX[target]:
-            continue
-        for word, occ in rows:
-            out.append({"word": word, "level": name, "occurrences": occ})
-    out.sort(key=lambda d: (-d["occurrences"], d["word"]))
-    return out
-
-
-def structures_above_target(results, target):
-    """Distinct constructions at a CEFR level above *target*, ranked by use.
-
-    Each entry carries up to two ``examples`` (``{"span", "sentence"}`` pairs)
-    from the grammar profiler, so exports can show the construction in context.
-    """
-    out = []
-    for lvl in _CEFR_ORDER:
-        if _LEVEL_INDEX[lvl] <= _LEVEL_INDEX[target]:
-            continue
-        for entry in results.get(lvl, {}).values():
-            out.append({"name": entry["name"], "level": lvl,
-                        "count": entry["count"], "category": entry["category"],
-                        "examples": entry["examples"][:2]})
-    out.sort(key=lambda d: (-d["count"], d["name"]))
-    return out
-
-
-def word_contexts(text, word_forms):
-    """First sentence containing each whole-word form, case-insensitive.
-
-    Matches the profiler's exact token forms (already lowercased), so a word
-    that appears at sentence start ('Circumstances ...') is still found.
-    Sentences are split with the same approximation used for readability.
-    """
-    sentences = [s.strip() for s in _SENT_SPLIT_RE.split(text) if s.strip()]
-    contexts = {}
-    for w in word_forms:
-        pat = re.compile(rf"\b{re.escape(w)}\b", re.IGNORECASE)
-        for sent in sentences:
-            if pat.search(sent):
-                contexts[w] = sent
-                break
-    return contexts
-
-
-def _plural(n, noun):
-    return f"{n} {noun}{'' if n == 1 else 's'}"
-
-
-def build_verdict(words, structures, grammar_available=True):
-    """One-line verdict: 'on level' or 'reaches X — pre-teach n words, m structures'.
-
-    Clauses for a zero count are omitted, so a text that only exceeds the
-    target in vocabulary reads 'reaches C1 — pre-teach 1 word', not
-    'pre-teach 1 word, 0 structures'.
-    """
-    n_words = len(words)
-    n_structs = len(structures) if grammar_available else 0
-    if n_words == 0 and n_structs == 0:
-        return "on level"
-    bands = [d["level"] for d in words] + [d["level"] for d in structures]
-    max_band = max(bands, key=lambda lvl: _LEVEL_INDEX[lvl])
-    clauses = []
-    if n_words:
-        clauses.append(_plural(n_words, "word"))
-    if n_structs:
-        clauses.append(_plural(n_structs, "structure"))
-    return f"reaches {max_band} — pre-teach {', '.join(clauses)}"
-
-
-def blend_level(vocab_coverage, grammar_typical):
-    """Blended estimate: the higher of the vocab 90%-coverage band and the
-    grammar typical band — the level at which most words AND most structures
-    sit comfortably. Returns None when neither side has a level."""
-    bands = [lvl for lvl in (vocab_coverage, grammar_typical) if lvl in _LEVEL_INDEX]
-    return max(bands, key=lambda lvl: _LEVEL_INDEX[lvl]) if bands else None
-
-
-# ---------------------------------------------------------------------------
 # Analysis driver — run both profilers + readability, build the payload
 # ---------------------------------------------------------------------------
 
 def analyze(text, target_level=None, wordlists_dir=None, grammar_dir=None,
-            with_grammar=True, with_readability=True):
-    """Run both profilers and readability over *text*; return the report payload."""
-    script_dir = os.path.dirname(os.path.abspath(__file__))
+            with_grammar=True, with_readability=True, suggest=False,
+            gap_report=False, curriculum=None, cambridge=False, cando=False,
+            comments=False):
+    """Run both profilers and readability over *text*; return the report payload.
 
-    # Vocabulary (always runs; dependency-free).
-    vocab_base = wordlists_dir or os.path.join(script_dir, "WordLists")
-    levels = [(name, vp.load_wordlist(vocab_base, rel))
-              for name, rel in vp.PROFILERS["cefr"]]
-    ordered, total = vp.profile(text, levels)
-    counts, typical, coverage = vp.cefr_stats(ordered, total)
-
-    payload = {
-        "totalWordCount": total,
-        "vocabulary": {
-            "typical": typical,
-            "coverage": coverage,
-            "offListPercent": (round(counts.get("Off List", 0) / total * 100)
-                               if total else 0),
-            "results": vp.results_to_json(ordered),
-        },
-        "grammar": None,
-        "grammarError": None,
-        "targetLevel": target_level,
-        "aboveTarget": None,
-        "coverage": None,
-        "estimatedLevel": None,
-        "verdict": None,
-        "readability": compute_readability(text, total) if with_readability else None,
-    }
-
-    # Grammar (needs spaCy; degrades gracefully when it's missing).
-    grammar_available = False
-    gresults = None
-    gmeta = None
-    if with_grammar:
-        try:
-            gbase = grammar_dir or os.path.join(script_dir, "GrammarProfile")
-            nlp = gp.load_nlp()
-            cefrj_levels = gp.load_cefrj_levels(gbase)
-            if len(text) > nlp.max_length:
-                raise ValueError(
-                    f"input too long for the parser ({len(text):,} characters; "
-                    f"limit {nlp.max_length:,}) — split the text and re-run"
-                )
-            gresults, gmeta = gp.profile(text, nlp, cefrj_levels)
-            payload["grammar"] = gp.results_to_json(gresults, gmeta)
-            grammar_available = True
-        except gp.EngineError as ex:
-            payload["grammarError"] = str(ex).strip()
-        except ValueError as ex:
-            payload["grammarError"] = str(ex).strip()
-    else:
-        payload["grammarError"] = "skipped (--no-grammar)"
-
-    if target_level is not None:
-        words = words_above_target(ordered, target_level)
-        structures = (structures_above_target(gresults, target_level)
-                      if grammar_available else [])
-        bands = [d["level"] for d in words] + [d["level"] for d in structures]
-        if words:
-            ctx = word_contexts(text, [d["word"] for d in words])
-            for d in words:
-                d["context"] = ctx.get(d["word"])
-        payload["aboveTarget"] = {
-            "maxLevel": max(bands, key=lambda lvl: _LEVEL_INDEX[lvl]) if bands else None,
-            "words": words,
-            "wordCount": len(words),
-            "structures": structures,
-            "structureCount": len(structures),
-        }
-        payload["coverage"] = coverage_figure(ordered, target_level)
-        payload["verdict"] = build_verdict(words, structures, grammar_available)
-
-    grammar_typical = gmeta["estimatedLevel"]["typical"] if gmeta else None
-    payload["estimatedLevel"] = blend_level(coverage, grammar_typical)
-    return payload
+    The Phase 5 shared engine: this is the analysis module's pipeline (word
+    lists + grammar engine loaded once per call, vocabulary always, grammar
+    when available, readability, and the above-target / coverage / verdict
+    layers under a *target_level*), so the report this CLI ships is exactly
+    the one class_profile builds per text. With ``suggest=True`` (and a
+    *target_level*), each above-target word that has an entry in the bundled
+    synonyms list carries a ``suggestion`` — the simpler alternative to
+    rewrite it with. With ``gap_report=True`` (and a *target_level*),
+    ``grammarGap`` lists the target-level constructions the text does not
+    use yet. With ``curriculum`` (a parsed checklist), the payload carries a
+    ``curriculum`` pass/fail coverage report. With ``cambridge=True`` /
+    ``cando=True``, the payload also maps its own bands to the matching
+    Cambridge English Qualifications / CEFR Can-Do descriptors (the Phase 4
+    exam-mapping and Can-Do-framing items). With ``comments=True`` (and the
+    grammar side), the payload carries ``grammarComments`` — the per-
+    construction rubric comments for RubricMaker's apply-as-comment.
+    """
+    return engine.analyze(
+        text, target_level=target_level, wordlists_dir=wordlists_dir,
+        grammar_dir=grammar_dir, with_grammar=with_grammar,
+        with_readability=with_readability, suggest=suggest,
+        gap_report=gap_report, curriculum=curriculum, cambridge=cambridge,
+        cando=cando, comments=comments)
 
 
 # ---------------------------------------------------------------------------
@@ -481,6 +306,94 @@ def render_pretty(payload, source_label, stream=None):
     else:
         out.append(f"{bold('Estimated level:')} {dim('—')}")
 
+    cm = payload.get("cambridge")
+    if cm is not None:
+        def _exam(d):
+            return d or "—"
+        out.append("")
+        out.append(bold("Cambridge English"))
+        out.append(f"  vocabulary typical {_lvl(v['typical'], colour)} → "
+                   f"{_exam(cm['vocabulary']['typical'])}"
+                   f"  ·  reaches {_lvl(v['coverage'], colour)} → "
+                   f"{_exam(cm['vocabulary']['reaches'])}")
+        if cm["grammar"]["typical"] or cm["grammar"]["reaches"]:
+            out.append(f"  grammar typical → {_exam(cm['grammar']['typical'])}"
+                       f"  ·  reaches → {_exam(cm['grammar']['reaches'])}")
+        if est is not None:
+            out.append(f"  estimated {_lvl(est, colour)} → {_exam(cm['estimated'])}")
+        out.append(dim("  (the exam a candidate at each reported band is working toward)"))
+
+    cd = payload.get("cando")
+    if cd is not None:
+        def _desc(d):
+            return ('"' + d + '"') if d else "—"
+        out.append("")
+        out.append(bold("Can-Do (CEFR global scale)"))
+        if v.get("coverage"):
+            out.append(f"  reaches {_lvl(v['coverage'], colour)}: "
+                       f"{_desc(cd['vocabulary']['reaches'])}")
+        if est is not None and est != v.get("coverage"):
+            out.append(f"  estimated {_lvl(est, colour)}: "
+                       f"{_desc(cd['estimated'])}")
+        out.append(dim("  (what a learner at the text's demand level can do — "
+                       "the language rubrics and self-assessment forms use)"))
+        above = cd.get("aboveTarget")
+        tgt = cd.get("targetLevel")
+        if above and tgt:
+            _gl = (g or {}).get("estimatedLevel") or {}
+            for key, label, band in (
+                    ("vocabulary", "Vocabulary", v.get("coverage")),
+                    ("grammar", "Grammar", _gl.get("reaches")),
+                    ("estimated", "Estimated", est)):
+                entries = above.get(key) or []
+                if not entries:
+                    continue
+                out.append("")
+                out.append(bold(f"{label} — above the {tgt} target"))
+                for e in entries:
+                    out.append(f"  {_lvl(e['band'], colour)}: "
+                               f"\"{e['descriptor']}\"")
+            art = "an " if tgt.startswith("A") else "a "
+            out.append(dim(f"  (demands beyond what {art + tgt} class is "
+                           "expected to do yet — pre-teach or rewrite)"))
+
+    comments = payload.get("grammarComments")
+    if comments is not None:
+        pre_c = [c for c in comments if c.get("kind") == "pre-teach"]
+        used_c = [c for c in comments if c.get("kind") != "pre-teach"
+                  and c["pass"]]
+        not_c = [c for c in comments if c.get("kind") != "pre-teach"
+                 and not c["pass"]]
+        out.append("")
+        out.append(bold("Rubric comments"))
+        if not used_c and not pre_c:
+            out.append(dim("  no constructions used — below the grammar "
+                           "profile's floor"))
+        for c in used_c:
+            out.append(f"  ✓ {c['comment']}")
+        for c in pre_c:
+            out.append(f"  ▲ {c['comment']}")
+        if not_c:
+            out.append(dim(f"  {len(not_c)} constructions not used yet — "
+                           "--export md for the full apply-as-comment list"))
+        out.append(dim("  (one comment per construction, for RubricMaker's "
+                       "apply-as-comment)"))
+
+    vcomments = payload.get("vocabComments")
+    if vcomments is not None:
+        out.append("")
+        out.append(bold(f"Vocabulary comments — {len(vcomments)} above "
+                        f"{payload['targetLevel']}"))
+        if not vcomments:
+            out.append(dim("  nothing above the target — no vocabulary comments"))
+        for c in vcomments[:12]:
+            out.append(f"  ▲ {c['comment']}")
+        if len(vcomments) > 12:
+            out.append(dim(f"  +{len(vcomments) - 12} more — --export md for "
+                           "the full apply-as-comment list"))
+        out.append(dim("  (one comment per above-target word, for "
+                       "RubricMaker's apply-as-comment)"))
+
     target = payload["targetLevel"]
     if target is not None:
         out.append("")
@@ -493,12 +406,20 @@ def render_pretty(payload, source_label, stream=None):
         structures = above.get("structures") or []
         if words:
             shown = words[:12]
-            parts = [f"{d['word']} ({d['level']})"
-                     + (f" ×{d['occurrences']}" if d['occurrences'] > 1 else "")
-                     for d in shown]
+            parts = []
+            for d in shown:
+                occ = f" ×{d['occurrences']}" if d['occurrences'] > 1 else ""
+                s = d.get("suggestion")
+                if s:
+                    parts.append(f"{d['word']} ({d['level']}){occ} → "
+                                 f"{s['word']} ({s['level']})")
+                else:
+                    parts.append(f"{d['word']} ({d['level']}){occ}")
             if len(words) > 12:
                 parts.append(f"+{len(words) - 12} more")
             out.append(f"  {bold(f'Above {target} — words:')} {', '.join(parts)}")
+            if any(d.get("suggestion") for d in words):
+                out.append(dim("  → suggests a simpler alternative (rewrite aid)"))
         if structures:
             shown = structures[:12]
             parts = [f"{d['name']} ({d['level']})"
@@ -511,6 +432,44 @@ def render_pretty(payload, source_label, stream=None):
         if verdict:
             out.append("")
             out.append(f"{bold('Verdict:')} {bold(verdict)}")
+        gap = payload.get("grammarGap")
+        if gap is not None:
+            missing = gap.get("missing") or []
+            out.append("")
+            out.append(bold(f"Gap report — {target} constructions not used "
+                            f"({gap['missingCount']} of {gap['total']})"))
+            if not missing:
+                out.append(dim("  every target-level construction is present"))
+            else:
+                for d in missing:
+                    out.append(f"  • {d['name']} — {d['category']}")
+            out.append(dim("  (the structures a graded-reader author should "
+                           "introduce; grammar gap report)"))
+        elif payload.get("grammarGapError"):
+            out.append("")
+            out.append(bold("Gap report"))
+            out.append(dim("  unavailable — "
+                           + payload["grammarGapError"].splitlines()[0]))
+
+    curr = payload.get("curriculum")
+    if curr is not None:
+        out.append("")
+        ok = curr["pass"]
+        mark = "✓" if ok else "✗"
+        out.append(bold(f"Curriculum checklist — "
+                        f"{curr['vocabularyCovered']} vocabulary, "
+                        f"{curr['grammarCovered']} grammar {mark}"))
+        for d in curr["vocabulary"]:
+            state = "✓" if d["present"] else "✗"
+            lvl = f" ({d['level']})" if d.get("level") else ""
+            out.append(f"  {state} {d['word']}{lvl}")
+        for d in curr["grammar"]:
+            state = "✓" if d["present"] else "✗"
+            out.append(f"  {state} {d['name']}")
+        if not ok:
+            out.append(dim("  missing: " + ", ".join(curr["missing"])))
+        if curr.get("grammarAvailable") is False:
+            out.append(dim("  (grammar not analysed — grammar items unchecked)"))
 
     read = payload["readability"]
     if read:
@@ -691,26 +650,35 @@ def _example_sentence(d):
     return ""
 
 
-def export_csv(payload, cloze=False):
+def export_csv(payload, cloze=False, suggest=False):
     """Render the above-target items as a CSV spreadsheet (one row per item).
 
     Columns: type (word|structure), item, level, count, category (structures
     only), example (a sentence from the text). Words carry their first
     in-text context; structures carry the grammar profiler's example. With
     ``cloze=True`` the example blanks the target as ``{{item}}`` (RubricMaker
-    fill-the-gap syntax).
+    fill-the-gap syntax). With ``suggest=True`` a ``suggestion`` column
+    carries each word's curated simpler alternative (when it has one), like
+    the md handout's 'Simpler alternative' column.
     """
     import csv
     import io
     buf = io.StringIO()
     w = csv.writer(buf, lineterminator="\n")
-    w.writerow(["type", "item", "level", "count", "category", "example"])
+    cols = ["type", "item", "level", "count", "category", "example"]
+    if suggest:
+        cols.append("suggestion")
+    w.writerow(cols)
     above = payload.get("aboveTarget") or {}
     for d in above.get("words") or []:
         ex = (d.get("context") or "").replace("\n", " ")
         if cloze:
             ex = blank_gap(ex, d["word"])
-        w.writerow(["word", d["word"], d["level"], d["occurrences"], "", ex])
+        row = ["word", d["word"], d["level"], d["occurrences"], "", ex]
+        if suggest:
+            s = d.get("suggestion")
+            row.append(f"{s['word']} ({s['level']})" if s else "")
+        w.writerow(row)
     for d in above.get("structures") or []:
         ex = _example_sentence(d).replace("\n", " ")
         if cloze:
@@ -754,14 +722,25 @@ def export_markdown(payload, cloze=False):
         lines.append(f"## Words above {target} ({len(words)})" if target
                      else f"## Words above target ({len(words)})")
         lines.append("")
-        lines.append("| Word | Level | Occurrences | Example |")
-        lines.append("|---|---|---|---|")
+        has_sugg = any(d.get("suggestion") for d in words)
+        if has_sugg:
+            lines.append("| Word | Level | Occurrences | Simpler alternative | Example |")
+            lines.append("|---|---|---|---|---|")
+        else:
+            lines.append("| Word | Level | Occurrences | Example |")
+            lines.append("|---|---|---|---|")
         for d in words:
             ex = (d.get("context") or "").replace("\n", " ")
             if cloze:
                 ex = blank_gap(ex, d["word"])
             ex = ex.replace("|", "\\|")
-            lines.append(f"| {d['word']} | {d['level']} | {d['occurrences']} | {ex} |")
+            if has_sugg:
+                s = d.get("suggestion")
+                cell = f"{s['word']} ({s['level']})" if s else ""
+                lines.append(f"| {d['word']} | {d['level']} | {d['occurrences']} "
+                             f"| {cell} | {ex} |")
+            else:
+                lines.append(f"| {d['word']} | {d['level']} | {d['occurrences']} | {ex} |")
         lines.append("")
     if structures:
         lines.append(f"## Structures above {target} ({len(structures)})" if target
@@ -780,6 +759,138 @@ def export_markdown(payload, cloze=False):
             lines.append(f"| {d['name']} | {d['level']} | {d.get('category', '')}"
                          f" | {ex} |")
         lines.append("")
+    gap = payload.get("grammarGap")
+    if gap is not None and (gap.get("missing") or []):
+        tgt = gap.get("targetLevel") or target or "target"
+        lines.append(f"## Constructions to introduce at {tgt} "
+                     f"({gap['missingCount']} of {gap['total']} not used)")
+        lines.append("")
+        for d in gap["missing"]:
+            lines.append(f"- **{d['name']}** ({d['category']})")
+        lines.append("")
+    curr = payload.get("curriculum")
+    if curr is not None:
+        mark = "✅ covered" if curr["pass"] else "❌ missing items"
+        lines.append(f"## Curriculum checklist — {mark}")
+        lines.append("")
+        lines.append(f"Vocabulary {curr['vocabularyCovered']} · "
+                     f"grammar {curr['grammarCovered']} covered.")
+        lines.append("")
+        lines.append("| Item | Kind | Status | Level |")
+        lines.append("|---|---|---|---|")
+        for d in curr["vocabulary"]:
+            lines.append(f"| {d['word']} | vocabulary | "
+                         f"{'present' if d['present'] else 'missing'} "
+                         f"| {d.get('level') or '—'} |")
+        for d in curr["grammar"]:
+            lines.append(f"| {d['name']} | grammar | "
+                         f"{'used' if d['present'] else 'not used'} | — |")
+        lines.append("")
+        if curr.get("grammarAvailable") is False:
+            lines.append("_Grammar items unchecked — the grammar side was not "
+                         "available._")
+            lines.append("")
+    cm = payload.get("cambridge")
+    if cm is not None:
+        lines.append("## Cambridge English mapping")
+        lines.append("")
+        lines.append("| Reported band | Cambridge English |")
+        lines.append("|---|---|")
+        v = payload.get("vocabulary") or {}
+        g = payload.get("grammar") or {}
+        gl = g.get("estimatedLevel") or {}
+        rows = [
+            (f"Vocabulary typical ({v.get('typical')})", cm["vocabulary"]["typical"]),
+            (f"Vocabulary reaches ({v.get('coverage')})", cm["vocabulary"]["reaches"]),
+        ]
+        if cm["grammar"]["typical"] or cm["grammar"]["reaches"]:
+            rows.append((f"Grammar typical ({gl.get('typical')})",
+                         cm["grammar"]["typical"]))
+            rows.append((f"Grammar reaches ({gl.get('reaches')})",
+                         cm["grammar"]["reaches"]))
+        est = payload.get("estimatedLevel")
+        if est:
+            rows.append((f"Estimated level ({est})", cm["estimated"]))
+        for label, exam in rows:
+            lines.append(f"| {label} | {exam or '—'} |")
+        lines.append("")
+    cd = payload.get("cando")
+    if cd is not None:
+        lines.append("## Can-Do descriptors")
+        lines.append("")
+        lines.append("| Demand level | Can-Do descriptor (CEFR global scale) |")
+        lines.append("|---|---|")
+        v = payload.get("vocabulary") or {}
+        g = payload.get("grammar") or {}
+        gl = g.get("estimatedLevel") or {}
+        rows = [
+            (f"Vocabulary reaches ({v.get('coverage')})",
+             cd["vocabulary"]["reaches"]),
+        ]
+        if cd["grammar"]["reaches"]:
+            rows.append((f"Grammar reaches ({gl.get('reaches')})",
+                         cd["grammar"]["reaches"]))
+        est = payload.get("estimatedLevel")
+        if est:
+            rows.append((f"Estimated level ({est})", cd["estimated"]))
+        for label, desc in rows:
+            lines.append(f"| {label} | {desc or '—'} |")
+        lines.append("")
+        above = cd.get("aboveTarget")
+        tgt = cd.get("targetLevel")
+        if above and tgt and any(above.get(k) for k in ("vocabulary",
+                                                        "grammar",
+                                                        "estimated")):
+            lines.append(f"### Above the {tgt} target")
+            lines.append("")
+            lines.append("| Demand | Level | Can-Do descriptor |")
+            lines.append("|---|---|---|")
+            for key, label in (("vocabulary", "Vocabulary"),
+                               ("grammar", "Grammar"),
+                               ("estimated", "Estimated")):
+                for e in above.get(key) or []:
+                    lines.append(f"| {label} | {e['band']} | "
+                                 f"{e['descriptor']} |")
+            lines.append("")
+            art = "an " if tgt.startswith("A") else "a "
+            lines.append("_Demands beyond what " + art + tgt + " class is "
+                         "expected to do yet — pre-teach or rewrite._")
+            lines.append("")
+    gcm = payload.get("grammarComments")
+    if gcm is not None:
+        pre_c = [c for c in gcm if c.get("kind") == "pre-teach"]
+        used_c = [c for c in gcm if c.get("kind") != "pre-teach"
+                  and c["pass"]]
+        not_c = [c for c in gcm if c.get("kind") != "pre-teach"
+                 and not c["pass"]]
+        head = f"## Rubric comments — {len(used_c)} used · " \
+               f"{len(not_c)} not used yet"
+        if pre_c:
+            head += (f" · {len(pre_c)} above "
+                     f"{payload['targetLevel']} (pre-teach)")
+        lines.append(head)
+        lines.append("")
+        lines.append("| Construction | Level | Kind | Comment |")
+        lines.append("|---|---|---|---|")
+        for c in gcm:
+            cm = c["comment"].replace("|", "\\|")
+            kind = "pre-teach" if c.get("kind") == "pre-teach" else "rubric"
+            lines.append(f"| {c['name']} | {c['level']} | {kind} | {cm} |")
+        lines.append("")
+    vcom = payload.get("vocabComments")
+    if vcom is not None:
+        lines.append(f"## Vocabulary comments — {len(vcom)} above "
+                     f"{payload['targetLevel']}")
+        lines.append("")
+        if vcom:
+            lines.append("| Word | Level | Comment |")
+            lines.append("|---|---|---|")
+            for c in vcom:
+                cm = c["comment"].replace("|", "\\|")
+                lines.append(f"| {c['word']} | {c['level']} | {cm} |")
+        else:
+            lines.append("_Nothing above the target — no vocabulary comments._")
+        lines.append("")
     read = payload.get("readability")
     if read:
         lines.append(f"Readability: Flesch–Kincaid grade "
@@ -795,6 +906,23 @@ def export_markdown(payload, cloze=False):
                      "case-insensitively). For paper, replace {{...}} with a "
                      "blank; the word column is the answer key._")
     return "\n".join(lines) + "\n"
+
+
+def cached_definitions(cache_path, base_url=None):
+    """word -> definition from the dictionary cache, no network.
+
+    Lets cache-adjacent exports (the class profile's per-reading interleave
+    handouts) use real definitions when a ``--pre-enrich`` pass has primed
+    the cache, falling back to in-text sentences offline. An unreadable or
+    missing cache yields an empty dict, never an error.
+    """
+    try:
+        cache = load_dictionary_cache(cache_path)
+    except Exception:
+        return {}
+    bucket = cache.get(base_url or _DICT_API) or {}
+    return {w: e["definition"] for w, e in bucket.items()
+            if e and e.get("definition")}
 
 
 def _lookup_with_cache(word, url_key, cache, fetcher, offline):
@@ -946,6 +1074,128 @@ def export_flashcards(payload, enrich=True, base_url=None, level_index=None,
     return buf.getvalue(), stats
 
 
+def _cando_cards(payload):
+    """The single text's Can-Do demands as reference cards.
+
+    One card per demand (dimension × band) — the ``## Can-Do descriptors``
+    table — plus one per level in the ``aboveTarget`` diff, so the deck
+    doubles as a Can-Do reference: front ``B2 — vocabulary demand``, back
+    the descriptor plus whether it's above the target. Deduplicated by
+    (dimension, band), keeping the demand card over its diff duplicate.
+    """
+    cd = payload.get("cando")
+    if not cd:
+        return []
+    target = payload.get("targetLevel")
+    v = payload.get("vocabulary") or {}
+    g = payload.get("grammar") or {}
+    gl = g.get("estimatedLevel") or {}
+    est = payload.get("estimatedLevel")
+
+    def _above(band):
+        return (target is not None and band in _LEVEL_INDEX
+                and target in _LEVEL_INDEX
+                and _LEVEL_INDEX[band] > _LEVEL_INDEX[target])
+
+    demands = []
+    if v.get("coverage") and cd["vocabulary"]["reaches"]:
+        demands.append(("Vocabulary", v["coverage"], cd["vocabulary"]["reaches"]))
+    if cd["grammar"]["reaches"] and gl.get("reaches"):
+        demands.append(("Grammar", gl["reaches"], cd["grammar"]["reaches"]))
+    if est and cd["estimated"]:
+        demands.append(("Estimated", est, cd["estimated"]))
+
+    cards = []
+    seen = set()
+    for dim, band, desc in demands:
+        if (dim, band) in seen:
+            continue
+        seen.add((dim, band))
+        note = (f" · above the {target} target — pre-teach or rewrite"
+                if _above(band)
+                else (f" · at the {target} target" if target else ""))
+        cards.append({"word": f"{band} — {dim.lower()} demand",
+                      "definition": desc,
+                      "example": f"{dim} reaches {band}{note}"})
+    for key, dim in (("vocabulary", "Vocabulary"),
+                     ("grammar", "Grammar"),
+                     ("estimated", "Estimated")):
+        for e in (cd.get("aboveTarget") or {}).get(key) or []:
+            if (dim, e["band"]) in seen:
+                continue
+            seen.add((dim, e["band"]))
+            cards.append({"word": f"{e['band']} — {dim.lower()} demand",
+                          "definition": e["descriptor"],
+                          "example": f"above the {target} target — "
+                                     "pre-teach or rewrite"})
+    return cards
+
+
+def cando_deck_csv(cards):
+    """Render Can-Do reference *cards* as a RubricMaker deck (same columns
+    as :func:`export_flashcards`: word, definition, example, phonetic,
+    partOfSpeech) so decks double as Can-Do reference cards; None when
+    there are no cards."""
+    if not cards:
+        return None
+    import csv
+    import io
+    buf = io.StringIO()
+    w = csv.writer(buf, lineterminator="\n")
+    w.writerow(["word", "definition", "example", "phonetic", "partOfSpeech"])
+    for c in cards:
+        w.writerow([c["word"], c["definition"], c["example"], "", "cando"])
+    return buf.getvalue()
+
+
+def export_cando_deck(payload):
+    """The text's Can-Do demands as a companion RubricMaker deck (CSV
+    string, or None when ``--cando`` wasn't requested): front = the demand
+    level (``B2 — vocabulary demand``), back = the CEFR descriptor plus
+    whether it's above the target — the ``## Can-Do descriptors`` table and
+    the ``aboveTarget`` diff as flashcard reference cards."""
+    return cando_deck_csv(_cando_cards(payload))
+
+
+def comments_deck_csv(cards):
+    """Render rubric-comment *cards* as a RubricMaker deck (same columns
+    as :func:`export_flashcards`: word, definition, example, phonetic,
+    partOfSpeech) so the apply-as-comment output doubles as reference
+    cards; None when there are no cards."""
+    if not cards:
+        return None
+    import csv
+    import io
+    buf = io.StringIO()
+    w = csv.writer(buf, lineterminator="\n")
+    w.writerow(["word", "definition", "example", "phonetic", "partOfSpeech"])
+    for c in cards:
+        w.writerow([c["word"], c["definition"], c["example"], "", "grammar"])
+    return buf.getvalue()
+
+
+def cando_deck_path(word_deck_path):
+    """The companion Can-Do deck next to a word deck:
+    ``essay-preteaching-B1-deck.csv`` → ``essay-preteaching-B1-cando-deck.csv``
+    (also handles an explicit ``--output`` path without the ``-deck``
+    suffix, e.g. ``out.csv`` → ``out-cando-deck.csv``)."""
+    stem, ext = os.path.splitext(word_deck_path)
+    if stem.endswith("-deck"):
+        stem = stem[:-len("-deck")]
+    return stem + "-cando-deck" + ext
+
+
+def comments_deck_path(word_deck_path):
+    """The companion rubric-comment deck next to a word deck:
+    ``essay-preteaching-B1-deck.csv`` → ``essay-preteaching-B1-comments-deck.csv``
+    (also handles an explicit ``--output`` path without the ``-deck``
+    suffix, e.g. ``out.csv`` → ``out-comments-deck.csv``)."""
+    stem, ext = os.path.splitext(word_deck_path)
+    if stem.endswith("-deck"):
+        stem = stem[:-len("-deck")]
+    return stem + "-comments-deck" + ext
+
+
 def export_path(source_file, output_path, target, fmt):
     """Where the pre-teaching list goes: --output, else a sensible default.
 
@@ -990,6 +1240,23 @@ def _validate_args(args, target):
     if args.export is not None and target is None:
         return ("--export requires --target-level (the pre-teaching list is the "
                 "words and structures above the class's level).")
+    if args.suggest and target is None:
+        return ("--suggest requires --target-level (it suggests a simpler "
+                "alternative for each word above the class's level).")
+    if args.gap_report and target is None:
+        return ("--gap-report requires --target-level (it lists the target-level "
+                "constructions the text does not use yet).")
+    if args.gap_report and args.no_grammar:
+        return ("--gap-report needs the grammar side; it can't be combined "
+                "with --no-grammar.")
+    if args.curriculum and not os.path.isfile(args.curriculum):
+        return f"curriculum file not found: {args.curriculum}"
+    if args.watch is not None and not args.file:
+        return ("--watch re-profiles a file on save; it requires --file "
+                "(the file to watch).")
+    if args.watch is not None and args.pre_enrich:
+        return ("--watch and --pre-enrich don't combine (--pre-enrich primes "
+                "the dictionary cache and exits).")
     if args.cloze and args.export is None:
         return ("--cloze requires --export (it renders the exported examples as "
                 "fill-the-gap sentences).")
@@ -1002,7 +1269,7 @@ def _validate_args(args, target):
 def _write_export(args, payload, target):
     """Render and write the --export pre-teaching list; True on success."""
     if args.export == "csv":
-        content = export_csv(payload, cloze=args.cloze)
+        content = export_csv(payload, cloze=args.cloze, suggest=args.suggest)
     elif args.export == "flashcards":
         script_dir = os.path.dirname(os.path.abspath(__file__))
         base_dir = args.wordlists or os.path.join(script_dir, "WordLists")
@@ -1035,7 +1302,55 @@ def _write_export(args, payload, target):
         return False
     # stderr, so --format json stdout stays machine-parseable
     sys.stderr.write(f"Wrote pre-teaching list to {path}\n")
+    if args.export == "flashcards":
+        # The deck doubles as a Can-Do reference when --cando is on: a
+        # companion deck with one card per demand descriptor + the
+        # above-target diff, in the same RubricMaker import shape.
+        cd_csv = export_cando_deck(payload)
+        if cd_csv is not None:
+            cd_path = cando_deck_path(path)
+            try:
+                with open(cd_path, "w", encoding="utf-8") as f:
+                    f.write(cd_csv)
+                sys.stderr.write(f"Wrote Can-Do reference deck to {cd_path}\n")
+            except OSError as ex:
+                sys.stderr.write(f"Could not write Can-Do reference deck: {ex}\n")
+                return False
     return True
+
+
+def _file_snapshot(path):
+    """(mtime_ns, size) of *path* for change detection; None if gone."""
+    try:
+        st = os.stat(path)
+    except OSError:
+        return None
+    return (st.st_mtime_ns, st.st_size)
+
+
+def watch_file(path, interval, callback, timeout=None):
+    """Re-run ``callback()`` whenever ``path`` changes on disk.
+
+    The Phase 3 watch mode: a dependency-free edit → re-check loop that polls
+    the file's mtime/size every ``interval`` seconds (default 1.0) and re-runs
+    the report on each save. Stops when the file disappears (or after
+    ``timeout`` seconds, for tests) and returns the number of re-runs.
+    """
+    last = _file_snapshot(path)
+    runs = 0
+    deadline = (time.monotonic() + timeout) if timeout else None
+    while True:
+        if deadline is not None and time.monotonic() >= deadline:
+            return runs
+        time.sleep(interval)
+        snap = _file_snapshot(path)
+        if snap is None:
+            sys.stderr.write(f"Watched file {path} disappeared — stopping.\n")
+            return runs
+        if snap != last:
+            last = snap
+            callback()
+            runs += 1
 
 
 def main(argv=None):
@@ -1051,6 +1366,12 @@ def main(argv=None):
     parser.add_argument("--no-readability", action="store_true")
     parser.add_argument("--export", choices=["csv", "md", "flashcards"], default=None)
     parser.add_argument("--cloze", action="store_true")
+    parser.add_argument("--suggest", action="store_true",
+                        help="suggest a simpler alternative (WordLists/synonyms.csv) for "
+                             "each word above --target-level — the Phase 3 rewriting aid")
+    parser.add_argument("--gap-report", action="store_true",
+                        help="list the target-level constructions the text does not use yet "
+                             "(the Phase 3 grammar gap report; needs the grammar side)")
     parser.add_argument("--no-enrich", action="store_true",
                         help="--export flashcards only: skip the Free Dictionary API; "
                              "the back of each card stays the in-text context sentence")
@@ -1070,8 +1391,37 @@ def main(argv=None):
     parser.add_argument("--limit", type=int, default=None,
                         help="--pre-enrich only: cap the number of new lookups")
     parser.add_argument("--output", default=None)
+    parser.add_argument("--watch", nargs="?", const=1.0, type=float, default=None,
+                        help="re-profile the --file input whenever it changes on disk "
+                             "(the Phase 3 edit → re-check loop; interval in seconds, "
+                             "default 1; with --format json, stdout is one JSON "
+                             "object per line so captured output stays parseable)")
+    parser.add_argument("--curriculum", default=None,
+                        help="check the text against a curriculum checklist file "
+                             "(sections [vocabulary] and [grammar]) and report pass/fail "
+                             "coverage of the required words and constructions")
+    parser.add_argument("--cambridge", action="store_true",
+                        help="map the report's own CEFR bands to the matching Cambridge "
+                             "English Qualification (A2 Key, B1 Preliminary, B2 First, "
+                             "C1 Advanced, C2 Proficiency) — the Phase 4 exam mapping")
+    parser.add_argument("--cando", action="store_true",
+                        help="frame the text's demands as CEFR Can-Do descriptors — what a "
+                             "learner at the reached/estimated band can do, the language "
+                             "rubrics and self-assessment forms use (the Phase 4 Can-Do item)")
+    parser.add_argument("--comments", action="store_true",
+                        help="add the full apply-as-comment rubric: per-construction "
+                             "grammar comments (used / not used yet, from grammarCriteria) "
+                             "plus per-word comments for above-target vocabulary "
+                             "(--target-level required for the vocabulary half)")
+    parser.add_argument("--schema", action="store_true",
+                        help="print the analysis report payload schema (the RubricMaker "
+                             "contract, version " + engine.SCHEMA_VERSION + ") as JSON and exit")
     parser.add_argument("positional", nargs="*", help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
+
+    if args.schema:
+        print(json.dumps(engine.payload_schema(), indent=2, ensure_ascii=False))
+        return 0
 
     try:
         out_format = resolve_format(args.format, sys.stdout.isatty())
@@ -1135,30 +1485,76 @@ def main(argv=None):
             + tail + "\n")
         return 0
 
-    try:
-        payload = analyze(
-            text,
-            target_level=target,
-            wordlists_dir=args.wordlists,
-            grammar_dir=args.grammar_profile,
-            with_grammar=not args.no_grammar,
-            with_readability=not args.no_readability,
-        )
-    except vp.WordListError as ex:
-        sys.stderr.write(str(ex) + "\n")
-        return 1
+    curriculum = None
+    if args.curriculum:
+        try:
+            # validate_curriculum parses AND checks the schema — a typo'd
+            # section header (e.g. [grammer]) fails here, before profiling.
+            curriculum, warnings = validate_curriculum(args.curriculum)
+            for w in warnings:
+                sys.stderr.write("warning: " + w + "\n")
+        except CurriculumError as ex:
+            sys.stderr.write(str(ex) + "\n")
+            return 1
 
-    if payload["totalWordCount"] == 0:
-        sys.stderr.write("No analysable words found in the input.\n")
-        return 1
+    def _run_once():
+        nonlocal text
+        if args.watch is not None and args.file:
+            try:
+                text = vp.extract_text(args.file)
+            except vp.DocumentError as ex:
+                sys.stderr.write(str(ex) + "\n")
+                return 1
+        try:
+            payload = analyze(
+                text,
+                target_level=target,
+                wordlists_dir=args.wordlists,
+                grammar_dir=args.grammar_profile,
+                with_grammar=not args.no_grammar,
+                with_readability=not args.no_readability,
+                suggest=args.suggest,
+                gap_report=args.gap_report,
+                curriculum=curriculum,
+                cambridge=args.cambridge,
+                cando=args.cando,
+                comments=args.comments,
+            )
+        except vp.WordListError as ex:
+            sys.stderr.write(str(ex) + "\n")
+            return 1
 
-    if out_format == "pretty":
-        render_pretty(payload, source_label)
-    else:
-        print(json.dumps(payload, indent=2, ensure_ascii=False))
+        if payload["totalWordCount"] == 0:
+            sys.stderr.write("No analysable words found in the input.\n")
+            return 1
 
-    if args.export and not _write_export(args, payload, target):
-        return 1
+        if out_format == "pretty":
+            render_pretty(payload, source_label)
+        elif args.watch is not None:
+            # Watch mode re-profiles on every change, so stdout carries one
+            # compact JSON object per line (JSON Lines) — each re-run stays
+            # parseable when the stream is captured, unlike a sequence of
+            # indented documents. Flush every line: a stream consumer (or a
+            # test) must see each report as it is produced, not when the
+            # process's stdout buffer happens to fill.
+            print(json.dumps(payload, ensure_ascii=False), flush=True)
+        else:
+            print(json.dumps(payload, indent=2, ensure_ascii=False))
+
+        if args.export and not _write_export(args, payload, target):
+            return 1
+        return 0
+
+    rc = _run_once()
+    if rc:
+        return rc
+    if args.watch is not None:
+        sys.stderr.write(
+            f"Watching {args.file} (re-profile on save; Ctrl-C to stop)\n")
+        try:
+            watch_file(args.file, args.watch, _run_once)
+        except KeyboardInterrupt:
+            sys.stderr.write("\nStopped.\n")
     return 0
 
 

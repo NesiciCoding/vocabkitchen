@@ -22,13 +22,30 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SCRIPT = os.path.join(HERE, "text_report.py")
 
 import text_report as tr  # noqa: E402
+import analysis as engine  # noqa: E402
 import vocab_profile as vp  # noqa: E402
 import grammar_profile as gp  # noqa: E402
+
+
+def _analysis_imports_text_report():
+    """True if analysis.py imports text_report (it must stay self-contained)."""
+    import ast
+    with open(os.path.join(HERE, "analysis.py"), encoding="utf-8") as f:
+        tree = ast.parse(f.read())
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            if any(a.name == "text_report" for a in node.names):
+                return True
+        elif isinstance(node, ast.ImportFrom):
+            if (node.module or "").split(".")[0] == "text_report":
+                return True
+    return False
 
 try:
     _NLP = gp.load_nlp()
@@ -57,10 +74,185 @@ def check(name, cond, detail=None):
         print(f"FAIL: {name}" + (f" — {detail}" if detail is not None else ""))
 
 
+# --- Phase 5: the shared analysis engine -------------------------------------
+check("text_report delegates to the shared engine",
+      engine.analyze(_CAT, target_level="B1", with_grammar=False)
+      == tr.analyze(_CAT, target_level="B1", with_grammar=False))
+check("engine payload matches text_report's shape",
+      set(engine.analyze(_CAT, with_grammar=False)) == set(
+          tr.analyze(_CAT, with_grammar=False)))
+
+# --- Phase 5: the payload contract (schema version + grammar criteria) --------
+check("SCHEMA_VERSION is 1.3", engine.SCHEMA_VERSION == "1.3")
+_schema_doc = json.load(open(os.path.join(HERE, "analysis.schema.json"),
+                             encoding="utf-8"))
+check("analysis.schema.json matches payload_schema()",
+      _schema_doc == engine.payload_schema())
+_schema_pl = engine.analyze(_CAT, with_grammar=False)
+check("payload carries schemaVersion",
+      _schema_pl["schemaVersion"] == engine.SCHEMA_VERSION)
+check("schema required keys are all present in the payload",
+      set(_schema_doc["required"]) <= set(_schema_pl))
+check("grammarCriteria null without the grammar side",
+      _schema_pl["grammarCriteria"] is None)
+check("analysis module is self-contained (no text_report import)",
+      not _analysis_imports_text_report())
+check("text_report re-exports the engine's helpers",
+      tr.compute_readability is engine.compute_readability
+      and tr.grammar_criteria is engine.grammar_criteria
+      and tr.curriculum_report is engine.curriculum_report
+      and tr.CurriculumError is engine.CurriculumError
+      and tr.SCHEMA_VERSION == engine.SCHEMA_VERSION)
+
+# grammarCriteria: the per-construction pass/fail shape RubricMaker's grammar
+# linker consumes (statuses, counts, examples, ladder-ordered criteria).
+if HAVE_GRAMMAR:
+    _gc_p = engine.analyze(_ACADEMIC, target_level="B1")
+    _gc = _gc_p["grammarCriteria"]
+    check("grammarCriteria covers every registered construction",
+          _gc is not None and _gc["total"] == len(gp._CONSTRUCTIONS)
+          and _gc["passedCount"] + _gc["failedCount"] == _gc["total"])
+    check("grammarCriteria statuses match pass and count",
+          all(c["status"] in ("used", "not used")
+              and c["pass"] == (c["status"] == "used")
+              and (c["count"] == 0) == (not c["pass"])
+              for c in _gc["criteria"]))
+    check("grammarCriteria used entries carry count + examples",
+          _gc["passedCount"] >= 1
+          and all(c["count"] >= 1 and isinstance(c["examples"], list)
+                  for c in _gc["criteria"] if c["pass"]))
+    check("grammarCriteria flags the passive as used",
+          any(c["id"] == "passive_past" and c["pass"]
+              for c in _gc["criteria"]))
+    _ladder = ["A1", "A2", "B1", "B2", "C1", "C2"]
+    _gc_levels = [_ladder.index(c["level"]) if c["level"] in _ladder else 99
+                  for c in _gc["criteria"]]
+    check("grammarCriteria sorted by band ladder then name",
+          _gc_levels == sorted(_gc_levels))
+
+    # grammarComments: the apply-as-comment reference implementation.
+    _gcm = engine.grammar_comments(_gc)
+    check("grammar_comments one comment per criterion, full shape",
+          len(_gcm) == _gc["total"]
+          and all(set(c) == {"id", "name", "category", "level", "status",
+                             "pass", "kind", "rewrite", "comment"}
+                  for c in _gcm)
+          and all(c["kind"] == "rubric" and c["rewrite"] is None
+                  for c in _gcm))
+    _gcm_used = [c for c in _gcm if c["pass"]]
+    check("grammar_comments used comments carry evidence",
+          bool(_gcm_used)
+          and all(c["comment"].startswith("Uses the ") and "E.g." in c["comment"]
+                  for c in _gcm_used))
+    check("grammar_comments not-used comments neutral",
+          all(not c["pass"]
+              and c["comment"].startswith("Doesn't use the ")
+              and c["comment"].endswith("yet.")
+              for c in _gcm if not c["pass"]))
+    _gcm_t = engine.grammar_comments(_gc, "B1")
+    _at_below = [c for c in _gc["criteria"]
+                 if engine._LEVEL_INDEX[c["level"]]
+                 <= engine._LEVEL_INDEX["B1"]]
+    _used_above = [c for c in _gc["criteria"]
+                   if c["pass"] and engine._LEVEL_INDEX[c["level"]]
+                   > engine._LEVEL_INDEX["B1"]]
+    check("grammar_comments with target filters to the class level",
+          len(_gcm_t) == len(_at_below) + len(_used_above)
+          and all(c["kind"] == "rubric"
+                  and engine._LEVEL_INDEX[c["level"]]
+                  <= engine._LEVEL_INDEX["B1"]
+                  for c in _gcm_t if c["kind"] == "rubric")
+          and all(c["kind"] == "pre-teach" and c["pass"]
+                  and engine._LEVEL_INDEX[c["level"]]
+                  > engine._LEVEL_INDEX["B1"]
+                  and "pre-teach or rewrite" in c["comment"]
+                  for c in _gcm_t if c["kind"] == "pre-teach"))
+    check("grammar_comments drops unused above-target constructions",
+          all(not (c["pass"] is False
+                   and engine._LEVEL_INDEX[c["level"]]
+                   > engine._LEVEL_INDEX["B1"])
+              for c in _gcm_t))
+    check("pre-teach entries carry the curated rewrite hint",
+          all(c["kind"] == "pre-teach" and c["rewrite"]
+              and "Rewrite:" in c["comment"]
+              for c in _gcm_t if c["kind"] == "pre-teach"))
+    _gcm_p = engine.analyze(_ACADEMIC, target_level="B1", comments=True)
+    check("payload with comments+target filters grammarComments",
+          _gcm_p["grammarComments"] is not None
+          and len(_gcm_p["grammarComments"]) < _gc["total"]
+          and any(c.get("kind") == "pre-teach"
+                  for c in _gcm_p["grammarComments"]))
+    check("pre-teach note ends with the rewrite suggestion",
+          all(c["kind"] == "pre-teach" and c["rewrite"]
+              and c["comment"].startswith("Uses the ")
+              and "pre-teach or rewrite" in c["comment"]
+              and "Rewrite:" in c["comment"]
+              for c in _gcm_p["grammarComments"]
+              if c.get("kind") == "pre-teach"))
+    check("payload without comments: grammarComments null",
+          _gc_p["grammarComments"] is None)
+    check("comments handout renders the Rubric comments section",
+          "## Rubric comments" in tr.export_markdown(_gcm_p)
+          and "not used yet" in tr.export_markdown(_gcm_p)
+          and "pre-teach" in tr.export_markdown(_gcm_p))
+
+    # vocabComments: the vocabulary half of the apply-as-comment pass.
+    _vc = _gcm_p["vocabComments"]
+    _vc_words = (_gcm_p["aboveTarget"] or {}).get("words") or []
+    check("payload with comments+target carries vocabComments",
+          _vc is not None and len(_vc) == len(_vc_words))
+    check("vocabulary_comments full shape per word",
+          all(set(c) == {"word", "level", "occurrences", "suggestion",
+                         "comment"} for c in _vc))
+    check("vocabulary_comments phrasing + evidence",
+          all(c["comment"].startswith('Above B1: "')
+              and c["comment"].endswith('"') and "E.g." in c["comment"]
+              for c in _vc))
+    check("payload without comments: vocabComments null",
+          _gc_p["vocabComments"] is None)
+    check("comments without a target: vocabComments null (no words to flag)",
+          engine.analyze(_ACADEMIC, comments=True)["vocabComments"] is None)
+    _md = tr.export_markdown(_gcm_p)
+    check("comments handout shows both halves",
+          "## Rubric comments" in _md and "## Vocabulary comments" in _md)
+else:
+    skipped += 1
+
+
 def run(args, text=""):
     p = subprocess.run([sys.executable, SCRIPT] + args,
                        input=text, capture_output=True, text=True)
     return p.returncode, p.stdout, p.stderr
+
+
+# --- Phase 5: --schema prints the report contract ----------------------------
+_rc, _out, _err = run(["--schema"])
+check("--schema prints the payload schema",
+      _rc == 0 and json.loads(_out) == engine.payload_schema())
+check("--schema works with --no-grammar (no engine load)",
+      run(["--schema", "--no-grammar"])[0] == 0)
+
+# --- Phase 5: --comments adds the rubric comments -----------------------------
+_rc, _out, _err = run(["--comments", "--format", "json"], text=_ACADEMIC)
+check("--comments CLI: grammarComments present iff grammar ran",
+      _rc == 0 and "grammarComments" in json.loads(_out)
+      and (json.loads(_out)["grammarComments"] is None)
+      == (json.loads(_out)["grammar"] is None))
+_rc, _out, _err = run(["--comments", "--target-level", "B1",
+                       "--format", "json"], text=_ACADEMIC)
+_pl = json.loads(_out) if _rc == 0 else {}
+check("--comments CLI: vocabComments cover the above-target words",
+      _rc == 0 and _pl.get("vocabComments") is not None
+      and len(_pl["vocabComments"])
+      == len((_pl.get("aboveTarget") or {}).get("words") or []))
+check("--comments CLI: payload renders both rubric halves",
+      _rc == 0
+      and "## Vocabulary comments" in tr.export_markdown(_pl)
+      and "## Rubric comments" in tr.export_markdown(_pl))
+check("--comments CLI: pre-teach notes carry the rewrite suggestion",
+      _rc == 0 and any(c.get("kind") == "pre-teach" and c.get("rewrite")
+                       and "Rewrite:" in c["comment"]
+                       for c in (_pl.get("grammarComments") or [])))
 
 
 # --- unit: the venv re-exec is skipped in vocabulary-only modes -------------
@@ -168,6 +360,494 @@ check("analyze vocab shape superset",
 _p2 = tr.analyze(_CAT, with_grammar=False)
 check("analyze no target -> no verdict", _p2["verdict"] is None
       and _p2["coverage"] is None and _p2["aboveTarget"] is None)
+
+# --- unit: simpler-synonym suggestions (--suggest) ----------------------------
+_syns = tr.load_synonyms(os.path.join(_BASE, "synonyms.csv"))
+check("synonyms loaded from the bundled list", len(_syns) > 20)
+check("synonyms entry shape", _syns.get("purchase") == {"word": "buy", "level": "A1"})
+check("synonyms missing file is empty",
+      tr.load_synonyms(os.path.join(_BASE, "does-not-exist.csv")) == {})
+
+_ps = tr.analyze("We purchase fresh bread daily.", target_level="A2",
+                 with_grammar=False, suggest=True)
+_pw = next(d for d in _ps["aboveTarget"]["words"] if d["word"] == "purchase")
+check("suggest annotates the above-target word",
+      _pw.get("suggestion") == {"word": "buy", "level": "A1"})
+_pn = tr.analyze("We purchase fresh bread daily.", target_level="A2",
+                 with_grammar=False)
+_pwn = next(d for d in _pn["aboveTarget"]["words"] if d["word"] == "purchase")
+check("no --suggest -> no suggestion key", "suggestion" not in _pwn)
+
+_csv_sugg = tr.export_csv(_ps, suggest=True)
+_csv_sugg_rows = list(_csv.reader(_csv_sugg.splitlines()))
+check("csv with suggestions gains the suggestion column",
+      _csv_sugg_rows[0][-1] == "suggestion"
+      and any(r[0] == "word" and r[-1] == "buy (A1)" for r in _csv_sugg_rows[1:]))
+_csv_plain = tr.export_csv(_pn)
+check("csv without suggestions keeps the old shape",
+      list(_csv.reader(_csv_plain.splitlines()))[0][-1] == "example")
+_md_sugg = tr.export_markdown(_ps)
+check("md with suggestions gains the Simpler column",
+      "| Word | Level | Occurrences | Simpler alternative | Example |" in _md_sugg
+      and "| buy (A1) |" in _md_sugg)
+_md_plain = tr.export_markdown(_pn)
+check("md without suggestions keeps the old shape",
+      "| Word | Level | Occurrences | Example |" in _md_plain
+      and "Simpler alternative" not in _md_plain)
+_buf3 = io.StringIO()
+tr.render_pretty(_ps, "p.txt", stream=_buf3)
+check("pretty shows the suggestion arrow",
+      "purchase (B2) → buy (A1)" in _buf3.getvalue())
+rc, out, err = run(["--target-level", "A2", "--no-grammar", "--suggest",
+                    "--text", "We purchase fresh bread daily."])
+_ds = json.loads(out)
+_dw = next(w for w in _ds["aboveTarget"]["words"] if w["word"] == "purchase")
+check("cli --suggest carries the suggestion",
+      rc == 0 and _dw["suggestion"] == {"word": "buy", "level": "A1"})
+rc, _, err = run(["--suggest", "--text", "hi"])
+check("cli --suggest without target rc==1",
+      rc == 1 and "--suggest requires --target-level" in err)
+_sug_dir = tempfile.mkdtemp(prefix="tr_suggest_csv_")
+with open(os.path.join(_sug_dir, "purchase.txt"), "w",
+          encoding="utf-8") as f:
+    f.write("We purchase fresh bread daily.")
+_sug_out = os.path.join(_sug_dir, "purchase-preteaching-A2.csv")
+rc, out, err = run(["--target-level", "A2", "--no-grammar", "--suggest",
+                    "--export", "csv", "--output", _sug_out,
+                    "--file", os.path.join(_sug_dir, "purchase.txt")])
+_csv_cli = list(_csv.reader(open(_sug_out, encoding="utf-8")))
+check("cli --suggest --export csv writes the suggestion column",
+      rc == 0 and _csv_cli[0][-1] == "suggestion"
+      and any(r[0] == "word" and r[-1] == "buy (A1)" for r in _csv_cli[1:]))
+shutil.rmtree(_sug_dir, ignore_errors=True)
+
+# --- unit: grammar gap report (--gap-report) ----------------------------------
+_gcefrj = gp.load_cefrj_levels(os.path.join(HERE, "GrammarProfile"))
+_full_b1 = gp.constructions_at_level(_gcefrj, "B1")
+check("constructions_at_level: B1 set is non-empty", len(_full_b1) > 10)
+check("constructions_at_level: sorted by category then name",
+      [(d["category"], d["name"]) for d in _full_b1]
+      == sorted((d["category"], d["name"]) for d in _full_b1))
+_gap_empty = tr.grammar_gap_report({}, _gcefrj, "B1")
+check("gap report with nothing used lists the whole set",
+      _gap_empty["missingCount"] == _gap_empty["total"] > 10
+      and _gap_empty["targetLevel"] == "B1"
+      and all(m["name"] and m["category"] for m in _gap_empty["missing"]))
+_name1 = _full_b1[0]["name"]
+_gap_used = tr.grammar_gap_report(
+    {"B1": {"x": {"name": _name1}}}, _gcefrj, "B1")
+check("gap report excludes used constructions",
+      _gap_used["missingCount"] == _gap_used["total"] - 1
+      and _name1 not in [m["name"] for m in _gap_used["missing"]])
+
+_pgap = tr.analyze(_CAT, target_level="B1", with_grammar=False, gap_report=True)
+check("gap report degrades gracefully without grammar",
+      _pgap["grammarGap"] is None and _pgap["grammarGapError"] is not None)
+_fake_gap = dict(_pgap)
+_fake_gap["grammarGap"] = {
+    "targetLevel": "B1", "total": 19, "missingCount": 2,
+    "missing": [{"name": "Second conditional", "category": "Conditional"},
+                 {"name": "Modal: may", "category": "Modality"}]}
+_md_gap = tr.export_markdown(_fake_gap)
+check("md with a gap gains the introduce section",
+      "## Constructions to introduce at B1 (2 of 19 not used)" in _md_gap
+      and "Second conditional" in _md_gap and "Modality" in _md_gap)
+check("md without a gap has no introduce section",
+      "Constructions to introduce" not in tr.export_markdown(_pgap))
+_bufg = io.StringIO()
+tr.render_pretty(_fake_gap, "g.txt", stream=_bufg)
+check("pretty shows the gap section",
+      "Gap report — B1 constructions not used (2 of 19)" in _bufg.getvalue()
+      and "Second conditional" in _bufg.getvalue())
+
+rc, _, err = run(["--gap-report", "--text", _CAT])
+check("cli --gap-report without target rc==1",
+      rc == 1 and "--gap-report requires --target-level" in err)
+rc, _, err = run(["--gap-report", "--target-level", "B1", "--no-grammar",
+                  "--text", _CAT])
+check("cli --gap-report with --no-grammar rc==1",
+      rc == 1 and "--gap-report needs the grammar side" in err)
+rc, out, err = run(["--gap-report", "--target-level", "B1", "--text", _CAT])
+_dg = json.loads(out)
+if _dg["grammarGap"] is not None:
+    check("cli gap report shape",
+          _dg["grammarGap"]["targetLevel"] == "B1"
+          and 0 <= _dg["grammarGap"]["missingCount"] <= _dg["grammarGap"]["total"])
+else:
+    check("cli gap report degraded gracefully", _dg["grammarGapError"] is not None)
+
+# --- unit: curriculum checklist (--curriculum) --------------------------------
+_curr_dir = tempfile.mkdtemp(prefix="tr_curriculum_")
+_curr_path = os.path.join(_curr_dir, "unit3.txt")
+with open(_curr_path, "w", encoding="utf-8") as f:
+    f.write("# Unit 3 checklist\n"
+            "; bare lines before any section header count as vocabulary\n"
+            "mat\n"
+            "[vocabulary]\npurchase\ncircumstances\n\n"
+            "[grammar]\nsecond conditional\ncond_second\npast perfect\n")
+
+
+def _raises_curriculum(fn):
+    try:
+        fn()
+    except tr.CurriculumError:
+        return True
+    return False
+
+
+_curr = tr.load_curriculum(_curr_path)
+check("curriculum: both sections parsed",
+      _curr["vocabulary"] == ["mat", "purchase", "circumstances"]
+      and _curr["grammar"] == ["second conditional", "cond_second", "past perfect"])
+check("curriculum: missing file raises CurriculumError",
+      _raises_curriculum(lambda: tr.load_curriculum(
+          os.path.join(_curr_dir, "nope.txt"))))
+with open(os.path.join(_curr_dir, "bad.txt"), "w", encoding="utf-8") as f:
+    f.write("[unknown]\nx\n")
+check("curriculum: unknown section raises CurriculumError",
+      _raises_curriculum(lambda: tr.load_curriculum(
+          os.path.join(_curr_dir, "bad.txt"))))
+with open(os.path.join(_curr_dir, "typo.txt"), "w", encoding="utf-8") as f:
+    f.write("[grammer]\npast simple\n")
+try:
+    tr.load_curriculum(os.path.join(_curr_dir, "typo.txt"))
+    _typo_msg = ""
+except tr.CurriculumError as ex:
+    _typo_msg = str(ex)
+check("curriculum: typo'd header suggests the fix",
+      "unknown curriculum section on line 1" in _typo_msg
+      and "Did you mean [grammar]?" in _typo_msg)
+with open(os.path.join(_curr_dir, "mal.txt"), "w", encoding="utf-8") as f:
+    f.write("[vocabulary] words\n")
+check("curriculum: header with trailing text is malformed",
+      _raises_curriculum(lambda: tr.load_curriculum(
+          os.path.join(_curr_dir, "mal.txt"))))
+with open(os.path.join(_curr_dir, "empty.txt"), "w", encoding="utf-8") as f:
+    f.write("[vocabulary]\ncat\n\n[grammar]\n")
+_sect, _warns = tr.validate_curriculum(os.path.join(_curr_dir, "empty.txt"))
+check("curriculum: validate returns sections + warnings",
+      _sect == {"vocabulary": ["cat"], "grammar": []}
+      and _warns == ["curriculum section [grammar] is empty — nothing required from it"])
+check("curriculum: clean file has no warnings",
+      tr.validate_curriculum(_curr_path)[1] == [])
+with open(os.path.join(_curr_dir, "gramtypo.txt"), "w", encoding="utf-8") as f:
+    f.write("[grammar]\nsecond conditinal\nfrobnicate\nconditional\npast perfect\n")
+_gw = tr.validate_curriculum(os.path.join(_curr_dir, "gramtypo.txt"))[1]
+check("curriculum: typo'd grammar item suggests the construction",
+      any("'second conditinal' is not recognised" in w
+          and "Did you mean 'second conditional'?" in w for w in _gw))
+check("curriculum: unknown grammar item points at the list",
+      any("'frobnicate' is not recognised" in w
+          and "grammar_profile.py --list" in w for w in _gw))
+check("curriculum: ambiguous grammar item is flagged, known items are not",
+      any("'conditional' is not recognised" in w for w in _gw)
+      and not any("past perfect" in w for w in _gw))
+rc, out, err = run(["--curriculum", os.path.join(_curr_dir, "gramtypo.txt"),
+                    "--file", os.path.join(HERE, "sample-readings/news-report.txt"),
+                    "--no-grammar"])
+check("cli: grammar-item warnings print before profiling, run continues",
+      rc == 0 and "Did you mean 'second conditional'?" in err
+      and "frobnicate" in err and "totalWordCount" in out)
+
+check("curriculum resolver: by construction id",
+      tr._resolve_construction("cond_second")[0] == "cond_second")
+check("curriculum resolver: by display name (case-insensitive)",
+      tr._resolve_construction("Second Conditional")
+      == ("cond_second", "Second conditional", "Conditionals"))
+check("curriculum resolver: exact name wins over its substring",
+      tr._resolve_construction("past perfect") == ("past_perf", "Past perfect", "Tense & aspect"))
+check("curriculum resolver: unambiguous substring",
+      tr._resolve_construction("gerund") is not None)
+check("curriculum resolver: ambiguous stays unresolved",
+      tr._resolve_construction("passive") is None)
+check("curriculum resolver: unknown stays unresolved",
+      tr._resolve_construction("floob") is None)
+
+_c_ordered, _ = vp.profile("We must purchase the equipment. Circumstances matter.", _LEVELS)
+_fake_gres = {"B1": {"cond_second": {"name": "Second conditional",
+                                      "category": "Conditionals",
+                                      "count": 1, "examples": []}}}
+_cr = tr.curriculum_report(
+    "We must purchase the equipment. Circumstances matter.",
+    {"vocabulary": ["purchase", "mat"],
+     "grammar": ["second conditional", "Passive (present)"]},
+    ordered=_c_ordered, gresults=_fake_gres)
+check("curriculum report: vocabulary presence + band",
+      [(d["word"], d["present"], d["level"]) for d in _cr["vocabulary"]]
+      == [("purchase", True, "B2"), ("mat", False, None)])
+check("curriculum report: grammar presence and pass verdict",
+      [(d["name"], d["present"]) for d in _cr["grammar"]]
+      == [("Second conditional", True), ("Passive (present)", False)]
+      and _cr["pass"] is False
+      and _cr["missing"] == ["mat", "Passive (present)"])
+_cr_all = tr.curriculum_report(
+    "We must purchase the equipment. Circumstances matter.",
+    {"vocabulary": ["purchase", "circumstances"],
+     "grammar": ["second conditional"]},
+    ordered=_c_ordered, gresults=_fake_gres)
+check("curriculum report: all covered -> pass",
+      _cr_all["pass"] is True and _cr_all["missing"] == [])
+_cr_nog = tr.curriculum_report("mat", {"vocabulary": ["purchase"],
+                                        "grammar": ["second conditional"]},
+                               ordered=_c_ordered, gresults=None)
+check("curriculum report: no grammar results -> grammar unchecked",
+      _cr_nog["grammar"][0]["present"] is False)
+
+_pc = tr.analyze("We must purchase the equipment.", target_level="B1",
+                 with_grammar=False, curriculum=_curr)
+check("analyze carries the curriculum checklist",
+      _pc["curriculum"] is not None
+      and _pc["curriculum"]["grammarAvailable"] is False
+      and _pc["curriculumError"] is not None)
+_pc2 = tr.analyze("The cat sat on the mat.", with_grammar=False,
+                   curriculum=_curr)
+check("curriculum works without --target-level",
+      _pc2["curriculum"] is not None)
+_bufc = io.StringIO()
+tr.render_pretty(_pc, "c.txt", stream=_bufc)
+check("pretty shows the curriculum checklist",
+      "Curriculum checklist" in _bufc.getvalue())
+_md_curr = tr.export_markdown(_pc)
+check("md gains the curriculum checklist section",
+      "## Curriculum checklist" in _md_curr
+      and "| Item | Kind | Status | Level |" in _md_curr)
+check("md without curriculum has no checklist section",
+      "Curriculum checklist" not in tr.export_markdown(_p2))
+rc, out, err = run(["--curriculum", _curr_path, "--text",
+                    "We must purchase the equipment. Circumstances matter."])
+_dc = json.loads(out)
+check("cli --curriculum carries the checklist",
+      rc == 0 and _dc["curriculum"] is not None
+      and _dc["curriculum"]["pass"] is False
+      and any(d["word"] == "purchase" and d["present"] is True
+              for d in _dc["curriculum"]["vocabulary"]))
+rc, _, err = run(["--curriculum", os.path.join(_curr_dir, "nope.txt"),
+                  "--text", "hi"])
+check("cli --curriculum missing file rc==1",
+      rc == 1 and "curriculum file not found" in err)
+
+# --- unit: watch mode (--watch, the edit -> re-check loop) --------------------
+_wf = os.path.join(_curr_dir, "watch.txt")
+with open(_wf, "w", encoding="utf-8") as f:
+    f.write("v1")
+_s1 = tr._file_snapshot(_wf)
+time.sleep(0.02)
+with open(_wf, "w", encoding="utf-8") as f:
+    f.write("v2 with more words")
+_s2 = tr._file_snapshot(_wf)
+check("watch: snapshot detects a change",
+      _s1 is not None and _s2 is not None and _s1 != _s2)
+check("watch: snapshot of a missing file is None",
+      tr._file_snapshot(os.path.join(_curr_dir, "gone.txt")) is None)
+_watch_runs = []
+
+
+def _watch_cb():
+    _watch_runs.append(tr._file_snapshot(_wf))
+
+
+_tw = threading.Thread(target=lambda: tr.watch_file(_wf, 0.01, _watch_cb,
+                                                    timeout=2), daemon=True)
+_tw.start()
+time.sleep(0.1)
+with open(_wf, "w", encoding="utf-8") as f:
+    f.write("v3 changed again")
+time.sleep(0.1)
+os.remove(_wf)
+_tw.join(3)
+check("watch: re-runs on change and stops when the file disappears",
+      len(_watch_runs) >= 1)
+rc, _, err = run(["--watch", "--text", "hi"])
+check("cli --watch requires --file",
+      rc == 1 and "--watch re-profiles a file on save" in err)
+# A fresh valid file: the rejection must come from the flag validation,
+# not from a missing --file path.
+_wf2 = os.path.join(_curr_dir, "watch-reject.txt")
+with open(_wf2, "w", encoding="utf-8") as f:
+    f.write("hi")
+rc, _, err = run(["--watch", "--pre-enrich", "--file", _wf2, "--text", "hi"])
+check("cli --watch rejects --pre-enrich",
+      rc == 1 and "--watch and --pre-enrich don't combine" in err)
+# Watch mode with captured stdout must stay parseable across re-runs: one
+# compact JSON object per line (JSON Lines), not a pile of indented docs.
+_wl = os.path.join(_curr_dir, "watch-lines.txt")
+with open(_wl, "w", encoding="utf-8") as f:
+    f.write("The cat sat on the mat.")
+_wp = subprocess.Popen(
+    [sys.executable, SCRIPT, "--watch", "0.05", "--format", "json",
+     "--file", _wl], stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+    text=True)
+# Read the first line before editing: blocking reads make the re-run
+# observable regardless of how fast the engine starts (no fixed sleeps).
+_line1 = _wp.stdout.readline()
+with open(_wl, "w", encoding="utf-8") as f:
+    f.write("The cat sat on the mat and saw the dog.")
+_line2 = _wp.stdout.readline()
+os.remove(_wl)
+try:
+    _wp.wait(timeout=10)
+except subprocess.TimeoutExpired:
+    _wp.kill()
+_wp.communicate()
+_wl_lines = [ln for ln in (_line1 + _line2).splitlines() if ln.strip()]
+_wl_parsed = []
+for _ln in _wl_lines:
+    try:
+        _wl_parsed.append(json.loads(_ln))
+    except ValueError:
+        pass
+check("watch json: captured stdout is one JSON object per line",
+      len(_wl_parsed) >= 2 and len(_wl_parsed) == len(_wl_lines)
+      and all(p.get("schemaVersion") for p in _wl_parsed))
+
+# --- unit: Cambridge English exam mapping (--cambridge) -----------------------
+check("cambridge: B1 maps to Preliminary",
+      tr.cambridge_for("B1") == "B1 Preliminary (PET)")
+check("cambridge: A1 is below the exam ladder", tr.cambridge_for("A1") is None)
+check("cambridge: unknown band is None", tr.cambridge_for("XX") is None)
+_pcm = tr.analyze("We purchase fresh bread daily.", with_grammar=False,
+                   cambridge=True)
+_cm = _pcm["cambridge"]
+check("analyze carries the cambridge mapping",
+      _cm["vocabulary"]["reaches"] == "B2 First (FCE)"
+      and _cm["estimated"] == "B2 First (FCE)"
+      and _cm["grammar"] == {"typical": None, "reaches": None})
+check("analyze without --cambridge has no mapping",
+      tr.analyze("We purchase fresh bread daily.", with_grammar=False)
+      .get("cambridge") is None)
+_bufcm = io.StringIO()
+tr.render_pretty(_pcm, "cm.txt", stream=_bufcm)
+check("pretty shows the Cambridge English block",
+      "Cambridge English" in _bufcm.getvalue()
+      and "B2 First (FCE)" in _bufcm.getvalue())
+_md_cm = tr.export_markdown(_pcm)
+check("md gains the Cambridge English mapping section",
+      "## Cambridge English mapping" in _md_cm
+      and "| Vocabulary reaches (B2) | B2 First (FCE) |" in _md_cm)
+check("md without --cambridge has no mapping section",
+      "Cambridge English" not in tr.export_markdown(
+          tr.analyze("We purchase fresh bread daily.", with_grammar=False)))
+rc, out, err = run(["--cambridge", "--text", "We purchase fresh bread daily.",
+                    "--no-grammar"])
+_dcm = json.loads(out)
+check("cli --cambridge carries the mapping",
+      rc == 0 and _dcm["cambridge"]["vocabulary"]["reaches"]
+      == "B2 First (FCE)")
+
+# --- unit: CEFR Can-Do framing (--cando) -------------------------------------
+check("cando: B2 has a descriptor",
+      tr.cando_for("B2") is not None and "complex text" in tr.cando_for("B2"))
+check("cando: all six bands have descriptors",
+      all(tr.cando_for(b) for b in ("A1", "A2", "B1", "B2", "C1", "C2")))
+check("cando: unknown band is None", tr.cando_for("XX") is None)
+_pcd = tr.analyze("We purchase fresh bread daily.", with_grammar=False,
+                   cando=True)
+_cd = _pcd["cando"]
+check("analyze carries the can-do mapping",
+      _cd["vocabulary"]["reaches"] == tr.cando_for("B2")
+      and _cd["estimated"] == tr.cando_for("B2")
+      and _cd["grammar"] == {"typical": None, "reaches": None})
+check("analyze without --cando has no mapping",
+      tr.analyze("We purchase fresh bread daily.", with_grammar=False)
+      .get("cando") is None)
+_bufcd = io.StringIO()
+tr.render_pretty(_pcd, "cd.txt", stream=_bufcd)
+check("pretty shows the Can-Do block",
+      "Can-Do (CEFR global scale)" in _bufcd.getvalue()
+      and "complex text on both concrete and abstract topics"
+      in _bufcd.getvalue())
+_md_cd = tr.export_markdown(_pcd)
+check("md gains the Can-Do descriptors section",
+      "## Can-Do descriptors" in _md_cd
+      and "| Demand level | Can-Do descriptor (CEFR global scale) |" in _md_cd
+      and "| Estimated level (B2) |" in _md_cd)
+check("md without --cando has no Can-Do section",
+      "Can-Do" not in tr.export_markdown(
+          tr.analyze("We purchase fresh bread daily.", with_grammar=False)))
+rc, out, err = run(["--cando", "--text", "We purchase fresh bread daily.",
+                    "--no-grammar"])
+_dcd = json.loads(out)
+check("cli --cando carries the mapping",
+      rc == 0 and _dcd["cando"]["vocabulary"]["reaches"] == tr.cando_for("B2"))
+
+# --- unit: Can-Do diff against a target level (--cando + --target-level) -----
+_dc = tr.analyze("We purchase fresh bread daily.", target_level="A2",
+                 with_grammar=False, cando=True)["cando"]
+check("cando with target carries the aboveTarget diff",
+      _dc["targetLevel"] == "A2"
+      and [e["band"] for e in _dc["aboveTarget"]["vocabulary"]] == ["B1", "B2"]
+      and _dc["aboveTarget"]["grammar"] == []
+      and [e["band"] for e in _dc["aboveTarget"]["estimated"]] == ["B1", "B2"])
+check("cando at-or-below target diff is empty",
+      tr.analyze("I am a student.", target_level="B1", with_grammar=False,
+                 cando=True)["cando"]["aboveTarget"]
+      == {"vocabulary": [], "grammar": [], "estimated": []})
+check("cando without a target has no diff",
+      "aboveTarget" not in tr.analyze("I am a student.", with_grammar=False,
+                                       cando=True)["cando"])
+_dcmd = tr.export_markdown(tr.analyze("We purchase fresh bread daily.",
+                                      target_level="A2", with_grammar=False,
+                                      cando=True))
+check("md renders the above-target Can-Do section",
+      "### Above the A2 target" in _dcmd
+      and "| Vocabulary | B2 |" in _dcmd
+      and "pre-teach or rewrite" in _dcmd)
+_bufdc = io.StringIO()
+tr.render_pretty(tr.analyze("We purchase fresh bread daily.",
+                            target_level="A2", with_grammar=False, cando=True),
+                 "dc.txt", stream=_bufdc)
+check("pretty renders the above-target Can-Do block",
+      "above the A2 target" in _bufdc.getvalue()
+      and "pre-teach or rewrite" in _bufdc.getvalue())
+
+# --- unit: Can-Do reference deck (--cando --export flashcards) ---------------
+_cd_deck = tr.export_cando_deck(
+    tr.analyze("We purchase fresh bread daily.", target_level="A2",
+               with_grammar=False, cando=True))
+_cd_rows = list(_csv.reader(_cd_deck.splitlines()))
+check("cando deck: RubricMaker shape with demand cards",
+      _cd_rows[0] == ["word", "definition", "example", "phonetic", "partOfSpeech"]
+      and {r[0] for r in _cd_rows[1:]} == {"B1 — vocabulary demand",
+                                            "B2 — vocabulary demand",
+                                            "B1 — estimated demand",
+                                            "B2 — estimated demand"}
+      and all(r[3] == "" and r[4] == "cando" for r in _cd_rows[1:])
+      and any("above the A2 target" in r[2] for r in _cd_rows[1:]))
+check("cando deck: none without --cando",
+      tr.export_cando_deck(tr.analyze("I am a student.", with_grammar=False))
+      is None)
+check("cando deck path derives from the word deck",
+      tr.cando_deck_path("essay-preteaching-B1-deck.csv")
+      == "essay-preteaching-B1-cando-deck.csv"
+      and tr.cando_deck_path("out.csv") == "out-cando-deck.csv")
+# The companion deck is actually written by the CLI next to the word deck.
+_cd_cli = tempfile.mkdtemp(prefix="tr_cando_deck_")
+rc, out, err = run(["--cando", "--no-grammar", "--target-level", "A2",
+                    "--file", os.path.join(HERE, "sample-readings/news-report.txt"),
+                    "--export", "flashcards", "--no-enrich", "--output",
+                    os.path.join(_cd_cli, "news-deck.csv")])
+_has_deck = os.path.isfile(os.path.join(_cd_cli, "news-cando-deck.csv"))
+if _has_deck:
+    with open(os.path.join(_cd_cli, "news-cando-deck.csv"), encoding="utf-8") as f:
+        _deck_rows = list(_csv.reader(f))
+check("cli --cando --export flashcards writes the companion deck",
+      rc == 0 and _has_deck and _deck_rows[0][0] == "word"
+      and all(r[4] == "cando" for r in _deck_rows[1:]))
+shutil.rmtree(_cd_cli, ignore_errors=True)
+
+# --- unit: cached definitions (no-network lookups for handouts) ---------------
+_cache_path = os.path.join(_curr_dir, "dict-cache.json")
+with open(_cache_path, "w", encoding="utf-8") as f:
+    json.dump({"version": tr._CACHE_VERSION,
+               "entries": {tr._DICT_API: {
+                   "purchase": {"definition": "to buy something",
+                                 "phonetic": "/p/", "partOfSpeech": "verb"},
+                   "miss": None}}}, f)
+_defs = tr.cached_definitions(_cache_path)
+check("cached_definitions returns real definitions only",
+      _defs == {"purchase": "to buy something"})
+check("cached_definitions of a missing cache is empty",
+      tr.cached_definitions(os.path.join(_curr_dir, "nope.json")) == {})
 
 # --- in-process analyze with grammar (needs spaCy) ----------------------------
 if HAVE_GRAMMAR:

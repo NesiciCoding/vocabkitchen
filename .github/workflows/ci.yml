@@ -39,6 +39,33 @@ jobs:
       - name: ruff check
         run: python -m ruff check .
 
+      - name: Analysis payload schema stays in sync
+        # The report contract: the checked-in analysis.schema.json must be
+        # byte-equal to analysis.payload_schema() (the test suites mirror
+        # this), both CLIs must print it via --schema, and the version the
+        # CLI ships must be the version a real payload carries.
+        run: |
+          python - <<'EOF'
+          import json, subprocess, sys
+          import analysis
+
+          checked_in = json.load(open("analysis.schema.json", encoding="utf-8"))
+          assert checked_in == analysis.payload_schema(), (
+              "analysis.schema.json drifted from analysis.payload_schema()")
+          assert checked_in["version"] == analysis.SCHEMA_VERSION
+          for script in ("text_report.py", "class_profile.py"):
+              p = subprocess.run([sys.executable, script, "--schema"],
+                                 capture_output=True, text=True)
+              assert p.returncode == 0, p.stderr
+              assert json.loads(p.stdout) == analysis.payload_schema(), script
+          p = subprocess.run([sys.executable, "text_report.py", "--no-grammar"],
+                             input="The cat sat on the mat.",
+                             capture_output=True, text=True)
+          assert p.returncode == 0, p.stderr
+          assert json.loads(p.stdout)["schemaVersion"] == analysis.SCHEMA_VERSION
+          print("analysis schema: in sync, --schema on both CLIs, version in payload")
+          EOF
+
       - name: Plugin integrity check
         # Guards the extension surface: every plugins/* dir must be registered
         # in the marketplace, ship a plugin.json, and have resolvable symlinks.
@@ -76,12 +103,24 @@ jobs:
         # (checkout script, ../../../ links) in .claude/skills/. Both must
         # exist and each must carry its own markers — an accidental copy of
         # one over the other loses the destination's markers and fails here.
-        # plugin.json must also declare the command the skill states.
+        # plugin.json must also declare the command the skill states, and
+        # both SKILL.md copies must document the flags the CLI ships for that
+        # skill (the plugin surface stays in step with the command line).
         run: |
           python - <<'EOF'
           import json, os, sys
 
           ok = True
+          required_flags = {
+              "class-profile": ["--suggest", "--gap-report", "--interleave",
+                                "--new-words-per-reading", "--curriculum",
+                                "--watch", "--cando", "--cando-diff",
+                                "--cando-diff-sort", "--schema",
+                                "--comments"],
+              "text-report": ["--suggest", "--gap-report", "--watch",
+                              "--curriculum", "--cambridge", "--cando",
+                              "--schema", "--comments"],
+          }
           for name in sorted(os.listdir("plugins")):
               d = os.path.join("plugins", name)
               if not os.path.isdir(d):
@@ -136,6 +175,16 @@ jobs:
                       print(f"skill {name}: copies are identical — they are "
                             "deliberately different flavours")
                       ok = False
+                  import re as _re
+                  def _has_flag(md, flag):
+                      # Whole-token match: --cando-off must not satisfy --cando.
+                      return _re.search(_re.escape(flag) + r"(?![-A-Za-z0-9_])",
+                                        md) is not None
+                  for flag in required_flags.get(name, []):
+                      if not _has_flag(plugin_md, flag) or not _has_flag(local_md, flag):
+                          print(f"skill {name}: {flag} missing from a SKILL.md copy "
+                                "(the plugin surface must stay in step with the CLI)")
+                          ok = False
 
           sys.exit(0 if ok else 1)
           EOF
@@ -201,9 +250,10 @@ jobs:
         run: |
           python - <<'EOF'
           import csv, io, json, os, shutil, subprocess, sys, tempfile
+          import analysis  # the shared engine: SCHEMA_VERSION / payload_schema
 
-          def run_cli(args):
-              p = subprocess.run([sys.executable, "class_profile.py"] + args,
+          def run_cli(args, script="class_profile.py"):
+              p = subprocess.run([sys.executable, script] + args,
                                  capture_output=True, text=True)
               return p.returncode, p.stdout, p.stderr
 
@@ -224,10 +274,12 @@ jobs:
           assert all(int(r[1]) >= 5 for r in rows[1:]), rows
 
           # JSON: nothing skipped, aggregate = sum of the rows, ranked by level
-          # with the sample folder spanning the A1 → C2 gradient.
+          # with the sample folder spanning the A1 → C2 gradient, and the
+          # folder payload carries the versioned report contract.
           rc, out, err = run_cli(["--file", "sample-readings/", "--no-grammar"])
           assert rc == 0, err
           d = json.loads(out)
+          assert d["schemaVersion"] == analysis.SCHEMA_VERSION, d["schemaVersion"]
           assert d["texts"] == len(files) and d["skipped"] == [], (d["texts"], d["skipped"])
           assert sum(r["totalWordCount"] for r in d["rows"]) == d["aggregate"]["totalWordCount"]
           levels = ["A1", "A2", "B1", "B2", "C1", "C2"]
@@ -246,6 +298,55 @@ jobs:
           assert all(r["grammar"]["typical"] in levels
                      and r["grammar"]["reaches"] in levels
                      for r in d["rows"]), [r["grammar"] for r in d["rows"]]
+
+          # The single-text report contract (text_report.py --format json): the
+          # same engine, so the payload carries schemaVersion + the per-
+          # construction grammar pass/fail shape RubricMaker's linker consumes.
+          rc, out, err = run_cli(["--file", os.path.join("sample-readings", files[0]),
+                                  "--target-level", "B1", "--format", "json"],
+                                 script="text_report.py")
+          assert rc == 0, err
+          tp = json.loads(out)
+          assert tp["schemaVersion"] == analysis.SCHEMA_VERSION, tp["schemaVersion"]
+          gc = tp["grammarCriteria"]
+          assert gc is not None and gc["total"] == len(analysis.gp._CONSTRUCTIONS), gc
+          assert gc["passedCount"] + gc["failedCount"] == gc["total"], gc
+          assert all(c["status"] in ("used", "not used") and c["pass"] == (c["status"] == "used")
+                     for c in gc["criteria"]), gc
+          assert all(c["count"] >= 1 and isinstance(c["examples"], list)
+                     for c in gc["criteria"] if c["pass"]), gc
+
+          # --comments turns that criteria list into one rubric comment per
+          # construction (the apply-as-comment reference implementation),
+          # filtered to the class level — plus one comment per above-target
+          # word, the vocabulary half.
+          rc, out, err = run_cli(["--file", os.path.join("sample-readings", files[0]),
+                                  "--target-level", "B1", "--comments",
+                                  "--format", "json"], script="text_report.py")
+          assert rc == 0, err
+          cp_pl = json.loads(out)
+          gcm = cp_pl["grammarComments"]
+          idx = analysis._LEVEL_INDEX
+          assert gcm is not None and 0 < len(gcm) < gc["total"], gcm
+          assert all(c["kind"] in ("rubric", "pre-teach")
+                     and c["status"] in ("used", "not used")
+                     and c["pass"] == (c["status"] == "used")
+                     and "rewrite" in c
+                     and ((c["kind"] == "rubric" and idx[c["level"]] <= idx["B1"]
+                           and c["rewrite"] is None)
+                          or (c["kind"] == "pre-teach" and c["pass"]
+                              and idx[c["level"]] > idx["B1"]
+                              and c["rewrite"]
+                              and "pre-teach or rewrite" in c["comment"]
+                              and "Rewrite:" in c["comment"]))
+                     for c in gcm), gcm
+          vcm = cp_pl["vocabComments"]
+          above_words = (cp_pl.get("aboveTarget") or {}).get("words") or []
+          assert vcm is not None and len(vcm) == len(above_words), vcm
+          assert all(set(c) == {"word", "level", "occurrences", "suggestion",
+                                "comment"}
+                     and c["comment"].startswith('Above B1: "')
+                     for c in vcm), vcm
 
           # Pre-teaching export: per-text decks + the combined class-wide deck
           # (named after the source folder) and its level-keyed index, in the
@@ -323,6 +424,52 @@ jobs:
                   return words
               assert _index_words("A2", {"B1", "B2", "C1", "C2"}).keys() == a2_words
               assert _index_words("B1", {"B2", "C1", "C2"}).keys() == b1_words
+              # --cando on the same run: each level also gets its own Can-Do
+              # reference deck, with the demands measured against that level.
+              rc, out, err = run_cli(["--file", "sample-readings/", "--targets", "A2,B1",
+                                      "--no-grammar", "--cando", "--export", "flashcards",
+                                      "--no-enrich", "--output", outdir])
+              assert rc == 0, err
+              assert {f"{base}-{lvl}-cando-deck.csv" for lvl in ("A2", "B1")} \
+                     <= set(os.listdir(outdir)), os.listdir(outdir)
+              for level, above_bands in (("A2", {"B1", "B2", "C1", "C2"}),
+                                         ("B1", {"B2", "C1", "C2"})):
+                  cdrows = list(csv.reader(open(
+                      os.path.join(outdir, f"{base}-{level}-cando-deck.csv"),
+                      encoding="utf-8")))
+                  assert cdrows[0] == ["word", "definition", "example", "phonetic",
+                                       "partOfSpeech"], cdrows[0]
+                  assert len(cdrows) > 1, cdrows
+                  assert all(r[0].split(" — ")[0] in above_bands
+                             and r[0].endswith("demand") and r[4] == "cando"
+                             and f"above the {level} target" in r[2]
+                             for r in cdrows[1:]), cdrows
+              # --comments on the same run: each level also gets its own
+              # rubric-comment deck — the same construction is a pre-teach
+              # card above its own level and a plain rubric card at it.
+              rc, out, err = run_cli(["--file", "sample-readings/", "--targets", "A2,B1",
+                                      "--comments", "--export", "flashcards",
+                                      "--no-enrich", "--output", outdir])
+              assert rc == 0, err
+              assert {f"{base}-{lvl}-comments-deck.csv" for lvl in ("A2", "B1")} \
+                     <= set(os.listdir(outdir)), os.listdir(outdir)
+              for level in ("A2", "B1"):
+                  cdrows = list(csv.reader(open(
+                      os.path.join(outdir, f"{base}-{level}-comments-deck.csv"),
+                      encoding="utf-8")))
+                  assert cdrows[0] == ["word", "definition", "example", "phonetic",
+                                       "partOfSpeech"], cdrows[0]
+                  assert len(cdrows) > 1, cdrows
+                  assert all(r[4] == "grammar" for r in cdrows[1:]), cdrows
+                  for r in cdrows[1:]:
+                      lvl = r[0].rsplit(" (", 1)[-1].rstrip(")")
+                      assert lvl in analysis._LEVEL_INDEX, (r[0], lvl)
+                      if "pre-teach or rewrite" in r[1]:
+                          assert analysis._LEVEL_INDEX[lvl] \
+                                 > analysis._LEVEL_INDEX[level], r
+                      else:
+                          assert analysis._LEVEL_INDEX[lvl] \
+                                 <= analysis._LEVEL_INDEX[level], r
           finally:
               shutil.rmtree(outdir, ignore_errors=True)
 
@@ -381,6 +528,170 @@ jobs:
                                               encoding="utf-8")))
                   assert len(rows) - 1 == agg["levels"][lvl]["distinctWordCount"], \
                       (lvl, len(rows) - 1)
+          finally:
+              shutil.rmtree(outdir, ignore_errors=True)
+
+          # Curriculum pass: --export csv --curriculum writes the folder-level
+          # coverage grid — one row per text, one column per required item,
+          # with a pass verdict per text, in the documented shape.
+          outdir = tempfile.mkdtemp(prefix="classprof-golden-curriculum-")
+          try:
+              curr = os.path.join(outdir, "unit-checklist.txt")
+              with open(curr, "w", encoding="utf-8") as f:
+                  f.write("[vocabulary]\npurchase\nmat\n\n[grammar]\npassive_present\n")
+              rc, out, err = run_cli(["--file", "sample-readings/", "--target-level", "B1",
+                                      "--no-grammar", "--export", "csv",
+                                      "--curriculum", curr, "--output", outdir])
+              assert rc == 0, err
+              matrix = "sample-readings-curriculum-coverage-B1.csv"
+              assert matrix in os.listdir(outdir), os.listdir(outdir)
+              mrows = list(csv.reader(open(os.path.join(outdir, matrix),
+                                           encoding="utf-8")))
+              assert mrows[0] == ["text", "purchase", "mat", "Passive (present)", "pass"], mrows[0]
+              assert len(mrows) == 1 + len(files), mrows  # one row per text
+              assert all(r[0] in files for r in mrows[1:]), mrows
+              assert all(c in ("yes", "no") for r in mrows[1:] for c in r[1:]), mrows
+              # md run: per-text sections plus the same grid in the set summary.
+              rc, out, err = run_cli(["--file", "sample-readings/", "--target-level", "B1",
+                                      "--no-grammar", "--export", "md",
+                                      "--curriculum", curr, "--output", outdir])
+              assert rc == 0, err
+              summ_md = open(os.path.join(outdir, "sample-readings-summary-B1.md"),
+                             encoding="utf-8").read()
+              assert "## Curriculum coverage" in summ_md \
+                     and "| Text | purchase | mat | Passive (present) | pass |" in summ_md \
+                     and all(f in summ_md for f in files), summ_md
+              with open(os.path.join(outdir, "academic-essay-preteaching-B1.md"),
+                        encoding="utf-8") as f:
+                  assert "## Curriculum checklist" in f.read()
+              # json run: the same grid inside the payload (curriculumCoverage),
+              # so scripts can consume the pass/fail matrix without CSV parsing.
+              rc, out, err = run_cli(["--file", "sample-readings/", "--target-level", "B1",
+                                      "--no-grammar", "--format", "json",
+                                      "--curriculum", curr])
+              assert rc == 0, err
+              ccj = json.loads(out)["curriculumCoverage"]
+              assert ccj["items"] == [["vocabulary", "purchase"],
+                                       ["vocabulary", "mat"],
+                                       ["grammar", "Passive (present)"]], ccj["items"]
+              assert ccj["textCount"] == len(files), ccj
+              assert {r["text"] for r in ccj["rows"]} == set(files), ccj
+              assert all(len(r["cells"]) == len(ccj["items"]) and isinstance(r["pass"], bool)
+                         for r in ccj["rows"]), ccj
+              assert 0 <= ccj["passCount"] <= ccj["textCount"], ccj
+          finally:
+              shutil.rmtree(outdir, ignore_errors=True)
+
+          # Can-Do pass: --cando-diff --export md adds the shared above-target
+          # demands to the summary handout, and --cando --export flashcards
+          # writes a combined Can-Do reference deck in the RubricMaker shape.
+          outdir = tempfile.mkdtemp(prefix="classprof-golden-cando-")
+          try:
+              rc, out, err = run_cli(["--file", "sample-readings/", "--target-level", "B1",
+                                      "--no-grammar", "--cando-diff", "--export", "md",
+                                      "--output", outdir])
+              assert rc == 0, err
+              summ_md = open(os.path.join(outdir, "sample-readings-summary-B1.md"),
+                             encoding="utf-8").read()
+              assert "## Can-Do demands across the set" in summ_md, summ_md
+              assert "| Demand | Level | Can-Do descriptor | Texts |" in summ_md, summ_md
+              assert all(f in summ_md for f in files), summ_md
+              rc, out, err = run_cli(["--file", "sample-readings/", "--target-level", "B1",
+                                      "--no-grammar", "--cando", "--export", "flashcards",
+                                      "--no-enrich", "--output", outdir])
+              assert rc == 0, err
+              cdeck = "sample-readings-preteaching-B1-cando-deck.csv"
+              assert cdeck in os.listdir(outdir), os.listdir(outdir)
+              cdrows = list(csv.reader(open(os.path.join(outdir, cdeck),
+                                            encoding="utf-8")))
+              assert cdrows[0] == ["word", "definition", "example", "phonetic",
+                                   "partOfSpeech"], cdrows[0]
+              assert len(cdrows) > 1, cdrows
+              assert all(r[0].endswith("demand") and r[3] == "" and r[4] == "cando"
+                         for r in cdrows[1:]), cdrows
+          finally:
+              shutil.rmtree(outdir, ignore_errors=True)
+
+          # Interleave pass: the spaced-introduction schedule across the set.
+          # --interleave --export md writes the per-text handouts + summary
+          # plus the <set>-interleave-<LEVEL>.md handout, and the run's own
+          # JSON payload carries the schedule: one reading per text, at most
+          # the budget of new words per reading, every scheduled word strictly
+          # above the target, and the md word index == the payload index.
+          outdir = tempfile.mkdtemp(prefix="classprof-golden-interleave-")
+          try:
+              rc, out, err = run_cli(["--file", "sample-readings/", "--target-level", "B1",
+                                      "--no-grammar", "--interleave",
+                                      "--new-words-per-reading", "4",
+                                      "--export", "md", "--output", outdir])
+              assert rc == 0, err
+              stems = [os.path.splitext(f)[0] for f in files]
+              reading_files = [f"sample-readings-interleave-B1-reading-{i}.md"
+                               for i in range(1, len(files) + 1)]
+              assert set(os.listdir(outdir)) == {f"{s}-preteaching-B1.md" for s in stems} \
+                                                 | {"sample-readings-summary-B1.md",
+                                                    "sample-readings-interleave-B1.md"} \
+                                                 | set(reading_files), os.listdir(outdir)
+              il = json.loads(out)["interleave"]
+              # one printable handout per reading: its Introduce/Review/Due
+              # words, each with the in-text sentence it appears in.
+              for i, r in enumerate(il["readings"], start=1):
+                  rmd = open(os.path.join(outdir, reading_files[i - 1]),
+                             encoding="utf-8").read()
+                  assert f"# Reading {i} — {os.path.basename(r['file'])}" in rmd, rmd
+                  assert "| Word | Level | Definition |" in rmd, rmd
+                  assert "## Introduce" in rmd and "## Review" in rmd \
+                         and "## Due for review" in rmd, rmd
+                  for d in r["introduce"]:
+                      assert f"`{d['word']}`" in rmd \
+                             and f"| {d['level']} |" in rmd, (i, d)
+              assert il["targetLevel"] == "B1" and il["budget"] == 4, il
+              assert len(il["readings"]) == len(files), il  # one reading per text
+              assert all(os.path.basename(r["file"]) in files for r in il["readings"]), il["readings"]
+              assert [r["index"] for r in il["readings"]] == list(range(1, len(files) + 1)), il
+              idx = {w["word"]: w for w in il["words"]}
+              assert len(idx) == len(il["words"]), "schedule words are distinct"
+              assert all(w["level"] in ("B2", "C1", "C2") for w in il["words"]), il["words"]
+              assert all(1 <= w["introducedAt"] <= len(files) and w["appearsIn"]
+                         and all(1 <= i <= len(files) for i in w["appearsIn"])
+                         for w in il["words"]), il["words"]
+              for r in il["readings"]:
+                  assert len(r["introduce"]) <= il["budget"], r
+                  for d in r["introduce"]:
+                      assert d["word"] in idx, d
+                      assert idx[d["word"]]["introducedAt"] == r["index"], d
+                      assert idx[d["word"]]["level"] == d["level"], d
+                  assert all(d["word"] in idx for d in r["due"]), r
+              assert any(r["introduce"] for r in il["readings"]), il
+              md = open(os.path.join(outdir, "sample-readings-interleave-B1.md"),
+                        encoding="utf-8").read()
+              assert (f"# Vocabulary interleaving — Target B1 ({len(files)} readings, "
+                      f"4 new words/reading)") in md, md
+              assert "## Reading 1 — " in md and f"## Reading {len(files)} — " in md, md
+              assert "**Introduce" in md and "Due for review" in md, md
+              assert "## Word index" in md \
+                     and "| Word | Level | Introduced at | Appears in |" in md, md
+              idx_rows = [ln for ln in md.splitlines() if ln.startswith("| `")]
+              assert len(idx_rows) == len(il["words"]), (len(idx_rows), len(il["words"]))
+              assert all(ln.split("|")[2].strip() in ("B2", "C1", "C2")
+                         for ln in idx_rows), md
+              # csv schedule: same words, deferral column consistent with payload.
+              rc, out, err = run_cli(["--file", "sample-readings/", "--target-level", "B1",
+                                      "--no-grammar", "--interleave",
+                                      "--new-words-per-reading", "4",
+                                      "--export", "csv", "--output", outdir])
+              assert rc == 0, err
+              csv_rows = list(csv.reader(open(os.path.join(outdir,
+                                                           "sample-readings-interleave-B1.csv"),
+                                              encoding="utf-8")))
+              assert csv_rows[0] == ["word", "level", "introducedAt", "appearsIn", "deferredFrom"], csv_rows[0]
+              assert len(csv_rows) - 1 == len(il["words"]), (len(csv_rows), len(il["words"]))
+              for r in csv_rows[1:]:
+                  word, lvl, at, seen, df = r
+                  w = idx[word]
+                  assert lvl == w["level"] and int(at) == w["introducedAt"], r
+                  assert seen == ";".join(str(i) for i in w["appearsIn"]), r
+                  assert df == "" or int(df) == w.get("deferredFrom"), r
           finally:
               shutil.rmtree(outdir, ignore_errors=True)
 
