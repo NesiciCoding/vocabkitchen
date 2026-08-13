@@ -362,7 +362,9 @@ matches the vocab profiler's `results.cefr` shape and `grammar` is the grammar
 profiler's full payload, plus the unified fields (`estimatedLevel`, `targetLevel`,
 `aboveTarget`, `coverage`, `verdict`, `readability`). Each `aboveTarget` entry
 carries an example sentence from the text (`context` on words, `examples` on
-structures), which the exports use to show every item in context.Run the regression tests with:
+structures), which the exports use to show every item in context.
+
+Run the regression tests with:
 
 ```bash
 python3 test_text_report.py
@@ -493,7 +495,9 @@ A plugin-skill check also keeps each plugin's two `SKILL.md` copies
 flavour-consistent and its `plugin.json` `commands` matching the skill's stated
 command.
 
-## Use in Claude CodeBeyond the command line, the profilers ship as **Claude Code plugins**, so
+## Use in Claude Code
+
+Beyond the command line, the profilers ship as **Claude Code plugins**, so
 you can ask Claude for a text's CEFR level, vocabulary breakdown, grammatical range —
 or a unified *"is this text right for my class?"* report, or *"which of these
 articles suits B1?"* over a whole folder — right in a session instead of
