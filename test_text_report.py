@@ -31,6 +31,7 @@ import text_report as tr  # noqa: E402
 import analysis as engine  # noqa: E402
 import vocab_profile as vp  # noqa: E402
 import grammar_profile as gp  # noqa: E402
+import dictionary  # noqa: E402
 
 
 def _analysis_imports_text_report():
@@ -83,7 +84,7 @@ check("engine payload matches text_report's shape",
           tr.analyze(_CAT, with_grammar=False)))
 
 # --- Phase 5: the payload contract (schema version + grammar criteria) --------
-check("SCHEMA_VERSION is 1.3", engine.SCHEMA_VERSION == "1.3")
+check("SCHEMA_VERSION is 1.4", engine.SCHEMA_VERSION == "1.4")
 _schema_doc = json.load(open(os.path.join(HERE, "analysis.schema.json"),
                              encoding="utf-8"))
 check("analysis.schema.json matches payload_schema()",
@@ -1329,7 +1330,8 @@ try:
             lookup=_plookup, cache_path=_pcache, delay=0)
         check("pre-enrich: first pass fetches distinct words",
               _ps1 == {"requested": 4, "skipped": 1, "looked_up": 3,
-                       "found": 2, "missed": 1, "offline": False})
+                       "found": 2, "missed": 1, "offline": False,
+                       "fallback": 0})
         check("pre-enrich: second pass is cache-only",
               _pcalls == [] and _ps2["looked_up"] == 0 and _ps2["skipped"] == 3)
 
@@ -1341,6 +1343,24 @@ try:
             cache_path=os.path.join(_ptmp, "offline.json"), delay=0)
         check("pre-enrich: offline stops the pass",
               _ps3["offline"] and _ps3["looked_up"] == 0 and _ps3["missed"] == 0)
+
+        _flaky_calls = []
+
+        def _flaky(word):
+            _flaky_calls.append(word)
+            raise tr._DictNetworkError("offline")
+
+        def _wn(word):
+            return {"definition": "gloss", "phonetic": None,
+                    "partOfSpeech": None}
+
+        _ps6 = tr.pre_enrich_words(
+            ["circumstances", "implications", "known"], lookup=_flaky,
+            offline_fallback=_wn,
+            cache_path=os.path.join(_ptmp, "flaky.json"), delay=0)
+        check("pre-enrich: WordNet answers still stop retrying the API",
+              _ps6["offline"] and _ps6["fallback"] == 3
+              and len(_flaky_calls) == 1)
 
         def _fresh(w):
             return {"definition": "d", "phonetic": None, "partOfSpeech": None}
@@ -1370,7 +1390,10 @@ try:
         _circ = [r for r in _rows if r[0] == "circumstances"]
         check("cli enriched deck has real definition",
               rc == 0 and _circ and _circ[0][1] == "a fact connected with an event")
-        check("cli enrich stats on stderr", "2 definitions added, 1 word not found" in err)
+        # The bundled WordNet answers the mock-API miss ("known" is a real
+        # word), so all three above-B1 words ship definitions.
+        check("cli enrich stats on stderr",
+              "3 definitions added" in err and "0 words not found" in err)
 
         # Repeat export with a cache file: first run requests, second doesn't.
         _cache_file = os.path.join(_tmpd, "dict-cache.json")
@@ -1411,6 +1434,120 @@ try:
         rc5, _, err5 = run(["--pre-enrich", "--export", "md", "--text", _CAT])
         check("cli pre-enrich + export errors",
               rc5 == 1 and "can't be combined with --export" in err5)
+
+        # --- --pre-enrich imports a class's vocabulary-list export -----------
+        # RubricMaker's deck CSV shape (word column + header) imports directly.
+        _vocab_csv = os.path.join(_tmpd, "class-vocab.csv")
+        with open(_vocab_csv, "w", encoding="utf-8") as f:
+            f.write("word,definition,example,phonetic,partOfSpeech\n"
+                    "circumstances,,,,\nimplications,,,,\nzzqnotaword,,,,\n")
+        _csv_cache = os.path.join(_tmpd, "csv-cache.json")
+        _before = _DictHandler.requests
+        rc6, out6, err6 = run(["--pre-enrich", "--file", _vocab_csv,
+                               "--dictionary-url", _dict_url,
+                               "--dictionary-cache", _csv_cache, "--delay", "0"])
+        check("cli pre-enrich csv: imports the word column and primes",
+              rc6 == 0 and out6 == "" and _DictHandler.requests - _before == 3
+              and "Pre-enriched 3 words (2 found, 1 not found)" in err6)
+        # The JSON export shape ({words: [...]}, or an array of objects).
+        _vocab_json = os.path.join(_tmpd, "class-vocab.json")
+        with open(_vocab_json, "w", encoding="utf-8") as f:
+            json.dump({"words": [{"word": "circumstances"}, "implications",
+                                 {"word": "zzqnotaword"}]}, f)
+        _json_cache = os.path.join(_tmpd, "json-cache.json")
+        _before = _DictHandler.requests
+        rc7, out7, err7 = run(["--pre-enrich", "--file", _vocab_json,
+                               "--dictionary-url", _dict_url,
+                               "--dictionary-cache", _json_cache, "--delay", "0"])
+        check("cli pre-enrich json: imports words and primes",
+              rc7 == 0 and out7 == "" and _DictHandler.requests - _before == 3
+              and "3 of 3 already cached" not in err7
+              and "Pre-enriched 3 words (2 found, 1 not found)" in err7)
+
+        # --- dictionary.lookup_word: the shared layered stack ---------------
+        _idx = vp.load_level_index(_BASE)
+        _lw_cache = os.path.join(_tmpd, "lookup-cache.json")
+        r = dictionary.lookup_word("circumstances", base_url=_dict_url,
+                                   cache_path=_lw_cache, level_index=_idx)
+        check("lookup_word: api definition + level from the bundled index",
+              r["definition"] == "a fact connected with an event"
+              and r["level"] == "B2" and r["source"] == "api"
+              and r["partOfSpeech"] == "noun")
+        check("lookup_word: result written into the shared cache",
+              os.path.isfile(_lw_cache)
+              and tr.load_dictionary_cache(_lw_cache)[_dict_url]["circumstances"]
+              .get("level") == "B2")
+        # A second lookup answers from the cache (no request).
+        _before = _DictHandler.requests
+        r2 = dictionary.lookup_word("circumstances", base_url=_dict_url,
+                                    cache_path=_lw_cache, level_index=_idx)
+        check("lookup_word: cache hit makes no request",
+              _DictHandler.requests == _before and r2["definition"]
+              == "a fact connected with an event" and r2["source"] == "api")
+        # Offline API → the bundled WordNet gloss, tagged and cached.
+        r3 = dictionary.lookup_word("purchase", base_url="http://127.0.0.1:1",
+                                    cache_path=_lw_cache, level_index=_idx,
+                                    timeout=2)
+        check("lookup_word: offline falls back to the bundled WordNet",
+              r3["source"] == "wordnet" and r3["definition"]
+              and r3["partOfSpeech"] == "noun" and r3["level"] == "B2")
+        check("lookup_word: wordnet result cached with source tag",
+              tr.load_dictionary_cache(_lw_cache)["http://127.0.0.1:1"]
+              ["purchase"].get("source") == "wordnet")
+        r4 = dictionary.lookup_word("zzqnotaword", base_url="http://127.0.0.1:1",
+                                    cache_path=_lw_cache, level_index=_idx,
+                                    timeout=2)
+        check("lookup_word: unknown word is a silent miss",
+              r4["definition"] is None and r4["source"] == "offline")
+        # The public entry point resolves the bundled level even without an
+        # explicitly supplied index.
+        r5 = dictionary.lookup_word("circumstances", base_url=_dict_url,
+                                    level_index=None)
+        check("lookup_word: bundled index answers level when index omitted",
+              r5["level"] == "B2")
+
+        # --- offline deck export uses the WordNet gloss as the back ---------
+        _off_deck = os.path.join(_tmpd, "offline-deck.csv")
+        rc8, _, err8 = run(["--target-level", "B1", "--text",
+                            "We must purchase the equipment for our class.",
+                            "--no-grammar", "--export", "flashcards",
+                            "--dictionary-url", "http://127.0.0.1:1",
+                            "--no-dictionary-cache", "--output", _off_deck])
+        _off_rows = list(_csv.reader(open(_off_deck, encoding="utf-8")))
+        _purch = [r for r in _off_rows if r[0] == "purchase"]
+        check("offline deck: WordNet gloss is the back (not the context)",
+              rc8 == 0 and _purch and _purch[0][1]
+              and "acquisition" in _purch[0][1]
+              and _purch[0][4] == "noun")
+
+        # --- pluggable vocabulary profile in the report payload -------------
+        _prof_dir = os.path.join(_tmpd, "profile")
+        os.makedirs(_prof_dir)
+        with open(os.path.join(_prof_dir, "A1.txt"), "w",
+                  encoding="utf-8") as f:
+            f.write("cat\n")
+        with open(os.path.join(_prof_dir, "C2.txt"), "w",
+                  encoding="utf-8") as f:
+            f.write("zzqnotaword\n")
+        _pp = tr.analyze("The cat zzqnotaword.", target_level="B1",
+                         with_grammar=False, profile=_prof_dir)
+        check("payload vocabulary.profile carries the profile meta",
+              (_pp["vocabulary"]["profile"] or {}).get("kind") == "directory"
+              and (_pp["vocabulary"]["profile"] or {}).get("name") == "profile")
+        check("profile swaps the bands (cat A1, profile word C2, rest off)",
+              _pp["vocabulary"]["results"]["A1"]["words"]
+              == [{"word": "cat", "occurrences": 1}]
+              and _pp["vocabulary"]["results"]["C2"]["words"]
+              == [{"word": "zzqnotaword", "occurrences": 1}]
+              and _pp["vocabulary"]["results"]["Off List"]["wordCount"] == 1)
+        check("no profile: vocabulary.profile is null",
+              tr.analyze(_CAT, with_grammar=False)["vocabulary"]["profile"]
+              is None)
+        rc9, out9, _ = run(["--text", _CAT, "--no-grammar", "--profile",
+                            _prof_dir])
+        check("cli --profile runs end to end",
+              rc9 == 0 and (json.loads(out9)["vocabulary"]["profile"]
+                            or {}).get("kind") == "directory")
     finally:
         shutil.rmtree(_tmpd, ignore_errors=True)
 finally:

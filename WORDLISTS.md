@@ -90,3 +90,43 @@ blanket claim.
 - These lists are a reproducible baseline. For higher precision you could swap in
   a licensed vocabulary profile (e.g. the Oxford 3000/5000 or the Octanove C1/C2
   profile) using the same one-word-per-line `.txt` format.
+
+## Pluggable vocabulary profiles
+
+A team standardised on a **licensed list** (Oxford 3000/5000, the Octanove
+C1/C2 profile, an in-house banded list) can swap it in as the CEFR source
+without touching the bundled data, via `--profile PATH` on all three CLIs
+(`vocab_profile.py`, `text_report.py`, `class_profile.py`):
+
+- **A directory** of `A1.txt`..`C2.txt` (one word per line each) — the file a
+  word appears in is its level; the directory **replaces** the bundled CEFR
+  lists for CEFR scoring. This is how a level-banded licensed export plugs in
+  (e.g. the Octanove C1/C2 profile as `C1.txt` + `C2.txt`).
+- **A single file** (one word per line) — the file is the team's **recognition
+  list**: every word in it is recognised, at the level the bundled
+  `levels.json` index assigns it where available, else `--profile-level`
+  (default `B1`). Words outside the file are off-list — the distribution is
+  over *their* list. This is how the Oxford 3000/5000-style single lists plug
+  in.
+
+Levels for profile words therefore still come from the same bundled index, so a
+profile never changes what a recognised word *means* level-wise — it changes
+*which words count*. The active profile is reported in the output
+(`vocabulary.profile` in the report payload), so a dashboard can show which
+word lists produced the bands.
+
+## Offline dictionary (Open English WordNet)
+
+`WordLists/dictionary/wordnet.json` is a **compact derived build** of the
+[Open English WordNet 2025](https://en-word.net/downloads) JSON export — for
+word → the first couple of distinct sense glosses with part of speech — the
+offline definition layer behind `--export flashcards` and `--pre-enrich` (and
+the shared `dictionary.py` lookup stack). The upstream data is licensed
+**CC BY 4.0** (derived from Princeton WordNet); the full attribution block
+rides in the file's `_meta`. Regenerate it with
+
+```bash
+python3 build_dictionary.py              # downloads the canonical zip, rebuilds
+python3 build_dictionary.py --check      # validates the bundle
+python3 build_dictionary.py --input DIR  # rebuild from a local copy
+```

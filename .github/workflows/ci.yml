@@ -116,10 +116,10 @@ jobs:
                                 "--new-words-per-reading", "--curriculum",
                                 "--watch", "--cando", "--cando-diff",
                                 "--cando-diff-sort", "--schema",
-                                "--comments"],
+                                "--comments", "--profile"],
               "text-report": ["--suggest", "--gap-report", "--watch",
                               "--curriculum", "--cambridge", "--cando",
-                              "--schema", "--comments"],
+                              "--schema", "--comments", "--profile"],
           }
           for name in sorted(os.listdir("plugins")):
               d = os.path.join("plugins", name)
@@ -187,6 +187,34 @@ jobs:
                           ok = False
 
           sys.exit(0 if ok else 1)
+          EOF
+
+      - name: Grammar taxonomy + offline dictionary stay in sync
+        # Phase 5's shared taxonomies are derived, checked-in documents: the
+        # grammar construction registry (GrammarProfile/taxonomy.json) must be
+        # byte-equal to grammar_profile.taxonomy_document(), and the bundled
+        # Open English WordNet (the offline definition layer) must validate.
+        run: |
+          python - <<'EOF'
+          import json, os, subprocess, sys
+          import grammar_profile
+
+          levels = grammar_profile.load_cefrj_levels("GrammarProfile")
+          doc = grammar_profile.taxonomy_document(levels)
+          checked_in = json.load(open("GrammarProfile/taxonomy.json",
+                                      encoding="utf-8"))
+          assert checked_in == doc, (
+              "GrammarProfile/taxonomy.json drifted from "
+              "grammar_profile.taxonomy_document()")
+          p = subprocess.run([sys.executable, "grammar_profile.py", "--taxonomy"],
+                             capture_output=True, text=True)
+          assert p.returncode == 0, p.stderr
+          assert json.loads(p.stdout) == doc
+
+          p = subprocess.run([sys.executable, "build_dictionary.py", "--check"],
+                             capture_output=True, text=True)
+          assert p.returncode == 0, p.stderr
+          print("grammar taxonomy: in sync + --taxonomy; wordnet bundle: OK")
           EOF
 
 

@@ -22,7 +22,9 @@ doesn't have.
   level, and — with `--target-level` — the **percentage of recognised running
   words above the class's level** (the same coverage figure `text-report`
   reports, flipped) and a fits/no-fits verdict. `--format csv` prints it
-  ready for a spreadsheet.
+  ready for a spreadsheet. Each JSON row also carries the **per-student CEFR
+  distribution** (`distribution`: per-level counts + percentages, total,
+  typical, coverage) — the feed the Vocabulary Profile dashboard renders.
 - **Rank & filter** — `--sort` ranks the set by estimated level (default) or
   by vocabulary typical / reached band, word count, or filename; `--min-level`
   / `--max-level` keep only the texts whose estimated level is in the band —
@@ -187,6 +189,8 @@ Flags:
 | `--dictionary-url`  | override the dictionary API base URL (proxy / test server)            |
 | `--no-grammar`      | skip the grammar side even if spaCy is available                       |
 | `--wordlists`       | override the vocabulary word-list directory                             |
+| `--profile`         | swap the bundled CEFR lists for a pluggable vocabulary profile — a directory of `A1.txt`..`C2.txt` (one word per line each) or a single one-word-per-line list (the recognition list; levels from the bundled index, `--profile-level` otherwise, words outside it off-list) |
+| `--profile-level`   | `--profile` single-file lists only: the CEFR level for words the bundled index doesn't know (default `B1`) |
 | `--grammar-profile` | override the CEFR-J data directory                                     |
 | (stdin)             | if neither `--file` nor `--text` is given, text is read from stdin     |
 

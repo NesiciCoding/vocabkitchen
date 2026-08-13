@@ -39,6 +39,8 @@ Flags:
 | `--text`      | inline text to analyse                                                     |
 | `--file`      | path to a `.txt`, `.md`, `.docx`, or `.pdf` file (PDF needs the optional `pypdf` package) |
 | `--wordlists` | override the word-list directory (defaults to the bundled lists)           |
+| `--profile`   | swap the bundled CEFR lists for a pluggable vocabulary profile — a directory of `A1.txt`..`C2.txt` (one word per line each, the file = the level) or a single one-word-per-line list (the recognition list; levels from the bundled index, `--profile-level` otherwise, words outside it off-list) |
+| `--profile-level` | `--profile` single-file lists only: the CEFR level for words the bundled index doesn't know (default `B1`) |
 | (stdin)       | if neither `--text` nor `--file` is given, text is read from stdin         |
 
 **Choosing input mode:** use `--text` for a short snippet, `--file` for a
