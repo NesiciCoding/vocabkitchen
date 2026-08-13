@@ -49,7 +49,6 @@
         "object",
         "null"
       ],
-      "required": true,
       "properties": {
         "typical": {
           "type": [

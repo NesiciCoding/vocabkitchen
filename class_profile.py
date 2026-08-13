@@ -103,10 +103,18 @@ Flags:
                       occurrences × text count) into the given directory
     --export          csv | md | flashcards — write a per-text pre-teaching
                       list (like text_report's) for every text in the set,
-                      next to each source (requires --target-level)    --cloze           --export md|csv only: render exported examples as {{...}}
+                      next to each source (requires --target-level)
+    --cloze           --export md|csv only: render exported examples as {{...}}
+                      fill-the-gap sentences (RubricMaker syntax)
     --suggest         --export md|csv only: suggest a simpler alternative
                       (WordLists/synonyms.csv) for each word above the target
-                      in the handouts — the Phase 3 rewrite aid fill-the-gap sentences (RubricMaker syntax)
+                      in the handouts — the Phase 3 rewrite aid
+    --gap-report      --export md only: list the target-level constructions
+                      the text does not use yet — the Phase 3 grammar gap
+                      report section in each handout
+    --interleave      build the spaced-introduction schedule across the set
+    --new-words-per-reading  --interleave only: max new words introduced per
+                      reading (default 5)
     --no-enrich       --export flashcards only: skip the Free Dictionary API
                       (card backs stay the in-text context sentence)
     --output          --export only: write all lists into this directory
@@ -722,7 +730,7 @@ def export_vocab_lists(agg_words, out_dir):
 
 def export_payload(row, ordered, ctx, target, suggest=False, gap_report=False,
                    curriculum=None, cando=False, comments=False,
-                   vocab_base=None):
+                   vocab_base=None, synonyms=None):
     """Build a text_report-shaped payload for one row's text.
 
     Phase 5: this is the **shared engine's payload builder** — the same one
@@ -765,7 +773,8 @@ def export_payload(row, ordered, ctx, target, suggest=False, gap_report=False,
     payload = engine.payload(
         pieces, text, vocab_base, target_level=target, suggest=suggest,
         gap_report=gap_report, curriculum=curriculum, cando=cando,
-        comments=comments, grammar_unavailable_note="not analysed")
+        comments=comments, grammar_unavailable_note="not analysed",
+        synonyms=synonyms)
     payload["file"] = row["file"]
     return payload
 
@@ -1254,6 +1263,10 @@ def interleave_schedule(profiled, target, budget=5):
             introduce_at[idx].append(w)
 
     schedule_readings = []
+    # Running last-seen per word, threaded through the readings in order: a
+    # word's due eligibility must use the last reading it was *actually* seen
+    # in so far, not its final appearance across the whole set.
+    last_seen = {w: meta[w]["firstSeen"] for w in introduced}
     for r in readings:
         idx = r["index"]
         intro = []
@@ -1263,14 +1276,17 @@ def interleave_schedule(profiled, target, budget=5):
                 entry["deferredFrom"] = deferred[w]
             intro.append(entry)
         review = [{"word": w, "level": meta[w]["level"],
-                   "lastSeen": meta[w]["lastSeen"]}
+                   "lastSeen": last_seen[w]}
                   for w in introduced
                   if introduced[w] < idx and idx in meta[w]["appearsIn"]]
         due = [{"word": w, "level": meta[w]["level"],
-                "lastSeen": meta[w]["lastSeen"]}
+                "lastSeen": last_seen[w]}
                for w in introduced
                if introduced[w] < idx and idx not in meta[w]["appearsIn"]
-               and idx - meta[w]["lastSeen"] >= 2]
+               and idx - last_seen[w] >= 2]
+        for w in r["present"]:
+            if w in introduced:
+                last_seen[w] = idx
         review.sort(key=lambda d: d["word"])
         due.sort(key=lambda d: d["word"])
         schedule_readings.append({
@@ -1289,11 +1305,21 @@ def interleave_schedule(profiled, target, budget=5):
         if d["word"] in deferred:
             d["deferredFrom"] = deferred[d["word"]]
     words_out.sort(key=lambda d: (d["introducedAt"], d["word"]))
+    # Above-target words that never made it into any reading's introduction
+    # (deferred at the end with no later reading to take them) still belong
+    # in the schedule — the teacher's at-a-glance "left to schedule" list.
+    unscheduled = [{"word": w, "level": meta[w]["level"],
+                    "firstSeen": meta[w]["firstSeen"],
+                    "appearsIn": list(meta[w]["appearsIn"]),
+                    "deferredFrom": deferred.get(w)}
+                   for w in sorted(meta)
+                   if w not in introduced]
     return {
         "targetLevel": target,
         "budget": budget,
         "readings": schedule_readings,
         "words": words_out,
+        "unscheduled": unscheduled,
     }
 
 
@@ -1308,7 +1334,7 @@ def interleave_path(source_label, target, output_dir=None, ext="md"):
     return fname
 
 
-def interleave_markdown(schedule, source_label=None):
+def interleave_markdown(schedule):
     """One handout for the whole set: per-reading Introduce / Review / Due
     lists plus a word index — the teacher's spaced-introduction plan."""
     target = schedule["targetLevel"]
@@ -1357,6 +1383,20 @@ def interleave_markdown(schedule, source_label=None):
         lines.append(f"| `{d['word']}` | {d['level']} | "
                      f"reading {d['introducedAt']}{df} | {seen} |")
     lines.append("")
+    unscheduled = schedule.get("unscheduled") or []
+    if unscheduled:
+        lines.append(f"## Not yet scheduled ({len(unscheduled)})")
+        lines.append("")
+        lines.append("These above-target words never made it into an introduction "
+                     "list — the readings ran out of budget before they could "
+                     "be scheduled:")
+        lines.append("")
+        for d in unscheduled:
+            df = (f" — deferred from reading {d['deferredFrom']}"
+                  if d.get("deferredFrom") else "")
+            lines.append(f"- `{d['word']}` ({d['level']}, first seen reading "
+                         f"{d['firstSeen']}){df}")
+        lines.append("")
     lines.append("_Generated by class_profile.py --interleave · VocabKitchen._")
     return "\n".join(lines) + "\n"
 
@@ -1364,13 +1404,20 @@ def interleave_markdown(schedule, source_label=None):
 def interleave_csv(schedule):
     """The schedule as a spreadsheet: one row per distinct above-target word
     (word, level, introduction reading, the readings it appears in, and its
-    deferral point when it waited for a later reading)."""
+    deferral point when it waited for a later reading), plus the words that
+    never made it into any reading's introduction."""
     buf = io.StringIO()
-    writer = csv.writer(buf)
+    writer = csv.writer(buf, lineterminator="\n")
     writer.writerow(["word", "level", "introducedAt", "appearsIn", "deferredFrom"])
     for d in schedule["words"]:
         writer.writerow([
             d["word"], d["level"], d["introducedAt"],
+            ";".join(str(i) for i in d["appearsIn"]),
+            d.get("deferredFrom", ""),
+        ])
+    for d in schedule.get("unscheduled") or []:
+        writer.writerow([
+            d["word"], d["level"], "",
             ";".join(str(i) for i in d["appearsIn"]),
             d.get("deferredFrom", ""),
         ])
@@ -1498,6 +1545,10 @@ def write_per_text_exports(profiled, target, fmt, cloze=False, enrich=True,
     """
     script_dir = os.path.dirname(os.path.abspath(__file__))
     base_dir = wordlists_dir or os.path.join(script_dir, "WordLists")
+    # Load the curated simpler-alternative map once and hand it to every
+    # payload, so a folder run doesn't re-read synonyms.csv per text.
+    synonyms = (engine.load_synonyms(os.path.join(base_dir, "synonyms.csv"))
+                if suggest else None)
     cache_path = cache_path or tr.default_dictionary_cache_path()
     if output_dir:
         try:
@@ -1535,7 +1586,8 @@ def write_per_text_exports(profiled, target, fmt, cloze=False, enrich=True,
         # no per-text lists.
         for t in targets:
             payloads = [export_payload(row, ordered, ctx, t, cando=cando,
-                                       comments=comments)
+                                       comments=comments, vocab_base=base_dir,
+                                       synonyms=synonyms)
                         for row, ordered, ctx in profiled]
             combined = _combined_deck_payload(payloads)
             _write(combined_deck_path(source_label, t, output_dir),
@@ -1560,12 +1612,14 @@ def write_per_text_exports(profiled, target, fmt, cloze=False, enrich=True,
             payload = export_payload(row, ordered, ctx, target,
                                      suggest=suggest, gap_report=gap_report,
                                      curriculum=curriculum, cando=cando,
-                                     comments=comments)
+                                     comments=comments, vocab_base=base_dir,
+                                     synonyms=synonyms)
             payloads.append(payload)
             if fmt == "flashcards":
                 content = _deck(payload)
             else:
-                content = (tr.export_csv(payload, cloze=cloze) if fmt == "csv"
+                content = (tr.export_csv(payload, cloze=cloze, suggest=suggest)
+                           if fmt == "csv"
                            else tr.export_markdown(payload, cloze=cloze))
             path = tr.export_path(row["file"], None, target, fmt)
             if output_dir:
@@ -1579,7 +1633,8 @@ def write_per_text_exports(profiled, target, fmt, cloze=False, enrich=True,
             if fmt == "flashcards":
                 content = _deck(payload)
             else:
-                content = (tr.export_csv(payload, cloze=cloze) if fmt == "csv"
+                content = (tr.export_csv(payload, cloze=cloze, suggest=suggest)
+                           if fmt == "csv"
                            else tr.export_markdown(payload, cloze=cloze))
             path = tr.export_path(row["file"], None, target, fmt)
             if output_dir:
@@ -2012,13 +2067,15 @@ def main(argv=None):
 
         # ---- Pooled aggregate over the selected set -------------------------
         agg = new_aggregate()
+        selected_ids = {id(r) for r in selected}
         for row, ordered, _ctx in profiled:
-            if any(r is row for r in selected):
+            if id(row) in selected_ids:
                 add_to_aggregate(agg, ordered)
         summary = aggregate_summary(agg)
 
         rows = sort_rows(selected, sort)
-        selected_profiled = [p for p in profiled if p[0] in selected]
+        selected_ids = {id(r) for r in selected}
+        selected_profiled = [p for p in profiled if id(p[0]) in selected_ids]
 
         # ---- Vocabulary interleaving: the spaced schedule -------------------
         interleave = None
@@ -2047,7 +2104,8 @@ def main(argv=None):
                                suggest=args.suggest,
                                gap_report=args.gap_report,
                                curriculum=curriculum, cando=cando,
-                               comments=args.comments)
+                               comments=args.comments,
+                               vocab_base=eng.vocab_base)
                 for row, ordered, ctx in selected_profiled]
 
         # ---- Output ----------------------------------------------------------
@@ -2129,7 +2187,7 @@ def main(argv=None):
             if args.interleave and interleave is not None:
                 ext = "md" if args.export == "md" else "csv"
                 ipath = interleave_path(source_label, target, args.output, ext)
-                content = (interleave_markdown(interleave, source_label)
+                content = (interleave_markdown(interleave)
                            if ext == "md" else interleave_csv(interleave))
                 try:
                     with open(ipath, "w", encoding="utf-8") as f:

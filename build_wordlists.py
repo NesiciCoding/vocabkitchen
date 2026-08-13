@@ -239,7 +239,8 @@ def check(list_dir, olp_csv=_DEFAULT_OLP, octanove_csv=_DEFAULT_OCT):
         index_words = None
         if os.path.exists(index_path):
             try:
-                index_words = json.load(open(index_path, encoding="utf-8")).get("words")
+                with open(index_path, encoding="utf-8") as f:
+                    index_words = json.load(f).get("words")
             except ValueError:
                 index_words = None
         with open(syn_path, encoding="utf-8") as f:
@@ -273,15 +274,19 @@ def check(list_dir, olp_csv=_DEFAULT_OLP, octanove_csv=_DEFAULT_OCT):
                     continue
                 wlvl = index_words[word]["level"]
                 slvl = index_words[simpler]["level"]
+                row_ok = True
                 if slvl != lvl:
                     print(f"  ! synonyms.csv line {i}: '{simpler}' is {slvl} in "
                           f"levels.json, not {lvl}")
                     problems += 1
+                    row_ok = False
                 if _LEVELS.index(slvl) >= _LEVELS.index(wlvl):
                     print(f"  ! synonyms.csv line {i}: '{simpler}' ({slvl}) is not "
                           f"simpler than '{word}' ({wlvl})")
                     problems += 1
-                valid += 1
+                    row_ok = False
+                if row_ok:
+                    valid += 1
             print(f"  synonyms.csv: {valid} of {len(rows) - 1} entries valid")
 
     # The structure-rewrite hints (WordLists/structure-rewrites.csv) must

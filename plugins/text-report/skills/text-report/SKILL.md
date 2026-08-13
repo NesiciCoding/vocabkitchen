@@ -50,12 +50,12 @@ hand:
   there and the gap becomes an input blank (auto-graded case-insensitively);
   on paper the gap doubles as a worksheet blank with the item's row as answer
   key. Applies to `--export md|csv`.
-- **`--suggest`** — the rewrite aid: for each word above the target, suggest a
-  simpler alternative from the bundled curated list (`WordLists/synonyms.csv`,
-  validated by `build_wordlists.py --check`) — shown inline in the
-  above-target list (`purchase → buy (A1)`), carried in JSON as
+- **`--suggest`** — the rewrite aid: for each above-target word that has a
+  curated alternative in the bundled list (`WordLists/synonyms.csv`, validated
+  by `build_wordlists.py --check`), suggest the simpler word — shown inline in
+  the above-target list (`purchase → buy (A1)`), carried in JSON as
   `aboveTarget.words[i].suggestion`, and added as a **Simpler alternative**
-  column in the `--export md` handout. Requires `--target-level`.
+  column in the `--export md|csv` handout. Requires `--target-level`.
 - **`--gap-report`** — the grammar gap report: with `--target-level`, list the
   target-level constructions the text does **not** use yet — the "introduce
   these structures" checklist for graded-reader authors, grouped by category
@@ -153,7 +153,7 @@ Flags:
 | `--no-grammar`      | skip the grammar side even if spaCy is available                        |
 | `--no-readability`  | omit the Flesch–Kincaid / Flesch Reading Ease line                      |
 | `--export`          | `csv`, `md`, or `flashcards` — write the above-target items as a pre-teaching list (requires `--target-level`) |
-| `--suggest`         | rewrite aid: suggest a simpler alternative for each word above the target (requires `--target-level`) |
+| `--suggest`         | rewrite aid: suggest a simpler alternative for each above-target word that has a curated mapping (requires `--target-level`) |
 | `--gap-report`      | grammar gap report: list the target-level constructions the text does not use yet (requires `--target-level`; needs spaCy) |
 | `--cloze`           | render exported examples as `{{...}}` fill-the-gap sentences (RubricMaker syntax; `--export md\|csv` only) |
 | `--no-enrich`       | `--export flashcards` only: skip the Free Dictionary API (card backs stay the in-text context sentence) |
@@ -169,7 +169,7 @@ Flags:
 | `--cambridge`       | map the report's own CEFR bands to the matching Cambridge English Qualification (A2 Key, B1 Preliminary, B2 First, C1 Advanced, C2 Proficiency) |
 | `--cando`           | express the text's demands as CEFR global-scale Can-Do descriptors; with `--target-level`, also list the ones above the target's expectations |
 | `--comments`        | add the full apply-as-comment rubric: one comment per construction (used / not used yet, from `grammarCriteria`; filtered to the class level under `--target-level` — used above-target constructions become "pre-teach or rewrite" notes carrying a curated rewrite suggestion, unused ones drop) plus one comment per above-target vocabulary word |
-| `--schema`          | print the versioned analysis payload schema (`analysis.schema.json` — the RubricMaker report contract, currently 1.0) as JSON and exit |
+| `--schema`          | print the versioned analysis payload schema (`analysis.schema.json` — the RubricMaker report contract, currently 1.3) as JSON and exit |
 | (stdin)             | if neither `--text` nor `--file` is given, text is read from stdin      |
 
 **Choosing input mode:** `--text` for a snippet, `--file` for a document on

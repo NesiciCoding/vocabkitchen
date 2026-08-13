@@ -62,13 +62,13 @@ Flags:
                       RubricMaker's native fill-the-gap syntax, so the handout
                       doubles as a worksheet and pastes straight into a
                       fill-the-gap question there. Applies to --export md|csv.
-    --suggest         the Phase 3 rewriting aid: for each word above the
-                      target, suggest a simpler alternative from the bundled
-                      curated list (WordLists/synonyms.csv) — shown in the
-                      above-target list (purchase → buy (A1)), carried in
-                      JSON as aboveTarget.words[i].suggestion, and added as a
-                      'Simpler alternative' column in the --export md handout.
-                      Requires --target-level.
+    --suggest         the Phase 3 rewriting aid: for each above-target word
+                      that has a curated alternative in the bundled list
+                      (WordLists/synonyms.csv), suggest the simpler word —
+                      shown in the above-target list (purchase → buy (A1)),
+                      carried in JSON as aboveTarget.words[i].suggestion, and
+                      added as a 'Simpler alternative' column in the
+                      --export md|csv handout. Requires --target-level.
     --gap-report      the Phase 3 grammar gap report: with --target-level (and
                       the grammar side on), list the target-level
                       constructions the text does NOT use yet — the
@@ -650,26 +650,35 @@ def _example_sentence(d):
     return ""
 
 
-def export_csv(payload, cloze=False):
+def export_csv(payload, cloze=False, suggest=False):
     """Render the above-target items as a CSV spreadsheet (one row per item).
 
     Columns: type (word|structure), item, level, count, category (structures
     only), example (a sentence from the text). Words carry their first
     in-text context; structures carry the grammar profiler's example. With
     ``cloze=True`` the example blanks the target as ``{{item}}`` (RubricMaker
-    fill-the-gap syntax).
+    fill-the-gap syntax). With ``suggest=True`` a ``suggestion`` column
+    carries each word's curated simpler alternative (when it has one), like
+    the md handout's 'Simpler alternative' column.
     """
     import csv
     import io
     buf = io.StringIO()
     w = csv.writer(buf, lineterminator="\n")
-    w.writerow(["type", "item", "level", "count", "category", "example"])
+    cols = ["type", "item", "level", "count", "category", "example"]
+    if suggest:
+        cols.append("suggestion")
+    w.writerow(cols)
     above = payload.get("aboveTarget") or {}
     for d in above.get("words") or []:
         ex = (d.get("context") or "").replace("\n", " ")
         if cloze:
             ex = blank_gap(ex, d["word"])
-        w.writerow(["word", d["word"], d["level"], d["occurrences"], "", ex])
+        row = ["word", d["word"], d["level"], d["occurrences"], "", ex]
+        if suggest:
+            s = d.get("suggestion")
+            row.append(f"{s['word']} ({s['level']})" if s else "")
+        w.writerow(row)
     for d in above.get("structures") or []:
         ex = _example_sentence(d).replace("\n", " ")
         if cloze:
@@ -1260,7 +1269,7 @@ def _validate_args(args, target):
 def _write_export(args, payload, target):
     """Render and write the --export pre-teaching list; True on success."""
     if args.export == "csv":
-        content = export_csv(payload, cloze=args.cloze)
+        content = export_csv(payload, cloze=args.cloze, suggest=args.suggest)
     elif args.export == "flashcards":
         script_dir = os.path.dirname(os.path.abspath(__file__))
         base_dir = args.wordlists or os.path.join(script_dir, "WordLists")
@@ -1385,7 +1394,8 @@ def main(argv=None):
     parser.add_argument("--watch", nargs="?", const=1.0, type=float, default=None,
                         help="re-profile the --file input whenever it changes on disk "
                              "(the Phase 3 edit → re-check loop; interval in seconds, "
-                             "default 1)")
+                             "default 1; with --format json, stdout is one JSON "
+                             "object per line so captured output stays parseable)")
     parser.add_argument("--curriculum", default=None,
                         help="check the text against a curriculum checklist file "
                              "(sections [vocabulary] and [grammar]) and report pass/fail "
@@ -1406,7 +1416,6 @@ def main(argv=None):
     parser.add_argument("--schema", action="store_true",
                         help="print the analysis report payload schema (the RubricMaker "
                              "contract, version " + engine.SCHEMA_VERSION + ") as JSON and exit")
-    parser.add_argument("positional", nargs="*", help=argparse.SUPPRESS)
     parser.add_argument("positional", nargs="*", help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
 
@@ -1521,6 +1530,14 @@ def main(argv=None):
 
         if out_format == "pretty":
             render_pretty(payload, source_label)
+        elif args.watch is not None:
+            # Watch mode re-profiles on every change, so stdout carries one
+            # compact JSON object per line (JSON Lines) — each re-run stays
+            # parseable when the stream is captured, unlike a sequence of
+            # indented documents. Flush every line: a stream consumer (or a
+            # test) must see each report as it is produced, not when the
+            # process's stdout buffer happens to fill.
+            print(json.dumps(payload, ensure_ascii=False), flush=True)
         else:
             print(json.dumps(payload, indent=2, ensure_ascii=False))
 

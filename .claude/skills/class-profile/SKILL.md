@@ -158,7 +158,7 @@ Flags:
 | `--cando-diff`      | `--export md\|csv` only: add the set-level Can-Do demands section to the summary handout — which above-target descriptors the texts share (implies `--cando`) |
 | `--cando-diff-sort` | `--cando-diff` only: order the demands by text count (`texts`, default) or by the CEFR band ladder ascending (`band`) |
 | `--comments`        | add the full apply-as-comment rubric to each per-text handout: one comment per construction (used / not used yet, filtered to the class level — used above-target constructions become "pre-teach or rewrite" notes with a curated rewrite suggestion) plus one comment per above-target vocabulary word; `--export md` adds a **Demand scan** table to the set summary; `--export flashcards` writes a combined **rubric-comment deck** (one per `--targets` level) |
-| `--schema`          | print the versioned analysis payload schema (`analysis.schema.json` — the RubricMaker report contract, currently 1.0) as JSON and exit |
+| `--schema`          | print the versioned analysis payload schema (`analysis.schema.json` — the RubricMaker report contract, currently 1.3) as JSON and exit |
 | `--watch`           | re-profile the `--file` input whenever any text in it changes on disk (edit → re-check loop; optional interval in seconds, default 1) |
 | `--no-enrich`       | `--export flashcards` only: skip the Free Dictionary API               |
 | `--output`          | `--export` only: write all lists into this directory (default: next to each source) |
@@ -192,6 +192,7 @@ JSON on stdout. Shape:
   "targetLevel": "B1", "targets": null,
   "sort": "level", "minLevel": null, "maxLevel": "B1",
   "fitsCount": 7, "hiddenByFilter": 13,
+  "grammarError": null,
   "aggregate": {
     "totalWordCount": 12345,
     "typical": "A2", "coverage": "B1", "offListPercent": 5,
@@ -209,9 +210,22 @@ JSON on stdout. Shape:
       "fits": true,
       "targets": null
     }
-  ]
+  ],
+  "interleave": null
 }
 ```
+
+- `grammarError` at the top level is the set-wide grammar note (e.g.
+  "not analysed" when the grammar side didn't run); each row carries its own
+  per-text `grammarError` too.
+- With `--interleave`, the top-level `interleave` object carries the spaced
+  schedule: `{"targetLevel": "B1", "budget": 5, "readings": [{"index": 1,
+  "file": "...", "introduce": [{"word": "...", "level": "B2",
+  "deferredFrom": 1}], "review": [...], "due": [...]}], "words":
+  [{"word": "...", "level": "B2", "introducedAt": 1, "appearsIn": [1],
+  "deferredFrom": 1}]}` — the per-reading Introduce/Review/Due lists plus the
+  global word index, and `unscheduled` for words that never made it into an
+  introduction.
 
 - `rows` are sorted by `sort` (level by default, A1 first) and already
   filtered by `--min-level`/`--max-level`; `hiddenByFilter` is how many were

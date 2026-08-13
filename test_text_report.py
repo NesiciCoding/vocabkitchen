@@ -32,6 +32,21 @@ import analysis as engine  # noqa: E402
 import vocab_profile as vp  # noqa: E402
 import grammar_profile as gp  # noqa: E402
 
+
+def _analysis_imports_text_report():
+    """True if analysis.py imports text_report (it must stay self-contained)."""
+    import ast
+    with open(os.path.join(HERE, "analysis.py"), encoding="utf-8") as f:
+        tree = ast.parse(f.read())
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            if any(a.name == "text_report" for a in node.names):
+                return True
+        elif isinstance(node, ast.ImportFrom):
+            if (node.module or "").split(".")[0] == "text_report":
+                return True
+    return False
+
 try:
     _NLP = gp.load_nlp()
     HAVE_GRAMMAR = True
@@ -81,8 +96,7 @@ check("schema required keys are all present in the payload",
 check("grammarCriteria null without the grammar side",
       _schema_pl["grammarCriteria"] is None)
 check("analysis module is self-contained (no text_report import)",
-      "import text_report" not in open(os.path.join(HERE, "analysis.py"),
-                                        encoding="utf-8").read())
+      not _analysis_imports_text_report())
 check("text_report re-exports the engine's helpers",
       tr.compute_readability is engine.compute_readability
       and tr.grammar_criteria is engine.grammar_criteria
@@ -352,6 +366,14 @@ _pn = tr.analyze("We purchase fresh bread daily.", target_level="A2",
 _pwn = next(d for d in _pn["aboveTarget"]["words"] if d["word"] == "purchase")
 check("no --suggest -> no suggestion key", "suggestion" not in _pwn)
 
+_csv_sugg = tr.export_csv(_ps, suggest=True)
+_csv_sugg_rows = list(_csv.reader(_csv_sugg.splitlines()))
+check("csv with suggestions gains the suggestion column",
+      _csv_sugg_rows[0][-1] == "suggestion"
+      and any(r[0] == "word" and r[-1] == "buy (A1)" for r in _csv_sugg_rows[1:]))
+_csv_plain = tr.export_csv(_pn)
+check("csv without suggestions keeps the old shape",
+      list(_csv.reader(_csv_plain.splitlines()))[0][-1] == "example")
 _md_sugg = tr.export_markdown(_ps)
 check("md with suggestions gains the Simpler column",
       "| Word | Level | Occurrences | Simpler alternative | Example |" in _md_sugg
@@ -373,6 +395,19 @@ check("cli --suggest carries the suggestion",
 rc, _, err = run(["--suggest", "--text", "hi"])
 check("cli --suggest without target rc==1",
       rc == 1 and "--suggest requires --target-level" in err)
+_sug_dir = tempfile.mkdtemp(prefix="tr_suggest_csv_")
+with open(os.path.join(_sug_dir, "purchase.txt"), "w",
+          encoding="utf-8") as f:
+    f.write("We purchase fresh bread daily.")
+_sug_out = os.path.join(_sug_dir, "purchase-preteaching-A2.csv")
+rc, out, err = run(["--target-level", "A2", "--no-grammar", "--suggest",
+                    "--export", "csv", "--output", _sug_out,
+                    "--file", os.path.join(_sug_dir, "purchase.txt")])
+_csv_cli = list(_csv.reader(open(_sug_out, encoding="utf-8")))
+check("cli --suggest --export csv writes the suggestion column",
+      rc == 0 and _csv_cli[0][-1] == "suggestion"
+      and any(r[0] == "word" and r[-1] == "buy (A1)" for r in _csv_cli[1:]))
+shutil.rmtree(_sug_dir, ignore_errors=True)
 
 # --- unit: grammar gap report (--gap-report) ----------------------------------
 _gcefrj = gp.load_cefrj_levels(os.path.join(HERE, "GrammarProfile"))
@@ -613,9 +648,45 @@ check("watch: re-runs on change and stops when the file disappears",
 rc, _, err = run(["--watch", "--text", "hi"])
 check("cli --watch requires --file",
       rc == 1 and "--watch re-profiles a file on save" in err)
-rc, _, err = run(["--watch", "--pre-enrich", "--file", _wf, "--text", "hi"])
+# A fresh valid file: the rejection must come from the flag validation,
+# not from a missing --file path.
+_wf2 = os.path.join(_curr_dir, "watch-reject.txt")
+with open(_wf2, "w", encoding="utf-8") as f:
+    f.write("hi")
+rc, _, err = run(["--watch", "--pre-enrich", "--file", _wf2, "--text", "hi"])
 check("cli --watch rejects --pre-enrich",
       rc == 1 and "--watch and --pre-enrich don't combine" in err)
+# Watch mode with captured stdout must stay parseable across re-runs: one
+# compact JSON object per line (JSON Lines), not a pile of indented docs.
+_wl = os.path.join(_curr_dir, "watch-lines.txt")
+with open(_wl, "w", encoding="utf-8") as f:
+    f.write("The cat sat on the mat.")
+_wp = subprocess.Popen(
+    [sys.executable, SCRIPT, "--watch", "0.05", "--format", "json",
+     "--file", _wl], stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+    text=True)
+# Read the first line before editing: blocking reads make the re-run
+# observable regardless of how fast the engine starts (no fixed sleeps).
+_line1 = _wp.stdout.readline()
+with open(_wl, "w", encoding="utf-8") as f:
+    f.write("The cat sat on the mat and saw the dog.")
+_line2 = _wp.stdout.readline()
+os.remove(_wl)
+try:
+    _wp.wait(timeout=10)
+except subprocess.TimeoutExpired:
+    _wp.kill()
+_wp.communicate()
+_wl_lines = [ln for ln in (_line1 + _line2).splitlines() if ln.strip()]
+_wl_parsed = []
+for _ln in _wl_lines:
+    try:
+        _wl_parsed.append(json.loads(_ln))
+    except ValueError:
+        pass
+check("watch json: captured stdout is one JSON object per line",
+      len(_wl_parsed) >= 2 and len(_wl_parsed) == len(_wl_lines)
+      and all(p.get("schemaVersion") for p in _wl_parsed))
 
 # --- unit: Cambridge English exam mapping (--cambridge) -----------------------
 check("cambridge: B1 maps to Preliminary",

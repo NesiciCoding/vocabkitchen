@@ -133,7 +133,7 @@ def payload_schema():
             "schemaVersion": {"type": "string", "enum": [SCHEMA_VERSION]},
             "totalWordCount": {"type": "integer", "minimum": 0},
             "file": {"type": ["string", "null"]},
-            "vocabulary": {"type": ["object", "null"], "required": True,
+            "vocabulary": {"type": ["object", "null"],
                            "properties": {
                                "typical": band,
                                "coverage": band,
@@ -409,7 +409,12 @@ def grammar_gap_report(gresults, cefrj_levels, target):
     authors, the mirror of the above-target "remove these" list.
     """
     all_at = gp.constructions_at_level(cefrj_levels, target)
-    used = {e["name"] for e in (gresults or {}).get(target, {}).values()}
+    # A construction counts as used whichever band it landed in: detection
+    # buckets by the effective (override-aware) level, so a when-clause
+    # resolves to A1 while its registry base is A2 — checking only the
+    # target band would falsely report it as a gap.
+    used = {e["name"] for lvl in (gresults or {}).values()
+            for e in lvl.values()}
     missing = [c for c in all_at if c["name"] not in used]
     return {
         "targetLevel": target,
@@ -485,7 +490,10 @@ def grammar_comments(gc, target_level=None, rewrites=None):
                        f"{target_level} target: pre-teach or rewrite.")
             ex = (c.get("examples") or [{}])[0].get("span")
             if ex:
-                comment += f' E.g. "{ex.replace("|", "\\|")}"'
+                # Escape the pipe before interpolation: the expression must
+                # stay backslash-free so Python 3.11 can parse this file.
+                ex_escaped = ex.replace("|", "\\|")
+                comment += f' E.g. "{ex_escaped}"'
             rw = rewrites.get(c["id"])
             if rw:
                 comment += f" Rewrite: {rw}"
@@ -499,7 +507,8 @@ def grammar_comments(gc, target_level=None, rewrites=None):
             comment = f"Uses the {c['name']} ({c['level']})."
             ex = (c.get("examples") or [{}])[0].get("span")
             if ex:
-                comment += f' E.g. "{ex.replace("|", "\\|")}"'
+                ex_escaped = ex.replace("|", "\\|")
+                comment += f' E.g. "{ex_escaped}"'
         else:
             comment = f"Doesn't use the {c['name']} ({c['level']}) yet."
         out.append({"id": c["id"], "name": c["name"],
@@ -839,9 +848,11 @@ def curriculum_report(text, curriculum, ordered=None, gresults=None):
             for w, _occ in rows:
                 word_band[w] = name
     vocabulary = []
+    # One pass over the whole checklist: word_contexts compiles a pattern per
+    # requested word, so per-word calls would re-walk the text every time.
+    present_ctx = word_contexts(text, curriculum["vocabulary"])
     for w in curriculum["vocabulary"]:
-        present = word_contexts(text, [w]).get(w) is not None
-        vocabulary.append({"word": w, "present": present,
+        vocabulary.append({"word": w, "present": w in present_ctx,
                            "level": word_band.get(w)})
     used = set()
     if gresults:
@@ -1030,7 +1041,8 @@ def profile(text, engine, with_grammar=True, with_readability=True):
 
 def payload(pieces, text, vocab_base, target_level=None, suggest=False,
             gap_report=False, curriculum=None, cambridge=False, cando=False,
-            comments=False, grammar_unavailable_note="not analysed"):
+            comments=False, grammar_unavailable_note="not analysed",
+            synonyms=None):
     """Assemble the text_report-shaped payload from *pieces* (see
     :func:`profile`) — the single payload builder behind ``analyze`` and
     class_profile's per-text ``--export`` payloads, so both produce the same
@@ -1101,9 +1113,10 @@ def payload(pieces, text, vocab_base, target_level=None, suggest=False,
             for d in words:
                 d["context"] = ctx.get(d["word"])
         if suggest:
-            syns = load_synonyms(os.path.join(vocab_base, "synonyms.csv"))
+            if synonyms is None:
+                synonyms = load_synonyms(os.path.join(vocab_base, "synonyms.csv"))
             for d in words:
-                s = syns.get(d["word"])
+                s = synonyms.get(d["word"])
                 if s:
                     d["suggestion"] = s
         payload["aboveTarget"] = {

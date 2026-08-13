@@ -14,6 +14,7 @@ import http.server
 import io
 import json
 import os
+import re as _re
 import shutil
 import subprocess
 import sys
@@ -103,7 +104,7 @@ def _make_docx(path):
     rels = ('<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
             '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>')
     doc = (f'<?xml version="1.0"?><w:document xmlns:w="{W}"><w:body>'
-           '<w:p><w:r><w:t>{"The cat sat on the mat."}</w:t></w:r></w:p></w:body></w:document>')
+           '<w:p><w:r><w:t>The cat sat on the mat.</w:t></w:r></w:p></w:body></w:document>')
     with zipfile.ZipFile(path, "w") as z:
         z.writestr("[Content_Types].xml", ct)
         z.writestr("_rels/.rels", rels)
@@ -545,7 +546,7 @@ try:
           sch3["readings"][1]["due"] == [])
     check("absent word is due after two readings",
           [d["word"] for d in sch3["readings"][2]["due"]] == ["alpha"])
-    _il_md = cp.interleave_markdown(sch, None)
+    _il_md = cp.interleave_markdown(sch)
     check("interleave md header names target, count, budget",
           "# Vocabulary interleaving — Target B1 (3 readings, 2 new words/reading)"
           in _il_md)
@@ -1220,6 +1221,11 @@ try:
               and "purchase.txt" in _cd_sum_md
               and "distinct Can-Do levels above the target" in _cd_sum_md)
         # --cando-diff-sort band: the same section ordered by the ladder.
+        # Two bands above the B1 target (B2 from purchase.txt, C1 from a
+        # text using a C1 word), so the ordering assertion is meaningful.
+        with open(os.path.join(_cd_in, "advanced.txt"), "w",
+                  encoding="utf-8") as f:
+            f.write("We purchase fresh bread and cite the results.")
         rc, out, err = run(["--file", _cd_in, "--target-level", "B1",
                             "--no-grammar", "--cando-diff", "--cando-diff-sort", "band",
                             "--export", "md", "--output", _cd_sum])
@@ -1229,7 +1235,10 @@ try:
             _cd_sort_md = f.read()
         check("class --cando-diff-sort band renders ladder-first",
               "## Can-Do demands across the set" in _cd_sort_md
-              and "| Vocabulary | B2 |" in _cd_sort_md)
+              and "| Vocabulary | B2 |" in _cd_sort_md
+              and "| Vocabulary | C1 |" in _cd_sort_md
+              and _cd_sort_md.index("| Vocabulary | B2 |")
+              < _cd_sort_md.index("| Vocabulary | C1 |"))
         rc, _, err = run(["--file", _cd_in, "--target-level", "B1",
                           "--cando-diff-sort", "band", "--export", "md"])
         check("class --cando-diff-sort without --cando-diff rc==1",
@@ -1858,12 +1867,13 @@ if os.path.isdir(_sample):
                                    f"{_gbase}-{_lvl}-cando-deck.csv"),
                       encoding="utf-8") as f:
                 _cd_rows = list(_csv.reader(f))
+            _cd_bands = {r[0].split(" — ")[0] for r in _cd_rows[1:]}
             check(f"sample targets cando: {_lvl} deck has the RubricMaker shape",
                   _cd_rows[0] == ["word", "definition", "example", "phonetic",
                                   "partOfSpeech"]
                   and len(_cd_rows) > 1
-                  and all(r[0].split(" — ")[0] in _above_bands
-                          and r[0].endswith("demand") and r[4] == "cando"
+                  and _cd_bands == _above_bands
+                  and all(r[0].endswith("demand") and r[4] == "cando"
                           and f"above the {_lvl} target" in r[2]
                           for r in _cd_rows[1:]))
     finally:
@@ -2133,11 +2143,16 @@ if all(os.path.isfile(p) for p in (_skill_local, _skill_plugin, _plugin_json)):
     check("class-profile repo-local copy is repo-flavoured",
           "../../../" in _sl and "class_profile.py" in _sl)
     check("class-profile copies are deliberately different flavours", _sl != _sp)
+    # Whole-token matching: a longer flag like --cando-off must not satisfy
+    # the --cando requirement.
+    def _has_flag(md, flag):
+        return _re.search(_re.escape(flag) + r"(?![-A-Za-z0-9_])", md) is not None
+
     for _flag in ("--gap-report", "--interleave", "--new-words-per-reading",
                   "--curriculum", "--watch", "--cando", "--cando-diff",
                   "--cando-diff-sort", "--schema", "--comments"):
         check(f"class-profile skill documents {_flag} in both copies",
-              _flag in _sl and _flag in _sp)
+              _has_flag(_sl, _flag) and _has_flag(_sp, _flag))
     with open(os.path.join(HERE, ".claude", "skills", "text-report", "SKILL.md"),
               encoding="utf-8") as f:
         _tl = f.read()
@@ -2146,7 +2161,7 @@ if all(os.path.isfile(p) for p in (_skill_local, _skill_plugin, _plugin_json)):
         _tp = f.read()
     for _flag in ("--cambridge", "--cando", "--schema", "--comments"):
         check(f"text-report skill documents {_flag} in both copies",
-              _flag in _tl and _flag in _tp)
+              _has_flag(_tl, _flag) and _has_flag(_tp, _flag))
     _manifest = json.load(open(_plugin_json, encoding="utf-8"))
     check("class-profile plugin.json declares the command",
           [c["name"] for c in _manifest.get("commands", [])] == ["class-profile"])

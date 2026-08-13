@@ -153,7 +153,7 @@ jobs:
                   print(f"skill {name}: copies out of sync — plugin: {has_plugin}, "
                         f"repo-local: {has_local}")
                   ok = False
-              if has_plugin:
+              if has_plugin and has_local:
                   plugin_md = open(plugin_copy, encoding="utf-8").read()
                   local_md = open(local_copy, encoding="utf-8").read()
                   # NOTE: keep the literal `$` and `{CLAUDE_PLUGIN_ROOT}` apart
@@ -174,8 +174,13 @@ jobs:
                       print(f"skill {name}: copies are identical — they are "
                             "deliberately different flavours")
                       ok = False
+                  import re as _re
+                  def _has_flag(md, flag):
+                      # Whole-token match: --cando-off must not satisfy --cando.
+                      return _re.search(_re.escape(flag) + r"(?![-A-Za-z0-9_])",
+                                        md) is not None
                   for flag in required_flags.get(name, []):
-                      if flag not in plugin_md or flag not in local_md:
+                      if not _has_flag(plugin_md, flag) or not _has_flag(local_md, flag):
                           print(f"skill {name}: {flag} missing from a SKILL.md copy "
                                 "(the plugin surface must stay in step with the CLI)")
                           ok = False
