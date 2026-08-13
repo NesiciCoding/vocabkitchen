@@ -96,18 +96,21 @@ jobs:
           sys.exit(0 if ok else 1)
           EOF
 
-      # Claude Code's own validator: install the exact CLI that performs real
-      # installs and validate the marketplace plus every plugin, so a manifest
-      # or skill-frontmatter change that would break `claude plugin install`
-      # fails CI instead of user installs. Pinned like ruff/spacy; bump when
-      # users' CLIs move on (dependabot tracks github-actions only). No
-      # --strict: the plugins deliberately omit `version` (every commit is a
-      # new version), which validates as a warning.
+      # Claude Code's own validator + real installs: use the exact CLI that
+      # performs user installs, validate the marketplace plus every plugin, and
+      # then register the checkout as a marketplace and install every plugin by
+      # name — exactly what a user runs. Manifest or skill-frontmatter changes
+      # that would break `claude plugin install` fail CI instead of user
+      # installs, and the install itself exercises the cache copy where the
+      # plugins' symlinked files get dereferenced (validate alone can't).
+      # Pinned like ruff/spacy; bump when users' CLIs move on (dependabot
+      # tracks github-actions only). No --strict: the plugins deliberately
+      # omit `version` (every commit is a new version), a warning.
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: '22'
 
-      - name: claude plugin validate (marketplace + every plugin)
+      - name: claude plugin validate + install (marketplace + every plugin)
         run: |
           npm install --global @anthropic-ai/claude-code@2.1.231
           ok=1
@@ -116,6 +119,11 @@ jobs:
             [ -d "$d/.claude-plugin" ] || continue
             echo "== validating $d =="
             claude plugin validate "$d" || ok=0
+          done
+          claude plugin marketplace add "$PWD"
+          for p in vocab-profiler grammar-profiler text-report class-profile; do
+            echo "== installing $p@vocabkitchen =="
+            claude plugin install "$p@vocabkitchen" || ok=0
           done
           [ "$ok" -eq 1 ] || exit 1
 
@@ -178,11 +186,17 @@ jobs:
               if cmds is not None:
                   if isinstance(cmds, str):
                       cmds = [cmds]
+                  # Contract shared with the class-profile test: string |
+                  # string[] of `./`-relative paths (custom flat .md command
+                  # files or directories) that stay inside the plugin root —
+                  # no inline objects, no `..` traversal.
                   if (not isinstance(cmds, list)
                           or not all(isinstance(c, str) and c.startswith("./")
+                                     and ".." not in c.split("/")
                                      for c in cmds)):
-                      print(f"plugin {name}: plugin.json commands must be path(s) "
-                            f"to .md command files, got {cmds!r}")
+                      print(f"plugin {name}: plugin.json commands must be "
+                            f"`./`-relative path(s) inside the plugin root, "
+                            f"got {cmds!r}")
                       ok = False
 
               plugin_copy = os.path.join(d, "skills", name, "SKILL.md")

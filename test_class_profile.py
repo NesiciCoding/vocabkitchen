@@ -2173,10 +2173,18 @@ if all(os.path.isfile(p) for p in (_skill_local, _skill_plugin, _plugin_json)):
               _has_flag(_tl, _flag) and _has_flag(_tp, _flag))
     _manifest = json.load(open(_plugin_json, encoding="utf-8"))
     _cmds = _manifest.get("commands")
-    check("class-profile plugin.json ships no inline command objects",
-          _cmds is None or isinstance(_cmds, str)
+    if isinstance(_cmds, str):
+        _cmds = [_cmds]
+    # Same contract as the CI step: `commands` is a path field — string or
+    # string[] of `./`-relative paths (custom flat .md command files or
+    # directories) that stay inside the plugin root. Inline command objects
+    # fail install validation, and `..` components would escape the root.
+    check("class-profile plugin.json ships no invalid commands paths",
+          _cmds is None
           or (isinstance(_cmds, list)
-              and all(isinstance(_c, str) for _c in _cmds)))
+              and all(isinstance(_c, str) and _c.startswith("./")
+                      and ".." not in _c.split("/")
+                      for _c in _cmds)))
 else:
     skipped += 1
 

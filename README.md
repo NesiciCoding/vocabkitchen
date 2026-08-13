@@ -663,8 +663,10 @@ flavour-consistent, makes sure the plugin copy states the `bin/` command, and
 rejects inline `commands` objects in `plugin.json` — the manifest's `commands`
 key is a path field, so object arrays fail `claude plugin install` validation.
 CI additionally runs `claude plugin validate` (a pinned CLI) over the
-marketplace and every plugin, so install-breaking manifest or skill-frontmatter
-regressions fail the build instead of user installs.
+marketplace and every plugin, then registers the checkout as a marketplace
+and runs a real `claude plugin install` of every plugin by name — so
+install-breaking manifest, skill-frontmatter, or symlink-copy regressions fail
+the build instead of user installs.
 
 ## Use in Claude Code
 
