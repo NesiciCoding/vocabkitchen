@@ -96,6 +96,37 @@ jobs:
           sys.exit(0 if ok else 1)
           EOF
 
+      # Claude Code's own validator + real installs: use the exact CLI that
+      # performs user installs, validate the marketplace plus every plugin, and
+      # then register the checkout as a marketplace and install every plugin by
+      # name — exactly what a user runs. Manifest or skill-frontmatter changes
+      # that would break `claude plugin install` fail CI instead of user
+      # installs, and the install itself exercises the cache copy where the
+      # plugins' symlinked files get dereferenced (validate alone can't).
+      # Pinned like ruff/spacy; bump when users' CLIs move on (dependabot
+      # tracks github-actions only). No --strict: the plugins deliberately
+      # omit `version` (every commit is a new version), a warning.
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+
+      - name: claude plugin validate + install (marketplace + every plugin)
+        run: |
+          npm install --global @anthropic-ai/claude-code@2.1.231
+          ok=1
+          claude plugin validate . || ok=0
+          for d in plugins/*/; do
+            [ -d "$d/.claude-plugin" ] || continue
+            echo "== validating $d =="
+            claude plugin validate "$d" || ok=0
+          done
+          claude plugin marketplace add "$PWD"
+          for p in vocab-profiler grammar-profiler text-report class-profile; do
+            echo "== installing $p@vocabkitchen =="
+            claude plugin install "$p@vocabkitchen" || ok=0
+          done
+          [ "$ok" -eq 1 ] || exit 1
+
       - name: Skills stay flavour-consistent + plugin.json commands
         # Every plugin ships ONE skill in two deliberately different flavours:
         # a plugin-flavoured copy (the `cmd` command on PATH, bundled-path
@@ -103,9 +134,12 @@ jobs:
         # (checkout script, ../../../ links) in .claude/skills/. Both must
         # exist and each must carry its own markers — an accidental copy of
         # one over the other loses the destination's markers and fails here.
-        # plugin.json must also declare the command the skill states, and
-        # both SKILL.md copies must document the flags the CLI ships for that
-        # skill (the plugin surface stays in step with the command line).
+        # plugin.json must not declare inline commands (the manifest's
+        # `commands` key is a path field, so object arrays fail install
+        # validation with "commands: Invalid input"), the plugin copy must
+        # state the bin/ command, and both SKILL.md copies must document the
+        # flags the CLI ships for that skill (the plugin surface stays in
+        # step with the command line).
         run: |
           python - <<'EOF'
           import json, os, sys
@@ -140,12 +174,30 @@ jobs:
                   continue
               cmd = bins[0]
 
-              # plugin.json must declare that command under commands[].
+              # plugin.json's `commands` key is a path field (custom flat .md
+              # command files, string | string[]), NOT an array of inline
+              # command objects — Claude Code rejects object arrays with
+              # "commands: Invalid input" and the install fails. The command
+              # surface here is bin/ (PATH executables) + skills/, both
+              # auto-discovered, so the manifest must carry no inline
+              # commands at all.
               manifest = json.load(open(os.path.join(d, ".claude-plugin", "plugin.json")))
-              declared = [c["name"] for c in manifest.get("commands", [])]
-              if declared != [cmd]:
-                  print(f"plugin {name}: plugin.json commands {declared} != bin command {cmd}")
-                  ok = False
+              cmds = manifest.get("commands")
+              if cmds is not None:
+                  if isinstance(cmds, str):
+                      cmds = [cmds]
+                  # Contract shared with the class-profile test: string |
+                  # string[] of `./`-relative paths (custom flat .md command
+                  # files or directories) that stay inside the plugin root —
+                  # no inline objects, no `..` traversal.
+                  if (not isinstance(cmds, list)
+                          or not all(isinstance(c, str) and c.startswith("./")
+                                     and ".." not in c.split("/")
+                                     for c in cmds)):
+                      print(f"plugin {name}: plugin.json commands must be "
+                            f"`./`-relative path(s) inside the plugin root, "
+                            f"got {cmds!r}")
+                      ok = False
 
               plugin_copy = os.path.join(d, "skills", name, "SKILL.md")
               local_copy = os.path.join(".claude", "skills", name, "SKILL.md")
