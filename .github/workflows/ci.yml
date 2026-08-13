@@ -92,6 +92,7 @@ jobs:
                   if os.path.islink(p) and not os.path.exists(p):
                       print(f"plugin {name}: broken symlink {f} -> {os.readlink(p)}")
                       ok = False
+
           sys.exit(0 if ok else 1)
           EOF
 
@@ -154,12 +155,12 @@ jobs:
                         f"repo-local: {has_local}")
                   ok = False
               if has_plugin and has_local:
-                  plugin_md = open(plugin_copy, encoding="utf-8").read()
-                  local_md = open(local_copy, encoding="utf-8").read()
                   # NOTE: keep the literal `$` and `{CLAUDE_PLUGIN_ROOT}` apart
                   # in this script — GitHub evaluates dollar-brace-brace
                   # expressions even inside run: blocks, so writing the two
                   # adjacent here would make the workflow file invalid.
+                  plugin_md = open(plugin_copy, encoding="utf-8").read()
+                  local_md = open(local_copy, encoding="utf-8").read()
                   marker = "${" + "CLAUDE_PLUGIN_ROOT}"
                   if (f"`{cmd}`" not in plugin_md
                           or marker not in plugin_md):

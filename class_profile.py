@@ -1512,10 +1512,11 @@ def render_interleave_pretty(schedule):
 def write_per_text_exports(profiled, target, fmt, cloze=False, enrich=True,
                            wordlists_dir=None, output_dir=None,
                            source_label=None, base_url=None, cache_path=None,
-                           targets=None, rows=None, summary=None, suggest=False,
-                           gap_report=False, curriculum=None, cando=False,
-                           comments=False, cando_diff=False,
-                           cando_diff_sort="texts", payloads=None):
+                           use_cache=True, targets=None, rows=None,
+                           summary=None, suggest=False, gap_report=False,
+                           curriculum=None, cando=False, comments=False,
+                           cando_diff=False, cando_diff_sort="texts",
+                           payloads=None):
     """Write the pre-teaching lists for *profiled* (the selected set).
 
     With a single *target*: one list per text next to its source (or into
@@ -1534,7 +1535,10 @@ def write_per_text_exports(profiled, target, fmt, cloze=False, enrich=True,
     the set-level handout. Returns ``(written, failed, deck_stats)``;
     ``deck_stats`` aggregates the flashcard enrichment counters across the
     set. *base_url*/*cache_path* override the dictionary API and its JSON
-    lookup cache. *cando* threads the CEFR Can-Do framing into each per-text
+    lookup cache. With ``use_cache=False`` the cache is disabled entirely
+    (``--no-dictionary-cache``): no default path fallback, no reads or
+    writes — distinct from an unspecified *cache_path*, which falls back to
+    the default location. *cando* threads the CEFR Can-Do framing into each per-text
     payload and, with ``--export flashcards``, writes a **combined Can-Do
     reference deck** next to the word decks. *cando_diff* adds the
     set-level **Can-Do demands across the set** section to the summary
@@ -1549,7 +1553,10 @@ def write_per_text_exports(profiled, target, fmt, cloze=False, enrich=True,
     # payload, so a folder run doesn't re-read synonyms.csv per text.
     synonyms = (engine.load_synonyms(os.path.join(base_dir, "synonyms.csv"))
                 if suggest else None)
-    cache_path = cache_path or tr.default_dictionary_cache_path()
+    if use_cache:
+        cache_path = cache_path or tr.default_dictionary_cache_path()
+    else:
+        cache_path = None
     if output_dir:
         try:
             os.makedirs(output_dir, exist_ok=True)
@@ -1574,10 +1581,12 @@ def write_per_text_exports(profiled, target, fmt, cloze=False, enrich=True,
             else:
                 deck_stats[k] += stats[k]
 
+    level_index = vp.load_level_index(base_dir)
+
     def _deck(payload):
         content, stats = tr.export_flashcards(
             payload, enrich=enrich, base_url=base_url,
-            level_index=vp.load_level_index(base_dir), cache_path=cache_path)
+            level_index=level_index, cache_path=cache_path)
         _fold_stats(stats)
         return content
 
@@ -1694,7 +1703,7 @@ def main(argv=None):
     parser.add_argument("--target-level", dest="target_level", default=None)
     parser.add_argument("--targets", default=None,
                         help="comma-separated CEFR levels (e.g. A2,B1,B2): show each text's "
-                             "fits/%above verdict per level, side by side (instead of "
+                             "fits/%%above verdict per level, side by side (instead of "
                              "--target-level)")
     parser.add_argument("--min-level", dest="min_level", default=None)
     parser.add_argument("--max-level", dest="max_level", default=None)
@@ -1937,14 +1946,18 @@ def main(argv=None):
     try:
         eng = engine.load_engine(wordlists_dir=args.wordlists,
                                  grammar_dir=args.grammar_profile,
-                                 with_grammar=not args.no_grammar)
+                                 with_grammar=(not args.no_grammar
+                                               and not args.pre_enrich))
     except vp.WordListError as ex:
         sys.stderr.write(str(ex) + "\n")
         return 1
 
     grammar_note = None
-    if args.no_grammar:
-        grammar_note = "skipped (--no-grammar)"
+    # --pre-enrich only needs the vocabulary, so skip the grammar side there
+    # too (and when --no-grammar).
+    if args.no_grammar or args.pre_enrich:
+        grammar_note = ("skipped (--no-grammar)" if args.no_grammar
+                        else "skipped (--pre-enrich)")
     elif not eng.grammar_available:
         grammar_note = eng.grammar_error  # the engine's unavailable note
 
@@ -2177,6 +2190,7 @@ def main(argv=None):
                 enrich=not args.no_enrich, wordlists_dir=args.wordlists,
                 output_dir=args.output, source_label=source_label,
                 base_url=args.dictionary_url, cache_path=cache_path,
+                use_cache=not args.no_dictionary_cache,
                 targets=targets, rows=rows, summary=summary,
                 suggest=args.suggest, gap_report=args.gap_report,
                 curriculum=curriculum, cando=cando,

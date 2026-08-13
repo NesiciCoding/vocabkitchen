@@ -257,12 +257,24 @@ check("--comments CLI: pre-teach notes carry the rewrite suggestion",
 
 # --- unit: the venv re-exec is skipped in vocabulary-only modes -------------
 _saved_argv = list(sys.argv)
+_saved_execve = tr.os.execve
+_util = __import__("importlib.util", fromlist=["find_spec"])
+_saved_find = _util.find_spec
 try:
-    sys.argv = ["text_report.py", "--no-grammar"]
-    tr._maybe_reexec_in_venv()  # must return; never exec's with --no-grammar
-    sys.argv = ["text_report.py", "--pre-enrich"]
-    tr._maybe_reexec_in_venv()  # ...and with --pre-enrich
-    check("re-exec skipped for vocab-only modes", True)
+    # Force the no-spaCy candidate path (find_spec -> None) so a re-exec
+    # would actually happen, then assert --no-grammar and --pre-enrich never
+    # reach execve — they must return before the import check.
+    tr.os.execve = lambda *a, **k: check("re-exec never calls execve", False,
+                                          "execve was invoked")
+    _util.find_spec = lambda name: None
+    try:
+        for flag in ("--no-grammar", "--pre-enrich"):
+            sys.argv = ["text_report.py", flag]
+            tr._maybe_reexec_in_venv()
+            check(f"re-exec skipped with {flag} (no execve)", True)
+    finally:
+        _util.find_spec = _saved_find
+        tr.os.execve = _saved_execve
 except Exception as _ex:
     check("re-exec skipped for vocab-only modes", False, str(_ex))
 finally:
