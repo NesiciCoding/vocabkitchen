@@ -96,6 +96,29 @@ jobs:
           sys.exit(0 if ok else 1)
           EOF
 
+      # Claude Code's own validator: install the exact CLI that performs real
+      # installs and validate the marketplace plus every plugin, so a manifest
+      # or skill-frontmatter change that would break `claude plugin install`
+      # fails CI instead of user installs. Pinned like ruff/spacy; bump when
+      # users' CLIs move on (dependabot tracks github-actions only). No
+      # --strict: the plugins deliberately omit `version` (every commit is a
+      # new version), which validates as a warning.
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+
+      - name: claude plugin validate (marketplace + every plugin)
+        run: |
+          npm install --global @anthropic-ai/claude-code@2.1.231
+          ok=1
+          claude plugin validate . || ok=0
+          for d in plugins/*/; do
+            [ -d "$d/.claude-plugin" ] || continue
+            echo "== validating $d =="
+            claude plugin validate "$d" || ok=0
+          done
+          [ "$ok" -eq 1 ] || exit 1
+
       - name: Skills stay flavour-consistent + plugin.json commands
         # Every plugin ships ONE skill in two deliberately different flavours:
         # a plugin-flavoured copy (the `cmd` command on PATH, bundled-path
@@ -103,9 +126,12 @@ jobs:
         # (checkout script, ../../../ links) in .claude/skills/. Both must
         # exist and each must carry its own markers — an accidental copy of
         # one over the other loses the destination's markers and fails here.
-        # plugin.json must also declare the command the skill states, and
-        # both SKILL.md copies must document the flags the CLI ships for that
-        # skill (the plugin surface stays in step with the command line).
+        # plugin.json must not declare inline commands (the manifest's
+        # `commands` key is a path field, so object arrays fail install
+        # validation with "commands: Invalid input"), the plugin copy must
+        # state the bin/ command, and both SKILL.md copies must document the
+        # flags the CLI ships for that skill (the plugin surface stays in
+        # step with the command line).
         run: |
           python - <<'EOF'
           import json, os, sys
@@ -140,12 +166,24 @@ jobs:
                   continue
               cmd = bins[0]
 
-              # plugin.json must declare that command under commands[].
+              # plugin.json's `commands` key is a path field (custom flat .md
+              # command files, string | string[]), NOT an array of inline
+              # command objects — Claude Code rejects object arrays with
+              # "commands: Invalid input" and the install fails. The command
+              # surface here is bin/ (PATH executables) + skills/, both
+              # auto-discovered, so the manifest must carry no inline
+              # commands at all.
               manifest = json.load(open(os.path.join(d, ".claude-plugin", "plugin.json")))
-              declared = [c["name"] for c in manifest.get("commands", [])]
-              if declared != [cmd]:
-                  print(f"plugin {name}: plugin.json commands {declared} != bin command {cmd}")
-                  ok = False
+              cmds = manifest.get("commands")
+              if cmds is not None:
+                  if isinstance(cmds, str):
+                      cmds = [cmds]
+                  if (not isinstance(cmds, list)
+                          or not all(isinstance(c, str) and c.startswith("./")
+                                     for c in cmds)):
+                      print(f"plugin {name}: plugin.json commands must be path(s) "
+                            f"to .md command files, got {cmds!r}")
+                      ok = False
 
               plugin_copy = os.path.join(d, "skills", name, "SKILL.md")
               local_copy = os.path.join(".claude", "skills", name, "SKILL.md")

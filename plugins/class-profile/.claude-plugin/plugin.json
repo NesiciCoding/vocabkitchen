@@ -6,11 +6,5 @@
   },
   "homepage": "https://github.com/NesiciCoding/vocabkitchen-CLI",
   "repository": "https://github.com/NesiciCoding/vocabkitchen-CLI",
-  "commands": [
-    {
-      "name": "class-profile",
-      "description": "Profile a whole folder of English texts against CEFR levels in one run — the class-set tool. Batch input (directory or glob), spreadsheet-ready CSV summary, rank & filter by level, per-band vocabulary exports, a pooled CEFR distribution, per-class fits with --targets, and per-text pre-teaching handouts / worksheets / RubricMaker decks."
-    }
-  ],
   "keywords": ["cefr", "vocabulary", "grammar", "readability", "batch", "classroom", "language-learning", "english"]
 }

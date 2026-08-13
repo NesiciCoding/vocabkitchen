@@ -2198,8 +2198,8 @@ else:
 # Mirrors the CI "Skills stay flavour-consistent + plugin.json commands" step
 # for this plugin: the bundled SKILL.md is plugin-flavoured (the `class-profile`
 # command on PATH, ${CLAUDE_PLUGIN_ROOT} references), the repo-local copy is
-# repo-flavoured (../../../ checkout links), and plugin.json declares the
-# command the skill states.
+# repo-flavoured (../../../ checkout links), and plugin.json ships no invalid
+# inline command objects (the manifest's `commands` key is a path field).
 _skill_local = os.path.join(HERE, ".claude", "skills", "class-profile", "SKILL.md")
 _skill_plugin = os.path.join(HERE, "plugins", "class-profile", "skills",
                              "class-profile", "SKILL.md")
@@ -2236,8 +2236,11 @@ if all(os.path.isfile(p) for p in (_skill_local, _skill_plugin, _plugin_json)):
         check(f"text-report skill documents {_flag} in both copies",
               _has_flag(_tl, _flag) and _has_flag(_tp, _flag))
     _manifest = json.load(open(_plugin_json, encoding="utf-8"))
-    check("class-profile plugin.json declares the command",
-          [c["name"] for c in _manifest.get("commands", [])] == ["class-profile"])
+    _cmds = _manifest.get("commands")
+    check("class-profile plugin.json ships no inline command objects",
+          _cmds is None or isinstance(_cmds, str)
+          or (isinstance(_cmds, list)
+              and all(isinstance(_c, str) for _c in _cmds)))
 else:
     skipped += 1
 
