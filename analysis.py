@@ -1042,7 +1042,7 @@ def profile(text, engine, with_grammar=True, with_readability=True):
 def payload(pieces, text, vocab_base, target_level=None, suggest=False,
             gap_report=False, curriculum=None, cambridge=False, cando=False,
             comments=False, grammar_unavailable_note="not analysed",
-            synonyms=None):
+            synonyms=None, rewrites=None):
     """Assemble the text_report-shaped payload from *pieces* (see
     :func:`profile`) — the single payload builder behind ``analyze`` and
     class_profile's per-text ``--export`` payloads, so both produce the same
@@ -1086,7 +1086,8 @@ def payload(pieces, text, vocab_base, target_level=None, suggest=False,
                          else (None if grammar_available
                                else grammar_unavailable_note)),
         "grammarCriteria": gc_obj,
-        "grammarComments": (grammar_comments(gc_obj, target_level)
+        "grammarComments": (grammar_comments(gc_obj, target_level,
+                                             rewrites=rewrites)
                             if gc_obj is not None and comments else None),
         "vocabComments": None,
         "targetLevel": target_level,

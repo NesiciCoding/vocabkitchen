@@ -109,7 +109,7 @@ Flags:
     --suggest         --export md|csv only: suggest a simpler alternative
                       (WordLists/synonyms.csv) for each word above the target
                       in the handouts — the Phase 3 rewrite aid
-    --gap-report      --export md only: list the target-level constructions
+    --gap-report      --export md|csv only: list the target-level constructions
                       the text does not use yet — the Phase 3 grammar gap
                       report section in each handout
     --interleave      build the spaced-introduction schedule across the set
@@ -730,7 +730,7 @@ def export_vocab_lists(agg_words, out_dir):
 
 def export_payload(row, ordered, ctx, target, suggest=False, gap_report=False,
                    curriculum=None, cando=False, comments=False,
-                   vocab_base=None, synonyms=None):
+                   vocab_base=None, synonyms=None, rewrites=None):
     """Build a text_report-shaped payload for one row's text.
 
     Phase 5: this is the **shared engine's payload builder** — the same one
@@ -774,7 +774,7 @@ def export_payload(row, ordered, ctx, target, suggest=False, gap_report=False,
         pieces, text, vocab_base, target_level=target, suggest=suggest,
         gap_report=gap_report, curriculum=curriculum, cando=cando,
         comments=comments, grammar_unavailable_note="not analysed",
-        synonyms=synonyms)
+        synonyms=synonyms, rewrites=rewrites)
     payload["file"] = row["file"]
     return payload
 
@@ -1553,6 +1553,9 @@ def write_per_text_exports(profiled, target, fmt, cloze=False, enrich=True,
     # payload, so a folder run doesn't re-read synonyms.csv per text.
     synonyms = (engine.load_synonyms(os.path.join(base_dir, "synonyms.csv"))
                 if suggest else None)
+    rewrites = (engine.load_structure_rewrites(
+        os.path.join(base_dir, "structure-rewrites.csv"))
+        if comments else None)
     if use_cache:
         cache_path = cache_path or tr.default_dictionary_cache_path()
     else:
@@ -1596,7 +1599,7 @@ def write_per_text_exports(profiled, target, fmt, cloze=False, enrich=True,
         for t in targets:
             payloads = [export_payload(row, ordered, ctx, t, cando=cando,
                                        comments=comments, vocab_base=base_dir,
-                                       synonyms=synonyms)
+                                       synonyms=synonyms, rewrites=rewrites)
                         for row, ordered, ctx in profiled]
             combined = _combined_deck_payload(payloads)
             _write(combined_deck_path(source_label, t, output_dir),
@@ -1604,15 +1607,18 @@ def write_per_text_exports(profiled, target, fmt, cloze=False, enrich=True,
             _write(combined_index_path(source_label, t, output_dir),
                    combined_index_markdown(combined["aboveTarget"]["words"], t))
             if cando:
-                _write(tr.cando_deck_path(combined_deck_path(source_label, t,
-                                                             output_dir)),
-                       combined_cando_deck(payloads, t, sort=cando_diff_sort))
+                cando_deck = combined_cando_deck(payloads, t,
+                                                 sort=cando_diff_sort)
+                if cando_deck is not None:
+                    _write(tr.cando_deck_path(combined_deck_path(
+                        source_label, t, output_dir)), cando_deck)
             if comments:
                 # Per-level rubric-comment deck: the same construction is a
                 # rubric card at its own level and a pre-teach card above it.
-                _write(tr.comments_deck_path(combined_deck_path(source_label,
-                                                                t, output_dir)),
-                       combined_comments_deck(payloads, t))
+                comments_deck = combined_comments_deck(payloads, t)
+                if comments_deck is not None:
+                    _write(tr.comments_deck_path(combined_deck_path(
+                        source_label, t, output_dir)), comments_deck)
         return written, failed, deck_stats
 
     if payloads is None:
@@ -1622,7 +1628,7 @@ def write_per_text_exports(profiled, target, fmt, cloze=False, enrich=True,
                                      suggest=suggest, gap_report=gap_report,
                                      curriculum=curriculum, cando=cando,
                                      comments=comments, vocab_base=base_dir,
-                                     synonyms=synonyms)
+                                     synonyms=synonyms, rewrites=rewrites)
             payloads.append(payload)
             if fmt == "flashcards":
                 content = _deck(payload)
@@ -1660,15 +1666,18 @@ def write_per_text_exports(profiled, target, fmt, cloze=False, enrich=True,
     # The class-wide Can-Do reference deck — the set's above-target demands
     # as RubricMaker cards — whenever --cando ran (a one-text set included).
     if fmt == "flashcards" and cando:
-        _write(tr.cando_deck_path(combined_deck_path(source_label, target,
-                                                     output_dir)),
-               combined_cando_deck(payloads, target, sort=cando_diff_sort))
+        cando_deck = combined_cando_deck(payloads, target,
+                                         sort=cando_diff_sort)
+        if cando_deck is not None:
+            _write(tr.cando_deck_path(combined_deck_path(
+                source_label, target, output_dir)), cando_deck)
     # The class-wide rubric-comment deck — the set's apply-as-comment output
     # as reference cards — whenever --comments ran (a one-text set included).
     if fmt == "flashcards" and comments:
-        _write(tr.comments_deck_path(combined_deck_path(source_label, target,
-                                                        output_dir)),
-               combined_comments_deck(payloads, target))
+        comments_deck = combined_comments_deck(payloads, target)
+        if comments_deck is not None:
+            _write(tr.comments_deck_path(combined_deck_path(
+                source_label, target, output_dir)), comments_deck)
     # The set-level summary handout, aggregating the per-text lists.
     if fmt in ("csv", "md") and len(profiled) > 1 and rows is not None and summary is not None:
         payload_by_file = {p["file"]: p for p in payloads}

@@ -112,7 +112,7 @@ jobs:
 
           ok = True
           required_flags = {
-              "class-profile": ["--gap-report", "--interleave",
+              "class-profile": ["--suggest", "--gap-report", "--interleave",
                                 "--new-words-per-reading", "--curriculum",
                                 "--watch", "--cando", "--cando-diff",
                                 "--cando-diff-sort", "--schema",

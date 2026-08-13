@@ -2156,9 +2156,10 @@ if all(os.path.isfile(p) for p in (_skill_local, _skill_plugin, _plugin_json)):
     def _has_flag(md, flag):
         return _re.search(_re.escape(flag) + r"(?![-A-Za-z0-9_])", md) is not None
 
-    for _flag in ("--gap-report", "--interleave", "--new-words-per-reading",
-                  "--curriculum", "--watch", "--cando", "--cando-diff",
-                  "--cando-diff-sort", "--schema", "--comments"):
+    for _flag in ("--suggest", "--gap-report", "--interleave",
+                  "--new-words-per-reading", "--curriculum", "--watch",
+                  "--cando", "--cando-diff", "--cando-diff-sort",
+                  "--schema", "--comments"):
         check(f"class-profile skill documents {_flag} in both copies",
               _has_flag(_sl, _flag) and _has_flag(_sp, _flag))
     with open(os.path.join(HERE, ".claude", "skills", "text-report", "SKILL.md"),
