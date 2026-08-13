@@ -6,5 +6,11 @@
   },
   "homepage": "https://github.com/NesiciCoding/vocabkitchen-CLI",
   "repository": "https://github.com/NesiciCoding/vocabkitchen-CLI",
+  "commands": [
+    {
+      "name": "grammar-profile",
+      "description": "Profile the grammar of English text by CEFR level — which constructions it uses (tenses, aspect, passive, modals, relative clauses, conditionals, non-finite forms) and the CEFR-J band each maps to."
+    }
+  ],
   "keywords": ["cefr", "grammar", "cefr-j", "language-learning", "english", "spacy"]
 }

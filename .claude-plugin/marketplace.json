@@ -20,6 +20,11 @@
       "name": "text-report",
       "source": "./plugins/text-report",
       "description": "One command that runs both profilers and answers \"is this text right for my class?\" — vocabulary band + grammatical range + blended estimated level, with --target-level flags, a coverage figure, and a verdict. Exports pre-teaching handouts, fill-the-gap worksheets, and RubricMaker-importable flashcard decks (enriched with free-dictionary definitions). Requires Python 3; the grammar half needs spaCy and the en_core_web_sm model."
+    },
+    {
+      "name": "class-profile",
+      "source": "./plugins/class-profile",
+      "description": "Profile a whole folder of English texts against CEFR levels in one run — \"which of these suits B1?\" instead of \"is this one text right?\": batch input (directory or glob), a spreadsheet-ready summary (--format csv, one row per text: typical & reached vocabulary band, grammar range, % above target), rank & filter by level (--max-level B1), fits across several class levels side by side (--targets A2,B1,B2), a pooled CEFR distribution, vocabulary lists exported by CEFR band (--export-vocab), and per-text pre-teaching handouts / worksheets / RubricMaker decks (--export md|csv|flashcards). Requires Python 3; the grammar side needs spaCy and the en_core_web_sm model."
     }
   ]
 }

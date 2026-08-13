@@ -69,6 +69,78 @@ jobs:
           sys.exit(0 if ok else 1)
           EOF
 
+      - name: Skills stay flavour-consistent + plugin.json commands
+        # Every plugin ships ONE skill in two deliberately different flavours:
+        # a plugin-flavoured copy (the `cmd` command on PATH, bundled-path
+        # references) in plugins/<name>/skills/, and a repo-flavoured copy
+        # (checkout script, ../../../ links) in .claude/skills/. Both must
+        # exist and each must carry its own markers — an accidental copy of
+        # one over the other loses the destination's markers and fails here.
+        # plugin.json must also declare the command the skill states.
+        run: |
+          python - <<'EOF'
+          import json, os, sys
+
+          ok = True
+          for name in sorted(os.listdir("plugins")):
+              d = os.path.join("plugins", name)
+              if not os.path.isdir(d):
+                  continue
+
+              # The plugin's bin/ declares exactly one command.
+              bindir = os.path.join(d, "bin")
+              if not os.path.isdir(bindir):
+                  print(f"plugin {name}: missing bin/")
+                  ok = False
+                  continue
+              bins = [f for f in os.listdir(bindir)
+                      if os.path.isfile(os.path.join(bindir, f))]
+              if len(bins) != 1:
+                  print(f"plugin {name}: expected exactly one command in bin/, got {bins}")
+                  ok = False
+                  continue
+              cmd = bins[0]
+
+              # plugin.json must declare that command under commands[].
+              manifest = json.load(open(os.path.join(d, ".claude-plugin", "plugin.json")))
+              declared = [c["name"] for c in manifest.get("commands", [])]
+              if declared != [cmd]:
+                  print(f"plugin {name}: plugin.json commands {declared} != bin command {cmd}")
+                  ok = False
+
+              plugin_copy = os.path.join(d, "skills", name, "SKILL.md")
+              local_copy = os.path.join(".claude", "skills", name, "SKILL.md")
+              has_plugin, has_local = os.path.isfile(plugin_copy), os.path.isfile(local_copy)
+              if has_plugin != has_local:
+                  print(f"skill {name}: copies out of sync — plugin: {has_plugin}, "
+                        f"repo-local: {has_local}")
+                  ok = False
+              if has_plugin and has_local:
+                  # NOTE: keep the literal `$` and `{CLAUDE_PLUGIN_ROOT}` apart
+                  # in this script — GitHub evaluates dollar-brace-brace
+                  # expressions even inside run: blocks, so writing the two
+                  # adjacent here would make the workflow file invalid.
+                  plugin_md = open(plugin_copy, encoding="utf-8").read()
+                  local_md = open(local_copy, encoding="utf-8").read()
+                  marker = "${" + "CLAUDE_PLUGIN_ROOT}"
+                  if (f"`{cmd}`" not in plugin_md
+                          or marker not in plugin_md):
+                      print(f"skill {name}: plugin copy not plugin-flavoured "
+                            f"(wants `{cmd}` + {marker})")
+                      ok = False
+                  if "../../../" not in local_md:
+                      print(f"skill {name}: repo-local copy not repo-flavoured "
+                            "(wants ../../../ repo links)")
+                      ok = False
+                  if plugin_md == local_md:
+                      print(f"skill {name}: copies are identical — they are "
+                            "deliberately different flavours")
+                      ok = False
+
+          sys.exit(0 if ok else 1)
+          EOF
+
+
   test:
     name: Tests (Python ${{ matrix.python-version }})
     runs-on: ubuntu-latest
@@ -118,6 +190,203 @@ jobs:
       - name: text report tests
         run: python3 test_text_report.py
 
+      - name: class profile tests
+        run: python3 test_class_profile.py
+
+      # Golden check of the batch CLI itself over the checked-in sample
+      # folder (sample-readings/): asserts the CSV/JSON contract end to end —
+      # one row per text, ranked by level, aggregate = sum of the rows — so
+      # the folder path is exercised in CI, not just the unit suites.
+      - name: class profile CLI golden check (sample-readings)
+        run: |
+          python - <<'EOF'
+          import csv, io, json, os, shutil, subprocess, sys, tempfile
+
+          def run_cli(args):
+              p = subprocess.run([sys.executable, "class_profile.py"] + args,
+                                 capture_output=True, text=True)
+              return p.returncode, p.stdout, p.stderr
+
+          files = sorted(f for f in os.listdir("sample-readings")
+                         if not f.startswith(".")
+                         and os.path.isfile(os.path.join("sample-readings", f)))
+
+          # CSV summary: one row per text, the documented spreadsheet columns.
+          rc, out, err = run_cli(["--file", "sample-readings/", "--target-level", "B1",
+                                  "--no-grammar", "--format", "csv"])
+          assert rc == 0, err
+          rows = list(csv.reader(io.StringIO(out)))
+          assert rows[0] == ["file", "total_words", "vocab_typical", "vocab_reached",
+                             "grammar_typical", "grammar_reaches", "estimated_level",
+                             "above_target_pct", "fits"], rows[0]
+          assert len(rows) == 1 + len(files), len(rows)
+          assert all(r[-1] in ("yes", "no") for r in rows[1:]), rows
+          assert all(int(r[1]) >= 5 for r in rows[1:]), rows
+
+          # JSON: nothing skipped, aggregate = sum of the rows, ranked by level
+          # with the sample folder spanning the A1 → C2 gradient.
+          rc, out, err = run_cli(["--file", "sample-readings/", "--no-grammar"])
+          assert rc == 0, err
+          d = json.loads(out)
+          assert d["texts"] == len(files) and d["skipped"] == [], (d["texts"], d["skipped"])
+          assert sum(r["totalWordCount"] for r in d["rows"]) == d["aggregate"]["totalWordCount"]
+          levels = ["A1", "A2", "B1", "B2", "C1", "C2"]
+          ranks = [levels.index(r["estimatedLevel"]) if r["estimatedLevel"] in levels else 99
+                   for r in d["rows"]]
+          assert ranks == sorted(ranks), [r["estimatedLevel"] for r in d["rows"]]
+          assert ranks[0] == 0 and ranks[-1] == 5, ranks  # A1 ... C2 gradient
+
+          # Grammar-enabled run (spaCy is installed in this job): every row
+          # carries a real grammar typical/reaches range.
+          rc, out, err = run_cli(["--file", "sample-readings/"])
+          assert rc == 0, err
+          d = json.loads(out)
+          assert d["grammarError"] is None, d["grammarError"]
+          assert all(r["grammar"] is not None for r in d["rows"]), d["rows"]
+          assert all(r["grammar"]["typical"] in levels
+                     and r["grammar"]["reaches"] in levels
+                     for r in d["rows"]), [r["grammar"] for r in d["rows"]]
+
+          # Pre-teaching export: per-text decks + the combined class-wide deck
+          # (named after the source folder) and its level-keyed index, in the
+          # documented shapes. --no-enrich keeps it deterministic (no network).
+          outdir = tempfile.mkdtemp(prefix="classprof-golden-")
+          try:
+              rc, out, err = run_cli(["--file", "sample-readings/", "--target-level", "B1",
+                                      "--no-grammar", "--export", "flashcards",
+                                      "--no-enrich", "--output", outdir])
+              assert rc == 0, err
+              stems = [os.path.splitext(f)[0] for f in files]
+              per_text = {f"{s}-preteaching-B1-deck.csv" for s in stems}
+              combined = "sample-readings-preteaching-B1-deck.csv"
+              index_name = "sample-readings-preteaching-B1-index.md"
+              assert set(os.listdir(outdir)) == per_text | {combined, index_name}, os.listdir(outdir)
+              deck_rows = list(csv.reader(open(os.path.join(outdir, combined), encoding="utf-8")))
+              assert deck_rows[0] == ["word", "definition", "example", "phonetic", "partOfSpeech"], deck_rows[0]
+              assert len(deck_rows) > 1, deck_rows
+              deck_words = {r[0] for r in deck_rows[1:]}
+              assert len(deck_words) == len(deck_rows) - 1, "deck words are distinct"
+              assert all(r[1] and r[1] == r[2] for r in deck_rows[1:]), "in-context backs under --no-enrich"
+              index_md = open(os.path.join(outdir, index_name), encoding="utf-8").read()
+              assert "| Word | Level | Occurrences | Texts |" in index_md, index_md
+              idx_rows = [ln for ln in index_md.splitlines() if ln.startswith("| ")][1:]
+              assert idx_rows, index_md
+              idx_words = {}
+              for ln in idx_rows:
+                  cells = [c.strip() for c in ln.strip("|").split("|")]
+                  word, lvl, occ, texts = cells[0], cells[1], cells[2], cells[3]
+                  assert lvl in ("B2", "C1", "C2"), (word, lvl)  # strictly above B1
+                  assert occ.isdigit() and int(occ) >= 1, (word, occ)
+                  srcs = [t for t in texts.split(", ") if t]
+                  assert all(t in files for t in srcs), (word, srcs)  # only real sources
+                  idx_words[word] = lvl
+              assert idx_words.keys() == deck_words, (sorted(idx_words), sorted(deck_words))
+          finally:
+              shutil.rmtree(outdir, ignore_errors=True)
+
+          # Per-level combined decks: --targets A2,B1 writes one combined deck
+          # + level-keyed index per level, no per-text decks, with B1-above a
+          # subset of A2-above.
+          outdir = tempfile.mkdtemp(prefix="classprof-golden-targets-")
+          try:
+              rc, out, err = run_cli(["--file", "sample-readings/", "--targets", "A2,B1",
+                                      "--no-grammar", "--export", "flashcards",
+                                      "--no-enrich", "--output", outdir])
+              assert rc == 0, err
+              base = "sample-readings-preteaching"
+              assert set(os.listdir(outdir)) == {f"{base}-{lvl}-deck.csv"
+                                                 for lvl in ("A2", "B1")} \
+                                                 | {f"{base}-{lvl}-index.md"
+                                                    for lvl in ("A2", "B1")}, os.listdir(outdir)
+              def _deck_words(level):
+                  rows = list(csv.reader(open(os.path.join(outdir, f"{base}-{level}-deck.csv"),
+                                              encoding="utf-8")))
+                  assert rows[0] == ["word", "definition", "example", "phonetic", "partOfSpeech"], rows[0]
+                  return {r[0] for r in rows[1:]}
+              a2_words, b1_words = _deck_words("A2"), _deck_words("B1")
+              assert a2_words and b1_words, (len(a2_words), len(b1_words))
+              assert b1_words <= a2_words, (sorted(b1_words - a2_words))
+              def _index_words(level, above):
+                  md = open(os.path.join(outdir, f"{base}-{level}-index.md"),
+                            encoding="utf-8").read()
+                  assert f"# Vocabulary index — above {level}" in md, md
+                  assert "| Word | Level | Occurrences | Texts |" in md, md
+                  words = {}
+                  for ln in [l for l in md.splitlines() if l.startswith("| ")][1:]:
+                      cells = [c.strip() for c in ln.strip("|").split("|")]
+                      word, lvl, occ, texts = cells[0], cells[1], cells[2], cells[3]
+                      assert lvl in above, (word, lvl)
+                      assert occ.isdigit() and int(occ) >= 1, (word, occ)
+                      srcs = [t for t in texts.split(", ") if t]
+                      assert all(t in files for t in srcs), (word, srcs)
+                      words[word] = lvl
+                  return words
+              assert _index_words("A2", {"B1", "B2", "C1", "C2"}).keys() == a2_words
+              assert _index_words("B1", {"B2", "C1", "C2"}).keys() == b1_words
+          finally:
+              shutil.rmtree(outdir, ignore_errors=True)
+
+          # Markdown export: per-text handouts plus one set-level summary
+          # handout aggregating every text's verdict and the pooled distribution.
+          outdir = tempfile.mkdtemp(prefix="classprof-golden-md-")
+          try:
+              rc, out, err = run_cli(["--file", "sample-readings/", "--target-level", "B1",
+                                      "--no-grammar", "--export", "md", "--output", outdir])
+              assert rc == 0, err
+              stems = [os.path.splitext(f)[0] for f in files]
+              assert set(os.listdir(outdir)) == {f"{s}-preteaching-B1.md" for s in stems} \
+                                                 | {"sample-readings-summary-B1.md"}, os.listdir(outdir)
+              summary_md = open(os.path.join(outdir, "sample-readings-summary-B1.md"),
+                                encoding="utf-8").read()
+              assert f"# Set summary — Target B1 ({len(files)} texts)" in summary_md, summary_md
+              assert "Aggregate vocabulary:" in summary_md, summary_md
+              assert "| Text | Words |" in summary_md, summary_md
+              assert all(f in summary_md for f in files), files  # every text in the table
+              assert "pre-teach" in summary_md and "on level" in summary_md, summary_md
+          finally:
+              shutil.rmtree(outdir, ignore_errors=True)
+
+          # Vocabulary export by band: one CSV per CEFR band (vocab-<band>.csv,
+          # lowercase) with the documented word × occurrences × texts shape,
+          # cross-checked against the JSON aggregate's per-band distinct counts.
+          outdir = tempfile.mkdtemp(prefix="classprof-golden-vocab-")
+          try:
+              rc, out, err = run_cli(["--file", "sample-readings/", "--no-grammar",
+                                      "--export-vocab", outdir])
+              assert rc == 0, err
+              agg = json.loads(out)["aggregate"]  # this run's own pooled distribution
+              band_files = [f"vocab-{lvl.lower().replace(' ', '-')}.csv"
+                            for lvl in levels + ["Off List"]]
+              assert set(os.listdir(outdir)) == set(band_files), os.listdir(outdir)
+              all_words = set()
+              for fname in band_files:
+                  rows = list(csv.reader(open(os.path.join(outdir, fname),
+                                              encoding="utf-8")))
+                  assert rows[0] == ["word", "occurrences", "texts"], (fname, rows[0])
+                  assert len(rows) > 1, fname  # every band non-empty for the sample
+                  words = set()
+                  for r in rows[1:]:
+                      word, occ, texts = r[0], int(r[1]), int(r[2])
+                      assert word and occ >= 1 and 1 <= texts <= len(files) \
+                          and occ >= texts, (fname, r)
+                      assert word not in words, (fname, word)  # distinct within the band
+                      words.add(word)
+                  assert not (all_words & words), "bands overlap"
+                  all_words |= words
+              # The band exports are exactly the aggregate's per-level distinct
+              # word counts from this very run.
+              for lvl in levels + ["Off List"]:
+                  fname = f"vocab-{lvl.lower().replace(' ', '-')}.csv"
+                  rows = list(csv.reader(open(os.path.join(outdir, fname),
+                                              encoding="utf-8")))
+                  assert len(rows) - 1 == agg["levels"][lvl]["distinctWordCount"], \
+                      (lvl, len(rows) - 1)
+          finally:
+              shutil.rmtree(outdir, ignore_errors=True)
+
+          print(f"golden check OK: {len(files)} texts profiled, ranked A1 to C2, exports shaped")
+          EOF
+
       - name: wordlist build check
         run: python3 build_wordlists.py --check
 
@@ -128,7 +397,7 @@ jobs:
         run: |
           python - <<'EOF'
           import json, subprocess, sys, time
-          suites = ["test_vocab_profile.py", "test_grammar_profile.py", "test_text_report.py"]
+          suites = ["test_vocab_profile.py", "test_grammar_profile.py", "test_text_report.py", "test_class_profile.py"]
           out = {}
           for s in suites:
               t0 = time.monotonic()

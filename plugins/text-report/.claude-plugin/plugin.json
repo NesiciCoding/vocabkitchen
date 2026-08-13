@@ -6,5 +6,11 @@
   },
   "homepage": "https://github.com/NesiciCoding/vocabkitchen-CLI",
   "repository": "https://github.com/NesiciCoding/vocabkitchen-CLI",
+  "commands": [
+    {
+      "name": "text-report",
+      "description": "Run the unified VocabKitchen difficulty report — vocabulary band + grammar range + blended estimated level, a --target-level verdict with coverage figure, and pre-teaching handouts / worksheets / RubricMaker decks."
+    }
+  ],
   "keywords": ["cefr", "readability", "difficulty", "vocabulary", "grammar", "language-learning", "english", "flesch-kincaid"]
 }

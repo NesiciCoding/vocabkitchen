@@ -114,7 +114,15 @@ _LEVEL_INDEX = {lvl: i for i, lvl in enumerate(_CEFR_ORDER)}
 # ---------------------------------------------------------------------------
 
 def _maybe_reexec_in_venv():
-    """Re-launch under a spaCy-capable venv if the current interpreter lacks it."""
+    """Re-launch under a spaCy-capable venv if the current interpreter lacks it.
+
+    Skipped when ``--no-grammar`` or ``--pre-enrich`` is on the command line:
+    both are vocabulary-only modes, so there's nothing spaCy would add, and
+    re-exec would silently drop the invoking interpreter's extras (e.g. pypdf
+    for PDFs, which a spaCy-only venv usually doesn't have).
+    """
+    if "--no-grammar" in sys.argv or "--pre-enrich" in sys.argv:
+        return
     import importlib.util
     if importlib.util.find_spec("spacy") is not None:
         return  # this interpreter already has spaCy
