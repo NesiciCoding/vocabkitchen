@@ -922,6 +922,14 @@ try:
     check("pretty targets columns", "  A2  " in pretty2 and "  B1  " in pretty2)
     check("pretty targets fit marks", "✓" in pretty2 and "✗" in pretty2)
 
+    # --- integration: --help renders without argparse formatting errors --------
+    rc, out, err = run(["--help"])
+    # %%above escapes argparse's %-interpolation; the rendered help shows the
+    # literal label, not the interpolated args dict.
+    check("cli --help exits 0 and renders every flag",
+          rc == 0 and "--targets" in out and "fits/%above verdict" in out
+          and "option_strings" not in out)
+
     # --- integration: directory -> JSON ---------------------------------------
     rc, out, err = run(["--file", _tmp, "--target-level", "B1"])
     check("dir json rc==0", rc == 0)
