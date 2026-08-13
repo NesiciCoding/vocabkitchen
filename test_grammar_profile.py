@@ -311,10 +311,13 @@ check("taxonomy levels resolve exactly like the profiler",
                                      gp._CONSTRUCTIONS[e["id"]][3])
           for e in _tax))
 _ladder2 = ["A1", "A2", "B1", "B2", "C1", "C2"]
-_tax_levels = [_ladder2.index(e["level"]) if e["level"] in _ladder2 else 99
-               for e in _tax]
 check("taxonomy sorted by band ladder then name",
-      _tax_levels == sorted(_tax_levels))
+      _tax == sorted(
+          _tax,
+          key=lambda e: (
+              _ladder2.index(e["level"]) if e["level"] in _ladder2 else 99,
+              e["name"].lower(),
+          )))
 _doc = gp.taxonomy_document(_LEVELS)
 check("taxonomy document carries source attribution",
       _doc["constructions"] == _tax and "CEFR-J" in _doc["source"])
@@ -325,6 +328,10 @@ check("checked-in taxonomy.json matches taxonomy_document()",
 rc, out, err = run(["--taxonomy"])
 check("cli --taxonomy prints the shared document without spaCy",
       rc == 0 and json.loads(out) == _doc)
+rc2, out2, err2 = run(["--taxonomy", "--grammar-profile",
+                       os.path.join(HERE, "no-such-grammar-profile")])
+check("cli --taxonomy with a bad grammar profile fails cleanly",
+      rc2 == 1 and "Could not read grammar profile" in err2 and out2 == "")
 
 print(f"\n{passed} passed, {failed} failed, {skipped} skipped"
       + ("  (spaCy not installed — detector checks skipped)" if not HAVE_SPACY else ""))

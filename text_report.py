@@ -935,21 +935,25 @@ def _lookup_with_cache(word, url_key, cache, fetcher, offline,
                        offline_fallback=None):
     """One cache-aware lookup, shared by deck export and pre-enrichment.
 
-    Returns ``(result, source)`` where *source* is ``"cache"`` (answered from
-    *cache* without a request), ``"network"`` (fetched just now; the learned
-    entry — definition or definitive miss — is stored into *cache*),
-    ``"wordnet"`` (answered by *offline_fallback* — the bundled Open English
-    WordNet — when the API is unreachable or doesn't know the word), or
-    ``"offline"`` (network failure with no fallback answer; nothing cached).
-    When *offline* is already True, only cached and fallback answers are
+    Returns ``(result, source, network_failed)`` where *source* is
+    ``"cache"`` (answered from *cache* without a request), ``"network"``
+    (fetched just now; the learned entry — definition or definitive miss —
+    is stored into *cache*), ``"wordnet"`` (answered by *offline_fallback* —
+    the bundled Open English WordNet — when the API is unreachable or
+    doesn't know the word), or ``"offline"`` (network failure with no
+    fallback answer; nothing cached). *network_failed* is True exactly when
+    *fetcher* raised :class:`_DictNetworkError`, so callers can flip the
+    batch offline even when a WordNet fallback answered this word. When
+    *offline* is already True, only cached and fallback answers are
     returned. The learned entry (definition, definitive miss, or WordNet
     gloss) is always stored into *cache* so repeat runs answer from it.
     """
     lower = word.lower()
     bucket = cache.get(url_key)
     if bucket is not None and lower in bucket:
-        return bucket[lower], "cache"
+        return bucket[lower], "cache", False
     result = None
+    network_failed = False
     source = "offline" if offline else "network"
     if not offline:
         try:
@@ -957,6 +961,7 @@ def _lookup_with_cache(word, url_key, cache, fetcher, offline,
         except _DictNetworkError:
             result = None
             source = "offline"
+            network_failed = True
     if result is None or not result.get("definition"):
         if offline_fallback is not None:
             fb = offline_fallback(word)
@@ -965,7 +970,7 @@ def _lookup_with_cache(word, url_key, cache, fetcher, offline,
                 source = "wordnet"
     cache.setdefault(url_key, {})[lower] = (
         result if result and result.get("definition") else None)
-    return result, source
+    return result, source, network_failed
 
 
 def pre_enrich_words(words, base_url=None, lookup=None, cache_path=None,
@@ -1005,11 +1010,12 @@ def pre_enrich_words(words, base_url=None, lookup=None, cache_path=None,
         if lower in bucket:
             stats["skipped"] += 1
             continue
-        result, source = _lookup_with_cache(lower, url_key, cache, fetcher,
-                                            offline, offline_fallback)
-        if source == "offline":
+        result, source, network_failed = _lookup_with_cache(
+            lower, url_key, cache, fetcher, offline, offline_fallback)
+        if network_failed:
             stats["offline"] = True
             offline = True
+        if source == "offline":
             continue
         if source in ("network", "wordnet"):
             stats["looked_up"] += 1
@@ -1075,9 +1081,11 @@ def export_flashcards(payload, enrich=True, base_url=None, level_index=None,
         context = (d.get("context") or "").replace("\n", " ")
         back, example, phonetic, pos = context, context, "", ""
         if enrich:
-            result, source = _lookup_with_cache(
+            result, source, network_failed = _lookup_with_cache(
                 word, url_key, cache, fetcher, stats["offline"],
                 offline_fallback)
+            if network_failed:
+                stats["offline"] = True
             if source == "offline":
                 stats["offline"] = True
             elif source == "cache":
@@ -1513,7 +1521,12 @@ def main(argv=None):
         import dictionary
         if args.file and os.path.splitext(args.file)[1].lower() \
                 in (".csv", ".json"):
-            words = dictionary.read_word_list(args.file)
+            try:
+                words = dictionary.read_word_list(args.file)
+            except (OSError, ValueError) as ex:
+                sys.stderr.write(
+                    f"Could not read vocabulary list '{args.file}': {ex}\n")
+                return 1
         else:
             tokens = [t.lower() for t in vp.tokenize(text)
                       if t not in vp._PLACEHOLDERS]

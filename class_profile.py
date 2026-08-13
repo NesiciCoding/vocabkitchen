@@ -2026,7 +2026,12 @@ def main(argv=None):
                     and os.path.splitext(args.file)[1].lower()
                     in (".csv", ".json")):
                 import dictionary
-                words = dictionary.read_word_list(args.file)
+                try:
+                    words = dictionary.read_word_list(args.file)
+                except (OSError, ValueError) as ex:
+                    sys.stderr.write(
+                        f"Could not read vocabulary list '{args.file}': {ex}\n")
+                    return 1
                 cpath = cache_path or tr.default_dictionary_cache_path()
                 stats = tr.pre_enrich_words(
                     words, base_url=args.dictionary_url, cache_path=cpath,

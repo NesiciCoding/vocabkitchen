@@ -90,6 +90,11 @@
             "object",
             "null"
           ],
+          "required": [
+            "name",
+            "kind",
+            "levelFallback"
+          ],
           "properties": {
             "name": {
               "type": "string"
@@ -104,6 +109,15 @@
               "type": [
                 "string",
                 "null"
+              ],
+              "enum": [
+                null,
+                "A1",
+                "A2",
+                "B1",
+                "B2",
+                "C1",
+                "C2"
               ]
             }
           }

@@ -69,7 +69,12 @@ def download(input_url=_DEFAULT_URL, dest_dir=None):
         print(f"Downloading {input_url} …")
         urllib.request.urlretrieve(input_url, zip_path)
     with zipfile.ZipFile(zip_path) as z:
-        z.extractall(dest_dir)
+        root = os.path.realpath(dest_dir)
+        for member in z.infolist():
+            target = os.path.realpath(os.path.join(root, member.filename))
+            if os.path.commonpath([root, target]) != root:
+                raise SystemExit(f"Unsafe ZIP member: {member.filename!r}")
+        z.extractall(root)
     return dest_dir
 
 
@@ -198,7 +203,13 @@ def main(argv=None):
                          "(entries-*.json + synset files); defaults to "
                          "downloading the canonical zip")
     ap.add_argument("--output", default=_DEFAULT_OUT)
-    ap.add_argument("--max-senses", type=int, default=3,
+    def _positive_int(value):
+        n = int(value)
+        if n < 1:
+            raise argparse.ArgumentTypeError("must be at least 1")
+        return n
+
+    ap.add_argument("--max-senses", type=_positive_int, default=3,
                     help="keep at most this many distinct glosses per word "
                          "(default: 3)")
     ap.add_argument("--check", action="store_true",
@@ -219,7 +230,9 @@ def main(argv=None):
     print(f"Building from {data_dir} …")
     words = build(data_dir, max_senses=args.max_senses)
     doc = document(words, args.max_senses)
-    os.makedirs(os.path.dirname(args.output), exist_ok=True)
+    output_dir = os.path.dirname(args.output)
+    if output_dir:
+        os.makedirs(output_dir, exist_ok=True)
     with open(args.output, "w", encoding="utf-8") as f:
         json.dump(doc, f, ensure_ascii=False, separators=(",", ":"))
     size_mb = os.path.getsize(args.output) / 1024 / 1024

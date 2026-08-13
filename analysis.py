@@ -144,10 +144,12 @@ def payload_schema():
                                                   "minimum": 0,
                                                   "maximum": 100},
                                "profile": {"type": ["object", "null"],
+                                            "required": ["name", "kind",
+                                                         "levelFallback"],
                                             "properties": {
                                                 "name": {"type": "string"},
                                                 "kind": {"enum": ["directory", "list"]},
-                                                "levelFallback": {"type": ["string", "null"]},
+                                                "levelFallback": band,
                                             }},
                                "results": {"type": "object"},
                            }},

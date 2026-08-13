@@ -1209,7 +1209,11 @@ def main(argv=None):
     base_dir = args.grammar_profile or os.path.join(script_dir, "GrammarProfile")
 
     if args.taxonomy:
-        cefrj_levels = load_cefrj_levels(base_dir)
+        try:
+            cefrj_levels = load_cefrj_levels(base_dir)
+        except EngineError as ex:
+            sys.stderr.write(str(ex) + "\n")
+            return 1
         print(json.dumps(taxonomy_document(cefrj_levels), indent=2,
                          ensure_ascii=False))
         return 0

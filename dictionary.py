@@ -126,8 +126,7 @@ def lookup_word(word, base_url=None, cache_path=None, level_index=None,
     to WordNet before that.
     """
     lower = word.lower()
-    level = level_for_word(lower, level_index) \
-        if level_index is not None else None
+    level = level_for_word(lower, level_index)
     cache = tr.load_dictionary_cache(cache_path) if cache_path else {}
     url_key = base_url or tr._DICT_API
     bucket = cache.get(url_key) or {}

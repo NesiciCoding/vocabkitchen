@@ -1344,6 +1344,24 @@ try:
         check("pre-enrich: offline stops the pass",
               _ps3["offline"] and _ps3["looked_up"] == 0 and _ps3["missed"] == 0)
 
+        _flaky_calls = []
+
+        def _flaky(word):
+            _flaky_calls.append(word)
+            raise tr._DictNetworkError("offline")
+
+        def _wn(word):
+            return {"definition": "gloss", "phonetic": None,
+                    "partOfSpeech": None}
+
+        _ps6 = tr.pre_enrich_words(
+            ["circumstances", "implications", "known"], lookup=_flaky,
+            offline_fallback=_wn,
+            cache_path=os.path.join(_ptmp, "flaky.json"), delay=0)
+        check("pre-enrich: WordNet answers still stop retrying the API",
+              _ps6["offline"] and _ps6["fallback"] == 3
+              and len(_flaky_calls) == 1)
+
         def _fresh(w):
             return {"definition": "d", "phonetic": None, "partOfSpeech": None}
 
@@ -1481,6 +1499,12 @@ try:
                                     timeout=2)
         check("lookup_word: unknown word is a silent miss",
               r4["definition"] is None and r4["source"] == "offline")
+        # The public entry point resolves the bundled level even without an
+        # explicitly supplied index.
+        r5 = dictionary.lookup_word("circumstances", base_url=_dict_url,
+                                    level_index=None)
+        check("lookup_word: bundled index answers level when index omitted",
+              r5["level"] == "B2")
 
         # --- offline deck export uses the WordNet gloss as the back ---------
         _off_deck = os.path.join(_tmpd, "offline-deck.csv")

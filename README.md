@@ -169,7 +169,7 @@ profile, the Octanove C1/C2 export, …) can swap the bundled CEFR lists for it
 in the tool's existing **one-word-per-line** format:
 
 ```bash
-python3 vocab_profile.py --type cefr --profile oxford3000.txt --text essay.txt
+python3 vocab_profile.py --type cefr --profile oxford3000.txt --file essay.txt
 python3 text_report.py --file essay.txt --target-level B1 --profile octanove/ --profile-level C2
 python3 class_profile.py --file essays/ --profile oxford3000.txt --no-grammar
 ```
@@ -276,12 +276,7 @@ echo "The results were analysed by the team." | python3 grammar_profile.py
 | `--text`            | inline text to analyse                                                   |
 | `--file`            | path to a `.txt`, `.md`, `.docx`, or `.pdf` file (PDF needs `pypdf`)     |
 | `--grammar-profile` | override the CEFR-J data directory (defaults to the bundled profile)     |
-| `--taxonomy`        | print the full construction registry as JSON — the **shared CEFR-J
-  grammar taxonomy** (every construction, its category, its level, its
-  CEFR-J code, levelled exactly like the profiler) — and exit (no spaCy
-  needed). The same document is checked in at
-  `GrammarProfile/taxonomy.json`, so both the CLI and the app cite one
-  taxonomy |
+| `--taxonomy`        | print the full construction registry as JSON — the **shared CEFR-J grammar taxonomy** (every construction, its category, its level, its CEFR-J code, levelled exactly like the profiler) — and exit (no spaCy needed).<br>The same document is checked in at `GrammarProfile/taxonomy.json`, so both the CLI and the app cite one taxonomy |
 | (stdin)             | if neither `--text` nor `--file` is given, text is read from stdin       |
 
 The same `--format auto` rule applies: a colour-coded terminal view when stdout is
