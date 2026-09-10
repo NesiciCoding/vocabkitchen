@@ -21,8 +21,20 @@
 
 set -euo pipefail
 
-# --- locate ourselves (works from any directory) ---------------------------
-HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# --- locate ourselves, following symlinks ----------------------------------
+# When this script is bundled into a plugin it's a symlink back to the repo
+# copy; resolve it so .venv is created next to the *real* script — the same
+# place the profilers look for it (they resolve their own realpath too).
+SOURCE="${BASH_SOURCE[0]}"
+while [ -h "$SOURCE" ]; do
+    dir="$(cd -P "$(dirname "$SOURCE")" && pwd)"
+    SOURCE="$(readlink "$SOURCE")"
+    case "$SOURCE" in
+        /*) ;;
+        *) SOURCE="$dir/$SOURCE" ;;
+    esac
+done
+HERE="$(cd -P "$(dirname "$SOURCE")" && pwd)"
 cd "$HERE"
 
 VENV="$HERE/.venv"
@@ -130,10 +142,11 @@ else
     die "The grammar engine did not load after install. Try deleting .venv and re-running."
 fi
 
-cat <<EOF
-
-$(printf '\033[1;32mAll set.\033[0m') VocabKitchen is ready to use.
-
+echo
+printf '\033[1;32mAll set.\033[0m VocabKitchen is ready to use.\n\n'
+if [ -f "$HERE/tui.py" ]; then
+    # Running from the repo checkout: the TUI and samples are alongside us.
+    cat <<EOF
   Launch the interactive menu (TUI):
       ./vocabkitchen
 
@@ -141,5 +154,13 @@ $(printf '\033[1;32mAll set.\033[0m') VocabKitchen is ready to use.
       python3 vocab_profile.py --file sample-readings/academic-essay.txt
       python3 text_report.py --file sample-readings/news-report.txt --target-level B1
 
-Nothing needs activating — the tools find .venv on their own.
 EOF
+else
+    # Bundled inside a plugin: no TUI or samples here, just the profiler.
+    cat <<EOF
+  The profiler command is ready to use — spaCy and the English model are
+  installed in .venv, which the tool finds automatically.
+
+EOF
+fi
+echo "Nothing needs activating — the tools find .venv on their own."
