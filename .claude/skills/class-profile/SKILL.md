@@ -114,7 +114,9 @@ The vocabulary side is dependency-free Python 3 and reuses `vocab_profile`'s
 tokenizer, word lists and percentage rounding verbatim. The grammar side
 needs spaCy exactly like `grammar_profile` and degrades gracefully when it's
 missing — the estimated level then falls back to the vocabulary 90%-coverage
-band. Like the other tools, a sibling `.venv` is auto-detected.
+band. Like the other tools, a sibling `.venv` is auto-detected; the one-command
+`./install.sh` at the repo root creates it (spaCy + the English model + pypdf) —
+offer to run it when the grammar column comes back blank.
 
 ## How to run
 
@@ -268,7 +270,8 @@ JSON on stdout. Shape:
 ## Notes
 
 - If a run fails, verify Python with `python3 --version`; if the grammar
-  column is blank, install spaCy (or activate the repo's `.venv`):
+  column is blank, run the one-command installer `./install.sh` (creates the
+  repo's `.venv` with spaCy + the English model), or set it up by hand with
   `pip install spacy && python3 -m spacy download en_core_web_sm`.
 - The class profile reuses the three sibling tools verbatim — word-list
   provenance is in [`WORDLISTS.md`](../../../WORDLISTS.md), the CEFR-J

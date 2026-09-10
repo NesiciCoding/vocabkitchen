@@ -23,10 +23,20 @@ you then interpret.
 ## Requirements
 
 Unlike the vocabulary profiler, this tool **requires spaCy** and the small
-English model, because reliable grammar detection needs real parsing. The tool
-**auto-detects a `.venv` at the repo root** and re-launches under it, so a virtual
-environment is the recommended install and works even on "externally-managed"
-systems (Arch, Debian, …) where `pip install` into the system Python is blocked:
+English model, because reliable grammar detection needs real parsing. The
+simplest setup is the one-command installer at the repo root — offer to run it
+when the tool reports the engine is missing:
+
+```bash
+./install.sh
+```
+
+It creates a `.venv` at the repo root and installs spaCy, the English model, and
+pypdf, verifying each step. The tool **auto-detects that `.venv`** and re-launches
+under it, so nothing needs activating. This works even on "externally-managed"
+systems (Arch, Debian, …) where `pip install` into the system Python is blocked.
+
+If you'd rather set it up by hand, the installer's core is just:
 
 ```bash
 python3 -m venv .venv
@@ -38,7 +48,7 @@ python3 -m venv .venv
 download en_core_web_sm` also works. To use an environment elsewhere, set
 `GRAMMAR_PROFILE_PYTHON=/path/to/python`.) If spaCy or the model can't be found,
 the script exits with install guidance on stderr — surface it to the user and
-offer to run the venv setup rather than guessing.
+offer to run `./install.sh` rather than guessing.
 
 ## How to run
 
