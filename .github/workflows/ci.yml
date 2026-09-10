@@ -39,6 +39,42 @@ jobs:
       - name: ruff check
         run: python -m ruff check .
 
+      - name: Packaging entry points resolve
+        # pyproject.toml ships console commands (vocabkitchen, vocab-profile, …)
+        # bound to a module's main(). This is the cheap invariant that keeps the
+        # manifest honest without a full install: every [project.scripts] target
+        # must parse, its module import, and its function be callable — so a
+        # renamed module or a removed main() fails here, not on a user's `pipx
+        # install`. Also asserts every py-module listed actually exists.
+        run: |
+          python - <<'EOF'
+          import importlib, tomllib
+
+          with open("pyproject.toml", "rb") as fh:
+              cfg = tomllib.load(fh)
+
+          scripts = cfg["project"]["scripts"]
+          assert scripts, "no [project.scripts] entry points declared"
+          for name, target in scripts.items():
+              module, _, func = target.partition(":")
+              assert func, f"{name}: entry point must be 'module:function', got {target!r}"
+              mod = importlib.import_module(module)
+              fn = getattr(mod, func, None)
+              assert callable(fn), f"{name}: {target} is not callable"
+
+          for module in cfg["tool"]["setuptools"]["py-modules"]:
+              importlib.import_module(module)
+
+          print(f"packaging: {len(scripts)} entry points resolve; "
+                f"{len(cfg['tool']['setuptools']['py-modules'])} modules import")
+          EOF
+
+      - name: Install scripts parse
+        # The one-command installer is user-facing and untested by the suites;
+        # a syntax check keeps a broken edit from shipping. (install.ps1 is
+        # PowerShell — not checkable with bash here — and stays best-effort.)
+        run: bash -n install.sh
+
       - name: Analysis payload schema stays in sync
         # The report contract: the checked-in analysis.schema.json must be
         # byte-equal to analysis.payload_schema() (the test suites mirror
@@ -293,6 +329,12 @@ jobs:
 
       - name: class profile tests
         run: python3 test_class_profile.py
+
+      - name: TUI tests
+        # Guards tui.py's argv-building and engine resolution, and asserts every
+        # flag the interactive menu can emit is still accepted by the target
+        # CLI's argparse (the front door stays in step with the tools).
+        run: python3 test_tui.py
 
       # Golden check of the batch CLI itself over the checked-in sample
       # folder (sample-readings/): asserts the CSV/JSON contract end to end —

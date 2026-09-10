@@ -92,6 +92,34 @@ The TUI itself is **pure Python standard library** — nothing to install for th
 menu — and if your terminal can't run the full-screen view it automatically
 falls back to a simple numbered-menu prompt that works anywhere.
 
+### 3. Optional: install the tools as commands
+
+Prefer typing `vocabkitchen` from anywhere instead of `./vocabkitchen` from the
+checkout? An **editable install** puts the menu and each profiler on your `PATH`
+as its own command:
+
+```bash
+pipx install --editable .     # or:  pip install -e .
+```
+
+This adds five commands — `vocabkitchen` (the menu), `vocab-profile`,
+`grammar-profile`, `text-report`, and `class-profile` — that map onto the same
+scripts, so `text-report --file essay.txt --target-level B1` works from any
+directory. The install is **editable** on purpose: the tools read their word
+lists and sample readings from beside the scripts, so the commands keep pointing
+at this checkout (a `git pull` updates them, no reinstall needed).
+
+Grammar and PDF support are opt-in extras that mirror what `install.sh` sets up:
+
+```bash
+pip install -e '.[grammar]'   # adds spaCy (then: python -m spacy download en_core_web_sm)
+pip install -e '.[pdf]'       # adds pypdf for PDF input
+```
+
+`install.sh` is still the simplest route for the grammar engine, because it also
+downloads the English model in the same step. The command install is just a
+convenience on top — the dependency-free `vocab-profile` needs neither.
+
 ## What this fork adds
 
 - **`vocab_profile.py`** — a single, dependency-free **Python 3** tool that

@@ -1,0 +1,75 @@
+# Packaging for the VocabKitchen profilers.
+#
+# The tools are single-file, top-level modules that resolve their data (word
+# lists, the grammar profile, sample readings) relative to their own location
+# on disk. That makes an EDITABLE install the intended packaging mode:
+#
+#     pipx install --editable .        # or:  pip install -e .
+#
+# An editable install leaves the modules in this checkout, so `HERE`/`__file__`
+# still point at the WordLists/, GrammarProfile/ and sample-readings/ folders
+# beside them, and every tool keeps working. It adds the console commands below
+# to PATH — `vocabkitchen` opens the interactive menu, and each profiler gets
+# its own command — without you having to activate a venv or remember the
+# `python3 <script>.py` invocation.
+#
+# `install.sh` remains the one-command path for the grammar engine because it
+# also downloads the spaCy English model (`spacy download en_core_web_sm`),
+# which is not a normal PyPI dependency. Install the engine either way, then use
+# whichever entry point you prefer.
+
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "vocabkitchen"
+version = "0.1.0"
+description = "CEFR vocabulary and grammar profilers for English text — from the command line."
+readme = "README.md"
+requires-python = ">=3.9"
+keywords = ["cefr", "vocabulary", "grammar", "readability", "esl", "elt", "language-teaching"]
+# The vocabulary profiler is dependency-free by design; the grammar side needs
+# spaCy, and PDF input needs pypdf. Both are opt-in extras so a plain install
+# stays lightweight.
+dependencies = []
+
+[project.optional-dependencies]
+# Grammar profiler / text report / class profile need spaCy. The English model
+# (en_core_web_sm) is fetched separately with `python -m spacy download
+# en_core_web_sm` — the same step install.sh runs — because it is not on PyPI
+# as an ordinary dependency.
+grammar = ["spacy"]
+# PDF input (extract text from a .pdf).
+pdf = ["pypdf"]
+# Linter used by CI, pinned to match .github/workflows/ci.yml.
+dev = ["ruff==0.16.2"]
+
+[project.urls]
+Homepage = "https://github.com/NesiciCoding/vocabkitchen-CLI"
+Repository = "https://github.com/NesiciCoding/vocabkitchen-CLI"
+
+# Console commands. Names mirror the plugin bin/ commands (vocab-profile,
+# grammar-profile, text-report, class-profile) so the packaged CLI and the
+# Claude Code plugins present the same command surface. Each target is the
+# `main()` already defined in that module.
+[project.scripts]
+vocabkitchen = "tui:main"
+vocab-profile = "vocab_profile:main"
+grammar-profile = "grammar_profile:main"
+text-report = "text_report:main"
+class-profile = "class_profile:main"
+
+# Explicit module list: these are the importable single-file tools. Listing
+# them stops setuptools' flat-layout auto-discovery from erroring on the many
+# top-level modules and data folders in the repo root.
+[tool.setuptools]
+py-modules = [
+    "tui",
+    "vocab_profile",
+    "grammar_profile",
+    "text_report",
+    "class_profile",
+    "analysis",
+    "build_wordlists",
+]
