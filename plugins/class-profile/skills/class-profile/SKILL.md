@@ -119,19 +119,26 @@ band. Like the other tools, a sibling `.venv` is auto-detected.
 ## Requirements
 
 Same as the text-report plugin: **Python 3** for everything, plus **spaCy**
-and `en_core_web_sm` for the grammar half. The plugin bundles the scripts and
-data (not a Python runtime or spaCy). If the grammar column is blank in a
-run, surface the install guidance to the user and offer to set up the venv:
+and `en_core_web_sm` for the grammar half. The plugin bundles the scripts,
+data, and a one-command installer (not a Python runtime or spaCy). If the
+grammar column is blank in a run, offer to run the bundled installer:
 
 ```bash
+bash "${CLAUDE_PLUGIN_ROOT}/install.sh"
+```
+
+It creates a `.venv` next to the bundled script with spaCy, the English model,
+and pypdf. Or set it up by hand:
+
+```bash
+cd "${CLAUDE_PLUGIN_ROOT}"   # so .venv lands where the tool looks for it
 python3 -m venv .venv
-.venv/bin/python -m pip install spacy
+.venv/bin/python -m pip install spacy pypdf
 .venv/bin/python -m spacy download en_core_web_sm
 ```
 
-The tool auto-detects a `.venv` next to the bundled script and re-launches
-under it, so the venv setup above makes the grammar half work without the
-user activating anything.
+The tool auto-detects that `.venv` and re-launches under it, so either setup
+makes the grammar half work without the user activating anything.
 
 ## How to run
 

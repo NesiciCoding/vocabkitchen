@@ -106,7 +106,9 @@ half needs spaCy like the grammar-profiler skill; **when spaCy is missing the
 report still runs** — the grammar section is skipped with a note and the
 verdict is vocabulary-based. Like grammar_profile.py, a sibling `.venv` is
 auto-detected, so the tool "just works" when spaCy lives in a virtual
-environment.
+environment. To set that up in one step, offer to run the repo-root installer —
+`./install.sh` — which creates the `.venv` and installs spaCy, the English
+model, and pypdf.
 
 ## How to run
 
@@ -250,8 +252,9 @@ JSON on stdout. Shape:
 ## Notes
 
 - If a run fails, verify Python with `python3 --version`; if the grammar
-  section is skipped, install spaCy (or activate the repo's `.venv`):
-  `pip install spacy && python3 -m spacy download en_core_web_sm`.
+  section is skipped, run the one-command installer `./install.sh` (creates the
+  repo's `.venv` with spaCy + the English model + pypdf), or set it up by hand
+  with `python3 -m pip install spacy pypdf && python3 -m spacy download en_core_web_sm`.
 - The unified report reuses the two profilers verbatim — word-list provenance
   is in [`WORDLISTS.md`](../../../WORDLISTS.md) and the CEFR-J grammar data in
   [`GRAMMARPROFILE.md`](../../../GRAMMARPROFILE.md).

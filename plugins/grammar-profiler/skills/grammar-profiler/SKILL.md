@@ -23,24 +23,36 @@ you then interpret.
 ## Requirements
 
 Unlike the vocabulary profiler, this tool **requires spaCy** and the small
-English model, because reliable grammar detection needs real parsing. The tool
-**auto-detects a `.venv` next to the bundled script** and re-launches under it, so
-a virtual environment is the recommended install and works even on
-"externally-managed" systems (Arch, Debian, …) where `pip install` into the
-system Python is blocked:
+English model, because reliable grammar detection needs real parsing. The
+plugin bundles a one-command installer — when the command reports the engine is
+missing, offer to run it:
 
 ```bash
+bash "${CLAUDE_PLUGIN_ROOT}/install.sh"
+```
+
+It creates a `.venv` next to the bundled script and installs spaCy, the English
+model, and pypdf, verifying each step. The tool **auto-detects that `.venv`** and
+re-launches under it, so nothing needs activating. This works even on
+"externally-managed" systems (Arch, Debian, …) where `pip install` into the
+system Python is blocked.
+
+If you'd rather set it up by hand, the installer's core is just:
+
+```bash
+cd "${CLAUDE_PLUGIN_ROOT}"   # so .venv lands where the tool looks for it
 python3 -m venv .venv
-.venv/bin/python -m pip install spacy
+.venv/bin/python -m pip install spacy pypdf
 .venv/bin/python -m spacy download en_core_web_sm
 ```
 
-(On a system with a writable Python, plain `pip install spacy && python3 -m spacy
+(`pypdf` is only needed for PDF input; drop it otherwise. On a system with a
+writable Python, plain `python3 -m pip install spacy pypdf && python3 -m spacy
 download en_core_web_sm` also works. To use an environment elsewhere, set
 `GRAMMAR_PROFILE_PYTHON=/path/to/python`.) If spaCy or the model can't be found,
 the command exits with install guidance on stderr — surface it to the user and
-offer to run the venv setup rather than guessing. The plugin bundles the script
-and CEFR-J data, not a Python runtime or spaCy.
+offer to run the installer rather than guessing. The plugin bundles the script,
+CEFR-J data, and the installer, not a Python runtime or spaCy.
 
 ## How to run
 

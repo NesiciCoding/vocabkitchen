@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+#
+# VocabKitchen launcher — opens the interactive TUI.
+#
+# Prefers the project's .venv (so the grammar tools work with no extra steps)
+# and falls back to the system Python 3 for the dependency-free vocabulary
+# profiler. Any arguments are passed straight through to tui.py.
+
+set -euo pipefail
+
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+PY=""
+if [ -n "${GRAMMAR_PROFILE_PYTHON:-}" ] && [ -x "${GRAMMAR_PROFILE_PYTHON}" ]; then
+    PY="$GRAMMAR_PROFILE_PYTHON"
+elif [ -x "$HERE/.venv/bin/python" ]; then
+    PY="$HERE/.venv/bin/python"
+elif [ -x "$HERE/venv/bin/python" ]; then
+    PY="$HERE/venv/bin/python"
+elif command -v python3 >/dev/null 2>&1; then
+    PY="python3"
+elif command -v python >/dev/null 2>&1; then
+    PY="python"
+else
+    echo "Python 3 was not found. Install it, then run ./install.sh" >&2
+    exit 1
+fi
+
+exec "$PY" "$HERE/tui.py" "$@"

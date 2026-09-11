@@ -28,6 +28,72 @@ The vocabulary profiler scores against three word lists:
 - **AWL** — Coxhead's Academic Word List (is the word academic vocabulary or not)
 - **NAWL** — the New Academic Word List
 
+## Interactive menu (TUI) & one-click install
+
+New to the command line? You don't have to memorise any flags. VocabKitchen
+ships an **interactive terminal menu** that drives all four tools for you, and a
+one-command installer that sets everything up.
+
+### 1. Install (once)
+
+```bash
+./install.sh          # macOS / Linux
+```
+
+<details>
+<summary>Windows (PowerShell)</summary>
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\install.ps1
+```
+</details>
+
+That's the whole setup. The installer creates a self-contained `.venv` next to
+the project and installs everything the grammar tools need — **spaCy**, the
+**English model**, and **pypdf** (for PDF input) — verifying each step and
+printing a plain-language message if anything needs attention. It's safe to
+re-run, and it never touches your system Python (so there's no
+`externally-managed-environment` / PEP 668 trouble on Arch and friends). The
+tools auto-detect this `.venv`, so **nothing needs activating** afterwards.
+
+> Just want the dependency-free vocabulary profiler? You can skip the installer
+> entirely — `vocab_profile.py` runs on stock Python 3. The installer is only
+> needed for the grammar-aware tools (grammar profiler, text report, class
+> profile).
+
+### 2. Run the menu
+
+```bash
+./vocabkitchen        # macOS / Linux   (or:  python3 tui.py)
+```
+
+<details>
+<summary>Windows</summary>
+
+```powershell
+.\vocabkitchen.cmd     # PowerShell or Command Prompt
+```
+</details>
+
+You get a full-screen menu:
+
+- pick a tool (vocabulary, grammar, text report, or class profile);
+- fill in a short form — **↑/↓** to move, **Enter** to edit a value or **←/→**
+  to cycle a choice (input file, target level, output format, exports, …);
+- the menu shows the exact command it will run, so you learn the flags as you go;
+- choose **▶ Run** (or press **r**) and the tool takes over the screen with its
+  full colour output, then you're back at the menu.
+
+A **Setup & diagnostics** entry checks that spaCy and the model are present, and
+can launch the installer for you if they aren't — so you never have to leave the
+menu to troubleshoot.
+
+The TUI itself is **pure Python standard library** — nothing to install for the
+menu — and if your terminal can't run the full-screen view it automatically
+falls back to a simple numbered-menu prompt that works anywhere. (On Windows the
+full-screen view needs the `windows-curses` package, which `install.ps1`
+installs for you; without it the numbered-menu fallback is used instead.)
+
 ## What this fork adds
 
 - **`vocab_profile.py`** — a single, dependency-free **Python 3** tool that
