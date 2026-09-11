@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# VocabKitchen launcher — opens the interactive TUI.
+# EFL-Tools launcher — opens the interactive TUI.
 #
 # Prefers the project's .venv (so the grammar tools work with no extra steps)
 # and falls back to the system Python 3 for the dependency-free vocabulary

@@ -1,4 +1,4 @@
-"""VocabKitchen analysis engine — the shared profiling core and the report contract.
+"""EFL-Tools analysis engine — the shared profiling core and the report contract.
 
 The Phase 5 milestone "one leveling engine, two front ends": both CLIs
 (``text_report.py`` and ``class_profile.py``) import this engine, so a CEFR
@@ -94,6 +94,59 @@ import re
 import vocab_profile as vp
 import grammar_profile as gp
 
+_ANALYSIS_DIR = os.path.dirname(os.path.abspath(__file__))
+
+
+def data_dir(name, override=None, near=()):
+    """Resolve a bundled data directory (``"WordLists"`` / ``"GrammarProfile"``).
+
+    The single seam through which the shared engine — and the CLIs that import
+    it — find their data, so a CEFR level means the same thing across every
+    install mode. Lookup order:
+
+    1. an explicit ``override`` (the CLIs' ``--wordlists`` / ``--grammar-profile``);
+    2. ``name`` beside any caller-supplied location in ``near`` (a normal
+       checkout, an editable install, or a plugin bundle where the data is
+       symlinked next to the script), then beside this module;
+    3. packaged resources — where a future wheel bundles the data under
+       ``efl_tools/data`` (see :func:`_packaged_data`); dormant until the
+       packaging phase relocates the data there.
+
+    Falls back to the first candidate path even when it is absent, so a broken
+    install still raises the same friendly "word lists not found" error
+    downstream instead of a surprising one from here.
+    """
+    if override:
+        return override
+    candidates = [os.path.join(d, name) for d in (*near, _ANALYSIS_DIR)]
+    for path in candidates:
+        if os.path.isdir(path):
+            return path
+    packaged = _packaged_data(name)
+    if packaged:
+        return packaged
+    return candidates[0]
+
+
+def _packaged_data(name):
+    """A wheel's bundled data dir (``efl_tools/data/<name>``), or None.
+
+    Dormant today: the data still lives beside the scripts, so this returns
+    None and :func:`data_dir` uses the sibling copy. The packaging phase adds
+    the ``efl_tools`` package with a ``data/`` payload, at which point this
+    branch resolves for a ``pip install``ed wheel with no checkout on disk.
+    """
+    try:
+        from importlib import resources
+
+        root = resources.files("efl_tools") / "data" / name
+        if root.is_dir():
+            return str(root)
+    except (ModuleNotFoundError, AttributeError, TypeError, OSError, ValueError):
+        pass
+    return None
+
+
 # The payload contract version. Bump when the payload shape changes
 # incompatibly; RubricMaker and any other consumer should key off this.
 SCHEMA_VERSION = "1.3"
@@ -116,8 +169,8 @@ def payload_schema():
             "enum": [None] + _CEFR_ORDER}
     return {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "$id": "https://vocabkitchen.dev/schemas/analysis.schema.json",
-        "title": "VocabKitchen analysis report payload",
+        "$id": "https://efl-tools.dev/schemas/analysis.schema.json",
+        "title": "EFL-Tools analysis report payload",
         "description": "The CEFR profile of one text, as produced by "
                        "text_report.py and class_profile.py per-text exports.",
         "version": SCHEMA_VERSION,
@@ -352,8 +405,7 @@ def load_synonyms(path=None):
     is validated by ``build_wordlists.py --check`` against ``levels.json``.
     """
     if path is None:
-        path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                            "WordLists", "synonyms.csv")
+        path = os.path.join(data_dir("WordLists"), "synonyms.csv")
     out = {}
     if not os.path.exists(path):
         return out
@@ -435,8 +487,7 @@ def load_structure_rewrites(path=None):
     ``build_wordlists.py --check`` against the grammar registry's ids.
     """
     if path is None:
-        path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                            "WordLists", "structure-rewrites.csv")
+        path = os.path.join(data_dir("WordLists"), "structure-rewrites.csv")
     out = {}
     if not os.path.exists(path):
         return out
@@ -970,14 +1021,14 @@ def load_engine(wordlists_dir=None, grammar_dir=None, with_grammar=True,
     ``grammar_error``, so the report degrades gracefully exactly like the
     CLIs always have.
     """
-    script_dir = script_dir or os.path.dirname(os.path.abspath(__file__))
-    vocab_base = wordlists_dir or os.path.join(script_dir, "WordLists")
+    script_dir = script_dir or _ANALYSIS_DIR
+    vocab_base = data_dir("WordLists", override=wordlists_dir, near=(script_dir,))
     levels = [(name, vp.load_wordlist(vocab_base, rel))
               for name, rel in vp.PROFILERS["cefr"]]
     if not with_grammar:
         return Engine(levels, vocab_base, grammar_requested=False)
     try:
-        gbase = grammar_dir or os.path.join(script_dir, "GrammarProfile")
+        gbase = data_dir("GrammarProfile", override=grammar_dir, near=(script_dir,))
         nlp = gp.load_nlp()
         cefrj = gp.load_cefrj_levels(gbase)
         return Engine(levels, vocab_base, grammar_available=True,

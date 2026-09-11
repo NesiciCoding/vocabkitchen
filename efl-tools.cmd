@@ -1,5 +1,5 @@
 @echo off
-REM VocabKitchen launcher for Windows — opens the interactive TUI.
+REM EFL-Tools launcher for Windows — opens the interactive TUI.
 REM Prefers the project's .venv, falls back to the system Python.
 setlocal
 set "HERE=%~dp0"

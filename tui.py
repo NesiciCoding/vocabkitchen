@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""VocabKitchen — an interactive terminal menu (TUI) over all the profilers.
+"""EFL-Tools — an interactive terminal menu (TUI) over all the profilers.
 
 A single front door to the four command-line tools:
 
@@ -19,7 +19,7 @@ full-screen menu; otherwise it drops to a plain numbered-menu fallback that
 works anywhere. The tools it launches still need their own setup for the grammar
 side; the "Setup & diagnostics" screen checks that and can run the installer.
 
-Run it with:  ./vocabkitchen      (or:  python3 tui.py)
+Run it with:  ./efl-tools      (or:  python3 tui.py)
 """
 
 from __future__ import annotations
@@ -295,7 +295,7 @@ class App:
     def _header(self, subtitle=""):
         """Draw the title bar with an optional subtitle."""
         curses = self.curses
-        self._addstr(0, 2, "VocabKitchen", curses.color_pair(1) | curses.A_BOLD)
+        self._addstr(0, 2, "EFL-Tools", curses.color_pair(1) | curses.A_BOLD)
         if subtitle:
             self._addstr(0, 16, "· " + subtitle, curses.A_DIM)
         h, w = self.stdscr.getmaxyx()
@@ -673,7 +673,7 @@ def installer_invocation():
 
 def run_fallback():
     """Plain numbered-menu loop used when curses is unavailable."""
-    print("VocabKitchen — text menu (curses unavailable; using the simple menu)\n")
+    print("EFL-Tools — text menu (curses unavailable; using the simple menu)\n")
     while True:
         print("Choose a tool:")
         for i, t in enumerate(TOOLS, 1):
@@ -767,8 +767,8 @@ def main():
     """Entry point: pick the curses UI or the plain-text fallback."""
     # A non-interactive stdin/stdout can't drive a menu — say so plainly.
     if not sys.stdout.isatty() or not sys.stdin.isatty():
-        print("The VocabKitchen TUI needs an interactive terminal.\n"
-              "Run it directly:  ./vocabkitchen   (or  python3 tui.py)\n"
+        print("The EFL-Tools TUI needs an interactive terminal.\n"
+              "Run it directly:  ./efl-tools   (or  python3 tui.py)\n"
               "Or call a tool non-interactively, e.g.:\n"
               "  python3 vocab_profile.py --file sample-readings/starter.txt",
               file=sys.stderr)

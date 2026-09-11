@@ -28,6 +28,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 SCRIPT = os.path.join(HERE, "text_report.py")
 
 import text_report as tr  # noqa: E402
+import analysis as _engine  # noqa: E402
 import analysis as engine  # noqa: E402
 import vocab_profile as vp  # noqa: E402
 import grammar_profile as gp  # noqa: E402
@@ -1306,7 +1307,7 @@ try:
               os.path.exists(_cache_file) and _cache_payload["version"] == 1)
         check("cache: default path is user-level",
               tr.default_dictionary_cache_path().endswith(
-                  os.path.join("vocabkitchen", "dictionary.json")))
+                  os.path.join("efl-tools", "dictionary.json")))
     finally:
         shutil.rmtree(_ctmp, ignore_errors=True)
 
@@ -1415,6 +1416,25 @@ try:
         shutil.rmtree(_tmpd, ignore_errors=True)
 finally:
     _dict_server.shutdown()
+
+# --- analysis.data_dir: the shared data-path resolver (7a seam) -------------
+check("data_dir: explicit override wins",
+      _engine.data_dir("WordLists", override="/tmp/x") == "/tmp/x")
+_dd = tempfile.mkdtemp()
+try:
+    os.makedirs(os.path.join(_dd, "WordLists"))
+    check("data_dir: resolves a name beside a `near` location",
+          _engine.data_dir("WordLists", near=(_dd,))
+          == os.path.join(_dd, "WordLists"))
+    check("data_dir: missing everywhere falls back to first `near` candidate",
+          _engine.data_dir("NoSuchData", near=("/definitely/nowhere",))
+          == os.path.join("/definitely/nowhere", "NoSuchData"))
+    check("data_dir: the checkout's real WordLists resolves via near=HERE",
+          _engine.data_dir("WordLists", near=(HERE,))
+          == os.path.join(HERE, "WordLists")
+          and os.path.isdir(_engine.data_dir("WordLists", near=(HERE,))))
+finally:
+    shutil.rmtree(_dd, ignore_errors=True)
 
 print(f"\n{passed} passed, {failed} failed, {skipped} skipped"
       + ("  (spaCy not installed — grammar checks skipped)" if not HAVE_GRAMMAR else ""))

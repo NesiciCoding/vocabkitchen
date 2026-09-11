@@ -1,6 +1,6 @@
 ---
 name: text-report
-description: 'Run the unified VocabKitchen difficulty report — ONE command that profiles both the vocabulary and the grammar of English text against CEFR levels and answers "is this text right for my class?" in a single summary: vocabulary band + grammatical range + a blended estimated level, plus (with --target-level) the coverage figure ("a B1 learner will already know ~92% of the recognised running words"), what exceeds the class level, and a one-line verdict ("on level" / "reaches B2 — pre-teach 6 words, 2 structures"). Optionally reports a Flesch–Kincaid readability line alongside the CEFR bands. Use when the user wants a combined CEFR difficulty report for a text — a whole article, essay, or reading — instead of running the vocab-profiler and grammar-profiler skills separately, or wants to know what to pre-teach for a class at a given level. Requires Python 3; the grammar half needs spaCy (the tool degrades gracefully without it).'
+description: 'Run the unified EFL-Tools difficulty report — ONE command that profiles both the vocabulary and the grammar of English text against CEFR levels and answers "is this text right for my class?" in a single summary: vocabulary band + grammatical range + a blended estimated level, plus (with --target-level) the coverage figure ("a B1 learner will already know ~92% of the recognised running words"), what exceeds the class level, and a one-line verdict ("on level" / "reaches B2 — pre-teach 6 words, 2 structures"). Optionally reports a Flesch–Kincaid readability line alongside the CEFR bands. Use when the user wants a combined CEFR difficulty report for a text — a whole article, essay, or reading — instead of running the vocab-profiler and grammar-profiler skills separately, or wants to know what to pre-teach for a class at a given level. Requires Python 3; the grammar half needs spaCy (the tool degrades gracefully without it).'
 ---
 
 # Text report (unified difficulty report)
@@ -41,7 +41,7 @@ hand:
   (`WordLists/CEFR/levels.json`, built by `build_wordlists.py`).
   `--no-enrich` skips the network; `--dictionary-url` points at a proxy/test
   server; lookups are cached between runs (default
-  `~/.cache/vocabkitchen/dictionary.json`, `--dictionary-cache PATH` to
+  `~/.cache/efl-tools/dictionary.json`, `--dictionary-cache PATH` to
   override, `--no-dictionary-cache` to disable) so repeat exports make no
   repeat requests.
 - **`--cloze`** — render the exported examples as **fill-the-gap sentences**:
@@ -143,7 +143,7 @@ Flags:
 | `--cloze`           | render exported examples as `{{...}}` fill-the-gap sentences (RubricMaker syntax; `--export md\|csv` only) |
 | `--no-enrich`       | `--export flashcards` only: skip the Free Dictionary API (card backs stay the in-text context sentence) |
 | `--dictionary-url`  | `--export flashcards` only: override the dictionary API base URL (proxy / test server) |
-| `--dictionary-cache`| JSON cache file for lookups (default `~/.cache/vocabkitchen/dictionary.json`) |
+| `--dictionary-cache`| JSON cache file for lookups (default `~/.cache/efl-tools/dictionary.json`) |
 | `--no-dictionary-cache` | don't read or write the lookup cache (`--pre-enrich` and `--export flashcards` only) |
 | `--pre-enrich`     | prime the dictionary cache from the input (word list or essay) in one rate-limited pass, then exit |
 | `--delay`          | `--pre-enrich` only: seconds between requests (default 0.25; `0` for none) |

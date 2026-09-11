@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# VocabKitchen — one-command setup.
+# EFL-Tools — one-command setup.
 #
 # Creates a self-contained virtual environment (.venv) next to this script and
 # installs everything the profilers need:
@@ -148,12 +148,12 @@ else
 fi
 
 echo
-printf '\033[1;32mAll set.\033[0m VocabKitchen is ready to use.\n\n'
+printf '\033[1;32mAll set.\033[0m EFL-Tools is ready to use.\n\n'
 if [ -f "$HERE/tui.py" ]; then
     # Running from the repo checkout: the TUI and samples are alongside us.
     cat <<EOF
   Launch the interactive menu (TUI):
-      ./vocabkitchen
+      ./efl-tools
 
   …or run a tool directly, e.g.:
       python3 vocab_profile.py --file sample-readings/academic-essay.txt

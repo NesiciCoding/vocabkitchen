@@ -1,4 +1,4 @@
-# Vocabkitchen — Vocabulary & Grammar Profilers
+# EFL-Tools — Vocabulary & Grammar Profilers
 
 Determine the CEFR level of any English text from the command line — its
 **vocabulary**, its **grammar**, and — with one command — both at once.
@@ -30,7 +30,7 @@ The vocabulary profiler scores against three word lists:
 
 ## Interactive menu (TUI) & one-click install
 
-New to the command line? You don't have to memorise any flags. VocabKitchen
+New to the command line? You don't have to memorise any flags. EFL-Tools
 ships an **interactive terminal menu** that drives all four tools for you, and a
 one-command installer that sets everything up.
 
@@ -64,14 +64,14 @@ tools auto-detect this `.venv`, so **nothing needs activating** afterwards.
 ### 2. Run the menu
 
 ```bash
-./vocabkitchen        # macOS / Linux   (or:  python3 tui.py)
+./efl-tools        # macOS / Linux   (or:  python3 tui.py)
 ```
 
 <details>
 <summary>Windows</summary>
 
 ```powershell
-.\vocabkitchen.cmd     # PowerShell or Command Prompt
+.\efl-tools.cmd     # PowerShell or Command Prompt
 ```
 </details>
 
@@ -93,6 +93,45 @@ menu — and if your terminal can't run the full-screen view it automatically
 falls back to a simple numbered-menu prompt that works anywhere. (On Windows the
 full-screen view needs the `windows-curses` package, which `install.ps1`
 installs for you; without it the numbered-menu fallback is used instead.)
+
+### 3. Optional: install the tools as commands
+
+Prefer typing `efl-tools` from anywhere instead of `./efl-tools` from the
+checkout? An **editable install** puts the menu and each profiler on your `PATH`
+as its own command:
+
+```bash
+pipx install --editable .     # isolated; runs `pipx ensurepath` for you (re-open the shell if the commands aren't found yet)
+```
+
+or into an environment you manage yourself:
+
+```bash
+pip install -e .              # installs into the active interpreter
+```
+
+With `pip`, the commands land in that interpreter's `Scripts`/`bin` directory —
+activate the virtual environment (or add that directory to your `PATH`) for them
+to be found. `pipx` keeps the tools in their own isolated environment and puts
+the commands on `PATH` for you.
+
+Either way you get five commands — `efl-tools` (the menu), `vocab-profile`,
+`grammar-profile`, `text-report`, and `class-profile` — that map onto the same
+scripts, so `text-report --file essay.txt --target-level B1` works from any
+directory. The install is **editable** on purpose: the tools read their word
+lists and sample readings from beside the scripts, so the commands keep pointing
+at this checkout (a `git pull` updates them, no reinstall needed).
+
+Grammar and PDF support are opt-in extras that mirror what `install.sh` sets up:
+
+```bash
+pip install -e '.[grammar]'   # adds spaCy (then: python -m spacy download en_core_web_sm)
+pip install -e '.[pdf]'       # adds pypdf for PDF input
+```
+
+`install.sh` is still the simplest route for the grammar engine, because it also
+downloads the English model in the same step. The command install is just a
+convenience on top — the dependency-free `vocab-profile` needs neither.
 
 ## What this fork adds
 
@@ -384,7 +423,7 @@ It reports:
   `--dictionary-url` points at a proxy/test server.
 - **Lookups are cached between runs** — successful lookups *and* definitive
   misses are stored in a small JSON cache (default
-  `~/.cache/vocabkitchen/dictionary.json`, keyed by API URL and word), so
+  `~/.cache/efl-tools/dictionary.json`, keyed by API URL and word), so
   repeat exports make **no repeat requests** — fast, and polite to the hobby
   API. `--dictionary-cache PATH` overrides the file, `--no-dictionary-cache`
   disables it.
@@ -473,7 +512,7 @@ Flags:
 | `--cloze`           | render exported examples as `{{...}}` fill-the-gap sentences (RubricMaker syntax; `--export md\|csv` only) |
 | `--no-enrich`       | `--export flashcards` only: skip the Free Dictionary API (card backs stay the in-text context sentence) |
 | `--dictionary-url`  | `--export flashcards` only: override the dictionary API base URL (proxy / test server) |
-| `--dictionary-cache`| JSON cache file for lookups (default `~/.cache/vocabkitchen/dictionary.json`) |
+| `--dictionary-cache`| JSON cache file for lookups (default `~/.cache/efl-tools/dictionary.json`) |
 | `--no-dictionary-cache` | don't read or write the lookup cache (`--pre-enrich` and `--export flashcards` only) |
 | `--pre-enrich`     | prime the dictionary cache from the input (word list or essay) in one rate-limited pass, then exit |
 | `--delay`          | `--pre-enrich` only: seconds between requests (default 0.25; `0` for none) |
@@ -696,7 +735,7 @@ Flags:
 | `--pre-enrich`      | prime the dictionary cache in one rate-limited pass, then exit (the whole folder's vocabulary, or — with `--interleave` — exactly the schedule's words) |
 | `--delay`           | `--pre-enrich` only: seconds between requests (default 0.25; `0` for none) |
 | `--limit`           | `--pre-enrich` only: cap the number of new lookups                     |
-| `--dictionary-cache`| JSON cache file for dictionary lookups (default `~/.cache/vocabkitchen/dictionary.json`) |
+| `--dictionary-cache`| JSON cache file for dictionary lookups (default `~/.cache/efl-tools/dictionary.json`) |
 | `--no-dictionary-cache` | don't read or write the lookup cache (`--pre-enrich` and `--export flashcards` only) |
 | `--dictionary-url`  | override the dictionary API base URL (proxy / test server)            |
 | `--no-grammar`      | skip the grammar side even if spaCy is available                       |
@@ -746,10 +785,10 @@ invoking the scripts yourself.
 
 ```bash
 /plugin marketplace add NesiciCoding/vocabkitchen-CLI
-/plugin install vocab-profiler@vocabkitchen
-/plugin install grammar-profiler@vocabkitchen
-/plugin install text-report@vocabkitchen
-/plugin install class-profile@vocabkitchen
+/plugin install vocab-profiler@efl-tools
+/plugin install grammar-profiler@efl-tools
+/plugin install text-report@efl-tools
+/plugin install class-profile@efl-tools
 ```
 
 Then just ask — e.g. *"What CEFR level is this paragraph?"*, *"What grammar does

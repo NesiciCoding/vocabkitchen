@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""VocabKitchen grammar profiler — CEFR grammar analysis for English text.
+"""EFL-Tools grammar profiler — CEFR grammar analysis for English text.
 
 A companion to ``vocab_profile.py``. Where the vocabulary profiler scores *which
 words* a text uses, this tool profiles *which grammatical constructions* it uses
@@ -1151,7 +1151,7 @@ def resolve_format(explicit, is_tty):
 
 def main(argv=None):
     _maybe_reexec_in_venv()
-    parser = argparse.ArgumentParser(add_help=True, description="VocabKitchen grammar profiler")
+    parser = argparse.ArgumentParser(add_help=True, description="EFL-Tools grammar profiler")
     parser.add_argument("--format", default="auto")
     parser.add_argument("--text", default=None)
     parser.add_argument("--file", default=None)

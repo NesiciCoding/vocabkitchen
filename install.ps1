@@ -1,5 +1,5 @@
 <#
-    VocabKitchen — one-command setup for Windows (PowerShell).
+    EFL-Tools — one-command setup for Windows (PowerShell).
 
     Mirrors install.sh: creates a .venv next to this script and installs
     spaCy + the English model (+ pypdf for PDF input, and windows-curses so the
@@ -81,6 +81,6 @@ if ($LASTEXITCODE -ne 0) { Die "The grammar engine did not load. Delete .venv an
 Ok "Grammar engine ready (spaCy + en_core_web_sm)"
 
 Write-Host ""
-Write-Host "All set. VocabKitchen is ready." -ForegroundColor Green
-Write-Host "  Launch the interactive menu:  .\vocabkitchen.cmd"
+Write-Host "All set. EFL-Tools is ready." -ForegroundColor Green
+Write-Host "  Launch the interactive menu:  .\efl-tools.cmd"
 Write-Host "  …or:  .venv\Scripts\python.exe tui.py"
