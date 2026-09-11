@@ -123,8 +123,9 @@ It creates a `.venv` next to the bundled script with spaCy, the English model,
 and pypdf. Or set it up by hand:
 
 ```bash
+cd "${CLAUDE_PLUGIN_ROOT}"   # so .venv lands where the tool looks for it
 python3 -m venv .venv
-.venv/bin/python -m pip install spacy
+.venv/bin/python -m pip install spacy pypdf
 .venv/bin/python -m spacy download en_core_web_sm
 ```
 

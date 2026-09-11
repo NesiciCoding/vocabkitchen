@@ -79,8 +79,13 @@ if [ -d "$VENV" ] && [ -x "$VENV/bin/python" ]; then
     ok "Reusing existing virtual environment (.venv)"
 else
     say "Creating virtual environment in .venv"
-    if ! "$PY" -m venv "$VENV" 2>/tmp/vk_venv_err; then
-        cat /tmp/vk_venv_err >&2 || true
+    # Capture stderr in a private temp file (mktemp: unique, securely owned) so
+    # a predictable /tmp path can't be pre-created or symlink-hijacked; the trap
+    # removes it on any exit, die() included.
+    venv_err="$(mktemp "${TMPDIR:-/tmp}/vk_venv_err.XXXXXX")"
+    trap 'rm -f "$venv_err"' EXIT
+    if ! "$PY" -m venv "$VENV" 2>"$venv_err"; then
+        cat "$venv_err" >&2 || true
         die "Could not create the virtual environment.
   On Debian/Ubuntu the venv module ships separately — install it with:
     sudo apt install python3-venv

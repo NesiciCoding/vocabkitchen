@@ -84,6 +84,7 @@ def _default_source():
 
 
 def _common_source_fields():
+    """Return the File/Text input fields shared by the single-text tools."""
     return [
         {"key": "mode", "label": "Input", "kind": "choice",
          "choices": ["File", "Inline text"], "value": "File"},
@@ -238,6 +239,7 @@ def check_engine():
 
 
 def engine_ready(status=None):
+    """Return True when spaCy and the English model are both available."""
     status = status or check_engine()
     return bool(status.get("spacy")) and bool(status.get("model"))
 
@@ -248,16 +250,20 @@ def engine_ready(status=None):
 
 
 def run_curses():
+    """Run the full-screen curses app via curses.wrapper."""
     import curses
 
     def _wrapped(stdscr):
+        """curses.wrapper entry point: build the App and run its loop."""
         return App(stdscr).loop()
 
     return curses.wrapper(_wrapped)
 
 
 class App:
+    """The full-screen curses application: menus, forms, and running tools."""
     def __init__(self, stdscr):
+        """Set up curses state and colour pairs for the given screen."""
         import curses
 
         self.curses = curses
@@ -275,6 +281,7 @@ class App:
     # -- drawing helpers ----------------------------------------------------
 
     def _addstr(self, y, x, text, attr=0):
+        """Write text at (y, x), clipped to the screen; ignore overflow errors."""
         curses = self.curses
         h, w = self.stdscr.getmaxyx()
         if y < 0 or y >= h:
@@ -286,6 +293,7 @@ class App:
             pass
 
     def _header(self, subtitle=""):
+        """Draw the title bar with an optional subtitle."""
         curses = self.curses
         self._addstr(0, 2, "VocabKitchen", curses.color_pair(1) | curses.A_BOLD)
         if subtitle:
@@ -294,6 +302,7 @@ class App:
         self._addstr(1, 2, "─" * (w - 4), curses.A_DIM)
 
     def _footer(self, keys):
+        """Draw the key-hint line along the bottom of the screen."""
         h, _ = self.stdscr.getmaxyx()
         self._addstr(h - 1, 2, keys, self.curses.A_DIM)
 
@@ -328,6 +337,7 @@ class App:
     # -- text line editor ---------------------------------------------------
 
     def edit_line(self, prompt, initial=""):
+        """Inline single-line editor; return the text, or None if cancelled."""
         curses = self.curses
         curses.curs_set(1)
         buf = list(str(initial))
@@ -374,6 +384,7 @@ class App:
     # -- suspend curses, run a subprocess, resume --------------------------
 
     def run_tool(self, argv):
+        """Suspend curses, run argv with inherited stdio, then resume the menu."""
         curses = self.curses
         curses.def_prog_mode()
         curses.endwin()
@@ -404,6 +415,7 @@ class App:
     # -- a tool's form ------------------------------------------------------
 
     def tool_form(self, tool):
+        """Show a tool's editable form and run it on demand."""
         curses = self.curses
         fields = tool["fields"]
         idx = 0
@@ -470,6 +482,7 @@ class App:
                     self._cycle_field(fields[idx], -1)
 
     def _field_display(self, f):
+        """Return the display string for a form field's current value."""
         if f["kind"] == "toggle":
             return "[x] yes" if f["value"] else "[ ] no"
         val = str(f["value"])
@@ -480,6 +493,7 @@ class App:
         return val if val else "(empty)"
 
     def _cycle_field(self, f, direction):
+        """Advance a choice/toggle field by the given direction (+1/-1)."""
         if f["kind"] == "choice":
             ch = f["choices"]
             i = ch.index(f["value"]) if f["value"] in ch else 0
@@ -488,6 +502,7 @@ class App:
             f["value"] = not f["value"]
 
     def _activate_field(self, f, forward=True):
+        """Edit or cycle the focused field, depending on its kind."""
         kind = f["kind"]
         if kind == "choice":
             self._cycle_field(f, +1)
@@ -501,6 +516,7 @@ class App:
     # -- setup / doctor screen ---------------------------------------------
 
     def doctor(self):
+        """Setup & diagnostics screen: show engine status and offer the installer."""
         curses = self.curses
         while True:
             status = check_engine()
@@ -575,19 +591,28 @@ class App:
             elif ch in (ord("q"), 27):
                 return None
 
+    def _flash(self, msg):
+        """Show a one-line notice on the footer and wait for a keypress."""
+        curses = self.curses
+        h, w = self.stdscr.getmaxyx()
+        self._addstr(h - 2, 2, (msg + "   (press a key)")[: max(0, w - 4)],
+                     curses.color_pair(3) | curses.A_BOLD)
+        self.stdscr.refresh()
+        self.stdscr.getch()
+
     def _run_installer(self):
-        installer = os.path.join(HERE, "install.sh")
-        if not os.path.exists(installer):
-            self.run_tool(["/bin/sh", "-c", "echo 'install.sh not found in %s'" % HERE])
+        """Run the platform installer, or report why it can't be run."""
+        argv, err = installer_invocation()
+        if err:
+            self._flash(err)
             return
-        # Prefer bash; fall back to sh.
-        shell = "bash" if _which("bash") else "sh"
-        self.run_tool([shell, installer])
+        self.run_tool(argv)
         self._engine_status_cache = None  # force refresh
 
     # -- top-level loop -----------------------------------------------------
 
     def loop(self):
+        """Run the top-level menu until the user quits."""
         while True:
             items = [(t["name"], t["blurb"]) for t in TOOLS]
             items.append(("Setup & diagnostics", "check/install the grammar engine"))
@@ -603,8 +628,34 @@ class App:
 
 
 def _which(cmd):
+    """Return the resolved path to an executable on PATH, or None."""
     from shutil import which
     return which(cmd)
+
+
+def installer_invocation():
+    """Pick the platform's installer and a runner for it.
+
+    Returns ``(argv, None)`` ready to run, or ``(None, message)`` when the
+    installer or a suitable interpreter is missing — so callers can report the
+    problem instead of crashing on a missing shell.
+    """
+    if os.name == "nt":
+        installer = os.path.join(HERE, "install.ps1")
+        if not os.path.exists(installer):
+            return None, "install.ps1 not found in %s" % HERE
+        runner = _which("pwsh") or _which("powershell")
+        if not runner:
+            return None, ("PowerShell (pwsh/powershell) was not found — "
+                          "run install.ps1 by hand.")
+        return [runner, "-ExecutionPolicy", "Bypass", "-File", installer], None
+    installer = os.path.join(HERE, "install.sh")
+    if not os.path.exists(installer):
+        return None, "install.sh not found in %s" % HERE
+    runner = _which("bash") or _which("sh")
+    if not runner:
+        return None, "No POSIX shell (bash/sh) was found — run install.sh by hand."
+    return [runner, installer], None
 
 
 # ==========================================================================
@@ -613,6 +664,7 @@ def _which(cmd):
 
 
 def run_fallback():
+    """Plain numbered-menu loop used when curses is unavailable."""
     print("VocabKitchen — text menu (curses unavailable; using the simple menu)\n")
     while True:
         print("Choose a tool:")
@@ -634,6 +686,7 @@ def run_fallback():
 
 
 def _fallback_tool(tool):
+    """Prompt for a tool's fields in plain text, then run it."""
     print("\n== %s ==" % tool["name"])
     print(tool["blurb"])
     if tool["needs_engine"] and not engine_ready():
@@ -668,6 +721,7 @@ def _fallback_tool(tool):
 
 
 def _fallback_doctor():
+    """Plain-text setup diagnostics with an option to run the installer."""
     st = check_engine()
     print("\n== Setup & diagnostics ==")
     print("  interpreter : %s" % st["python"])
@@ -677,14 +731,19 @@ def _fallback_doctor():
     if engine_ready(st):
         print("  -> grammar tools are ready.\n")
     else:
-        print("  -> grammar tools need setup. Run ./install.sh")
+        installer = "install.ps1" if os.name == "nt" else "install.sh"
+        print("  -> grammar tools need setup. Run %s" % installer)
         if _ask("  Run the installer now? [y/N]: ").strip().lower() in ("y", "yes"):
-            shell = "bash" if _which("bash") else "sh"
-            subprocess.call([shell, os.path.join(HERE, "install.sh")], cwd=HERE)
+            argv, err = installer_invocation()
+            if err:
+                print("  " + err)
+            else:
+                subprocess.call(argv, cwd=HERE)
     print()
 
 
 def _ask(prompt):
+    """Prompt for a line of input; return 'q' on EOF/Ctrl-C so callers exit."""
     try:
         return input(prompt)
     except (EOFError, KeyboardInterrupt):
@@ -696,6 +755,7 @@ def _ask(prompt):
 
 
 def main():
+    """Entry point: pick the curses UI or the plain-text fallback."""
     # A non-interactive stdin/stdout can't drive a menu — say so plainly.
     if not sys.stdout.isatty() or not sys.stdin.isatty():
         print("The VocabKitchen TUI needs an interactive terminal.\n"
