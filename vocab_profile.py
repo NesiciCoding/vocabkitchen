@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""VocabKitchen vocabulary profiler — pure-Python port (no .NET required).
+"""EFL-Tools vocabulary profiler — pure-Python port (no .NET required).
 
 Determines the vocabulary level of English text against three word lists:
 
@@ -588,7 +588,7 @@ def resolve_format(explicit, is_tty):
 
 
 def main(argv=None):
-    parser = argparse.ArgumentParser(add_help=True, description="VocabKitchen vocabulary profiler")
+    parser = argparse.ArgumentParser(add_help=True, description="EFL-Tools vocabulary profiler")
     parser.add_argument("--type", default="all")
     parser.add_argument("--format", default="auto")
     parser.add_argument("--text", default=None)

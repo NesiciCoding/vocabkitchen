@@ -188,7 +188,7 @@ Flags:
 | `--pre-enrich`      | prime the dictionary cache in one rate-limited pass, then exit (the whole folder's vocabulary, or — with `--interleave` — exactly the schedule's words) |
 | `--delay`           | `--pre-enrich` only: seconds between requests (default 0.25; `0` for none) |
 | `--limit`           | `--pre-enrich` only: cap the number of new lookups                     |
-| `--dictionary-cache`| JSON cache file for dictionary lookups (default `~/.cache/vocabkitchen/dictionary.json`) |
+| `--dictionary-cache`| JSON cache file for dictionary lookups (default `~/.cache/efl-tools/dictionary.json`) |
 | `--no-dictionary-cache` | don't read or write the lookup cache (`--pre-enrich` and `--export flashcards` only) |
 | `--dictionary-url`  | override the dictionary API base URL (proxy / test server)            |
 | `--no-grammar`      | skip the grammar side even if spaCy is available                       |

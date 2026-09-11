@@ -115,7 +115,7 @@ Done in the CLI (`vocabkitchen-CLI`):
    filled (POS falls back to the OLP index). Offline/miss → in-context back,
    `--no-enrich` to skip, `--dictionary-url` to override. Lookups (hits **and**
    definitive misses) are cached in a JSON file keyed by API URL and word
-   (default `~/.cache/vocabkitchen/dictionary.json`, `--dictionary-cache PATH`
+   (default `~/.cache/efl-tools/dictionary.json`, `--dictionary-cache PATH`
    to override, `--no-dictionary-cache` to disable), so repeat exports make no
    repeat requests — the politeness layer for the hobby-host API.
 3. **Batch pre-enrichment** — `--pre-enrich --file class_vocab.txt` (or

@@ -40,7 +40,7 @@ jobs:
         run: python -m ruff check .
 
       - name: Packaging entry points resolve
-        # pyproject.toml ships console commands (vocabkitchen, vocab-profile, …)
+        # pyproject.toml ships console commands (efl-tools, vocab-profile, …)
         # bound to a module's main(). This is the cheap invariant that keeps the
         # manifest honest without a full install: every [project.scripts] target
         # must parse, its module import, and its function be callable — so a
@@ -158,8 +158,8 @@ jobs:
           done
           claude plugin marketplace add "$PWD"
           for p in vocab-profiler grammar-profiler text-report class-profile; do
-            echo "== installing $p@vocabkitchen =="
-            claude plugin install "$p@vocabkitchen" || ok=0
+            echo "== installing $p@efl-tools =="
+            claude plugin install "$p@efl-tools" || ok=0
           done
           [ "$ok" -eq 1 ] || exit 1
 
@@ -952,7 +952,7 @@ jobs:
                       flag = "≈"
                   rows.append((ver, suite, f"{b:.1f}s", f"{t:.1f}s", flag))
 
-          lines = ["<!-- vocabkitchen-perf -->",
+          lines = ["<!-- efl-tools-perf -->",
                    "## ⏱ Suite timings (wall time per Python)", "",
                    "| Python | suite | baseline | this run | delta |",
                    "|---|---|---|---|---|"]
@@ -966,7 +966,7 @@ jobs:
           comments = api_paginated(f"/repos/{repo}/issues/{pr}/comments?per_page=100")
           found = next((c for c in comments
                         if c.get("user", {}).get("login") == "github-actions[bot]"
-                        and "vocabkitchen-perf" in c.get("body", "")), None)
+                        and "efl-tools-perf" in c.get("body", "")), None)
           if found:
               api("PATCH", f"/repos/{repo}/issues/comments/{found['id']}", {"body": body})
               print("comment updated")

@@ -1,4 +1,4 @@
-"""VocabKitchen analysis engine — the shared profiling core and the report contract.
+"""EFL-Tools analysis engine — the shared profiling core and the report contract.
 
 The Phase 5 milestone "one leveling engine, two front ends": both CLIs
 (``text_report.py`` and ``class_profile.py``) import this engine, so a CEFR
@@ -169,8 +169,8 @@ def payload_schema():
             "enum": [None] + _CEFR_ORDER}
     return {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "$id": "https://vocabkitchen.dev/schemas/analysis.schema.json",
-        "title": "VocabKitchen analysis report payload",
+        "$id": "https://efl-tools.dev/schemas/analysis.schema.json",
+        "title": "EFL-Tools analysis report payload",
         "description": "The CEFR profile of one text, as produced by "
                        "text_report.py and class_profile.py per-text exports.",
         "version": SCHEMA_VERSION,

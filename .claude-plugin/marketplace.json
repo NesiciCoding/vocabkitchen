@@ -1,6 +1,6 @@
 {
-  "name": "vocabkitchen",
-  "description": "VocabKitchen tools for Claude Code — English vocabulary and grammar profiling by CEFR level.",
+  "name": "efl-tools",
+  "description": "EFL-Tools — English vocabulary and grammar profiling for Claude Code, by CEFR level.",
   "owner": {
     "name": "NesiciCoding",
     "url": "https://github.com/NesiciCoding"

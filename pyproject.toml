@@ -1,4 +1,4 @@
-# Packaging for the VocabKitchen profilers.
+# Packaging for the EFL-Tools profilers.
 #
 # The tools are single-file, top-level modules that resolve their data (word
 # lists, the grammar profile, sample readings) relative to their own location
@@ -9,7 +9,7 @@
 # An editable install leaves the modules in this checkout, so `HERE`/`__file__`
 # still point at the WordLists/, GrammarProfile/ and sample-readings/ folders
 # beside them, and every tool keeps working. It adds the console commands below
-# to PATH — `vocabkitchen` opens the interactive menu, and each profiler gets
+# to PATH — `efl-tools` opens the interactive menu, and each profiler gets
 # its own command — without you having to activate a venv or remember the
 # `python3 <script>.py` invocation.
 #
@@ -23,7 +23,10 @@ requires = ["setuptools>=61"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "vocabkitchen"
+name = "efl-tools"
+# Semantic versioning (MAJOR.MINOR.PATCH); a release is cut from a matching
+# git tag. Pre-1.0 while the command surface settles. (Distinct from the
+# analysis payload's own SCHEMA_VERSION, which tracks the report contract.)
 version = "0.1.0"
 description = "CEFR vocabulary and grammar profilers for English text — from the command line."
 readme = "README.md"
@@ -54,7 +57,7 @@ Repository = "https://github.com/NesiciCoding/vocabkitchen-CLI"
 # Claude Code plugins present the same command surface. Each target is the
 # `main()` already defined in that module.
 [project.scripts]
-vocabkitchen = "tui:main"
+efl-tools = "tui:main"
 vocab-profile = "vocab_profile:main"
 grammar-profile = "grammar_profile:main"
 text-report = "text_report:main"

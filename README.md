@@ -1,4 +1,4 @@
-# Vocabkitchen — Vocabulary & Grammar Profilers
+# EFL-Tools — Vocabulary & Grammar Profilers
 
 Determine the CEFR level of any English text from the command line — its
 **vocabulary**, its **grammar**, and — with one command — both at once.
@@ -30,7 +30,7 @@ The vocabulary profiler scores against three word lists:
 
 ## Interactive menu (TUI) & one-click install
 
-New to the command line? You don't have to memorise any flags. VocabKitchen
+New to the command line? You don't have to memorise any flags. EFL-Tools
 ships an **interactive terminal menu** that drives all four tools for you, and a
 one-command installer that sets everything up.
 
@@ -64,14 +64,14 @@ tools auto-detect this `.venv`, so **nothing needs activating** afterwards.
 ### 2. Run the menu
 
 ```bash
-./vocabkitchen        # macOS / Linux   (or:  python3 tui.py)
+./efl-tools        # macOS / Linux   (or:  python3 tui.py)
 ```
 
 <details>
 <summary>Windows</summary>
 
 ```bat
-vocabkitchen.cmd
+efl-tools.cmd
 ```
 </details>
 
@@ -94,7 +94,7 @@ falls back to a simple numbered-menu prompt that works anywhere.
 
 ### 3. Optional: install the tools as commands
 
-Prefer typing `vocabkitchen` from anywhere instead of `./vocabkitchen` from the
+Prefer typing `efl-tools` from anywhere instead of `./efl-tools` from the
 checkout? An **editable install** puts the menu and each profiler on your `PATH`
 as its own command:
 
@@ -102,7 +102,7 @@ as its own command:
 pipx install --editable .     # or:  pip install -e .
 ```
 
-This adds five commands — `vocabkitchen` (the menu), `vocab-profile`,
+This adds five commands — `efl-tools` (the menu), `vocab-profile`,
 `grammar-profile`, `text-report`, and `class-profile` — that map onto the same
 scripts, so `text-report --file essay.txt --target-level B1` works from any
 directory. The install is **editable** on purpose: the tools read their word
@@ -410,7 +410,7 @@ It reports:
   `--dictionary-url` points at a proxy/test server.
 - **Lookups are cached between runs** — successful lookups *and* definitive
   misses are stored in a small JSON cache (default
-  `~/.cache/vocabkitchen/dictionary.json`, keyed by API URL and word), so
+  `~/.cache/efl-tools/dictionary.json`, keyed by API URL and word), so
   repeat exports make **no repeat requests** — fast, and polite to the hobby
   API. `--dictionary-cache PATH` overrides the file, `--no-dictionary-cache`
   disables it.
@@ -499,7 +499,7 @@ Flags:
 | `--cloze`           | render exported examples as `{{...}}` fill-the-gap sentences (RubricMaker syntax; `--export md\|csv` only) |
 | `--no-enrich`       | `--export flashcards` only: skip the Free Dictionary API (card backs stay the in-text context sentence) |
 | `--dictionary-url`  | `--export flashcards` only: override the dictionary API base URL (proxy / test server) |
-| `--dictionary-cache`| JSON cache file for lookups (default `~/.cache/vocabkitchen/dictionary.json`) |
+| `--dictionary-cache`| JSON cache file for lookups (default `~/.cache/efl-tools/dictionary.json`) |
 | `--no-dictionary-cache` | don't read or write the lookup cache (`--pre-enrich` and `--export flashcards` only) |
 | `--pre-enrich`     | prime the dictionary cache from the input (word list or essay) in one rate-limited pass, then exit |
 | `--delay`          | `--pre-enrich` only: seconds between requests (default 0.25; `0` for none) |
@@ -722,7 +722,7 @@ Flags:
 | `--pre-enrich`      | prime the dictionary cache in one rate-limited pass, then exit (the whole folder's vocabulary, or — with `--interleave` — exactly the schedule's words) |
 | `--delay`           | `--pre-enrich` only: seconds between requests (default 0.25; `0` for none) |
 | `--limit`           | `--pre-enrich` only: cap the number of new lookups                     |
-| `--dictionary-cache`| JSON cache file for dictionary lookups (default `~/.cache/vocabkitchen/dictionary.json`) |
+| `--dictionary-cache`| JSON cache file for dictionary lookups (default `~/.cache/efl-tools/dictionary.json`) |
 | `--no-dictionary-cache` | don't read or write the lookup cache (`--pre-enrich` and `--export flashcards` only) |
 | `--dictionary-url`  | override the dictionary API base URL (proxy / test server)            |
 | `--no-grammar`      | skip the grammar side even if spaCy is available                       |
@@ -772,10 +772,10 @@ invoking the scripts yourself.
 
 ```bash
 /plugin marketplace add NesiciCoding/vocabkitchen-CLI
-/plugin install vocab-profiler@vocabkitchen
-/plugin install grammar-profiler@vocabkitchen
-/plugin install text-report@vocabkitchen
-/plugin install class-profile@vocabkitchen
+/plugin install vocab-profiler@efl-tools
+/plugin install grammar-profiler@efl-tools
+/plugin install text-report@efl-tools
+/plugin install class-profile@efl-tools
 ```
 
 Then just ask — e.g. *"What CEFR level is this paragraph?"*, *"What grammar does

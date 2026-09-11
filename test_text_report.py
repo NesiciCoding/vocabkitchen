@@ -1307,7 +1307,7 @@ try:
               os.path.exists(_cache_file) and _cache_payload["version"] == 1)
         check("cache: default path is user-level",
               tr.default_dictionary_cache_path().endswith(
-                  os.path.join("vocabkitchen", "dictionary.json")))
+                  os.path.join("efl-tools", "dictionary.json")))
     finally:
         shutil.rmtree(_ctmp, ignore_errors=True)
 
