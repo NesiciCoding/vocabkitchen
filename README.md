@@ -70,8 +70,8 @@ tools auto-detect this `.venv`, so **nothing needs activating** afterwards.
 <details>
 <summary>Windows</summary>
 
-```bat
-efl-tools.cmd
+```powershell
+.\efl-tools.cmd     # PowerShell or Command Prompt
 ```
 </details>
 
@@ -90,7 +90,9 @@ menu to troubleshoot.
 
 The TUI itself is **pure Python standard library** — nothing to install for the
 menu — and if your terminal can't run the full-screen view it automatically
-falls back to a simple numbered-menu prompt that works anywhere.
+falls back to a simple numbered-menu prompt that works anywhere. (On Windows the
+full-screen view needs the `windows-curses` package, which `install.ps1`
+installs for you; without it the numbered-menu fallback is used instead.)
 
 ### 3. Optional: install the tools as commands
 

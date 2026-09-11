@@ -253,8 +253,8 @@ JSON on stdout. Shape:
 
 - If a run fails, verify Python with `python3 --version`; if the grammar
   section is skipped, run the one-command installer `./install.sh` (creates the
-  repo's `.venv` with spaCy + the English model), or set it up by hand with
-  `pip install spacy && python3 -m spacy download en_core_web_sm`.
+  repo's `.venv` with spaCy + the English model + pypdf), or set it up by hand
+  with `python3 -m pip install spacy pypdf && python3 -m spacy download en_core_web_sm`.
 - The unified report reuses the two profilers verbatim — word-list provenance
   is in [`WORDLISTS.md`](../../../WORDLISTS.md) and the CEFR-J grammar data in
   [`GRAMMARPROFILE.md`](../../../GRAMMARPROFILE.md).
