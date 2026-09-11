@@ -532,13 +532,19 @@ class App:
                 ("English model (en_core_web_sm)",
                  "installed" if status["model"] else "not installed", bool(status["model"])),
                 ("pypdf (PDF input, optional)",
-                 status["pypdf"] or "not installed", True),
+                 status["pypdf"] or "not installed",
+                 # 3-state: installed (✓), or absent-but-optional (○, not ✗).
+                 True if status["pypdf"] else None),
             ]
             top = 3
             for i, (label, val, ok) in enumerate(rows):
-                mark = "✓" if ok else "✗"
-                color = curses.color_pair(4) if ok else curses.color_pair(3)
-                self._addstr(top + i, 4, mark, color | curses.A_BOLD)
+                if ok is None:          # optional dependency, not installed
+                    mark, color = "○", curses.A_DIM
+                elif ok:
+                    mark, color = "✓", curses.color_pair(4) | curses.A_BOLD
+                else:
+                    mark, color = "✗", curses.color_pair(3) | curses.A_BOLD
+                self._addstr(top + i, 4, mark, color)
                 self._addstr(top + i, 6, label.ljust(34), curses.A_BOLD)
                 self._addstr(top + i, 42, str(val), curses.A_DIM)
 
@@ -551,8 +557,10 @@ class App:
                 self._addstr(msg_row, 4, "The grammar tools need spaCy + the model. "
                                          "Run the installer below.", curses.color_pair(3))
 
+            installer_name = "install.ps1" if os.name == "nt" else "install.sh"
             actions = [
-                ("Run installer (./install.sh)", "creates .venv and installs everything"),
+                ("Run installer (%s)" % installer_name,
+                 "creates .venv and installs everything"),
                 ("Re-check now", "re-run these diagnostics"),
                 ("Validate word lists", "build_wordlists.py --check"),
                 ("Back", ""),
@@ -690,8 +698,9 @@ def _fallback_tool(tool):
     print("\n== %s ==" % tool["name"])
     print(tool["blurb"])
     if tool["needs_engine"] and not engine_ready():
+        installer = "install.ps1" if os.name == "nt" else "./install.sh"
         print("\n⚠ This tool needs spaCy + en_core_web_sm, which are not installed.")
-        print("  Run:  ./install.sh   (or choose 'd' from the menu)\n")
+        print("  Run:  %s   (or choose 'd' from the menu)\n" % installer)
     # Ask each editable field, keeping defaults on blank input.
     for f in tool["fields"]:
         if f["key"] == "mode" and len(f.get("choices", [])) < 2:

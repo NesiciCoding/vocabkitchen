@@ -47,8 +47,8 @@ python3 -m venv .venv
 ```
 
 (`pypdf` is only needed for PDF input; drop it otherwise. On a system with a
-writable Python, plain `pip install spacy pypdf && python3 -m spacy download
-en_core_web_sm` also works. To use an environment elsewhere, set
+writable Python, plain `python3 -m pip install spacy pypdf && python3 -m spacy
+download en_core_web_sm` also works. To use an environment elsewhere, set
 `GRAMMAR_PROFILE_PYTHON=/path/to/python`.) If spaCy or the model can't be found,
 the command exits with install guidance on stderr — surface it to the user and
 offer to run the installer rather than guessing. The plugin bundles the script,
