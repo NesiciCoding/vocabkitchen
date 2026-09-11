@@ -99,10 +99,21 @@ checkout? An **editable install** puts the menu and each profiler on your `PATH`
 as its own command:
 
 ```bash
-pipx install --editable .     # or:  pip install -e .
+pipx install --editable .     # isolated; runs `pipx ensurepath` for you (re-open the shell if the commands aren't found yet)
 ```
 
-This adds five commands — `efl-tools` (the menu), `vocab-profile`,
+or into an environment you manage yourself:
+
+```bash
+pip install -e .              # installs into the active interpreter
+```
+
+With `pip`, the commands land in that interpreter's `Scripts`/`bin` directory —
+activate the virtual environment (or add that directory to your `PATH`) for them
+to be found. `pipx` keeps the tools in their own isolated environment and puts
+the commands on `PATH` for you.
+
+Either way you get five commands — `efl-tools` (the menu), `vocab-profile`,
 `grammar-profile`, `text-report`, and `class-profile` — that map onto the same
 scripts, so `text-report --file essay.txt --target-level B1` works from any
 directory. The install is **editable** on purpose: the tools read their word

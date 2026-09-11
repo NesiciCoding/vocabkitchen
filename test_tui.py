@@ -32,6 +32,7 @@ failed = 0
 
 
 def check(name, cond, detail=""):
+    """Record one assertion; print ok/FAIL and tally the pass/fail counters."""
     global passed, failed
     if cond:
         passed += 1
@@ -50,6 +51,7 @@ def tool(tool_id):
 
 
 def set_field(t, key, value):
+    """Set a form field's value on a (copied) tool definition by its key."""
     for f in t["fields"]:
         if f["key"] == key:
             f["value"] = value
@@ -73,13 +75,20 @@ def argv_flags(t):
 
 
 def help_flags(script):
-    """Long options accepted by a script, parsed from its --help output."""
+    """Long options accepted by a script, parsed from its --help output.
+
+    Argparse prints --help before importing the grammar engine, so this works
+    with or without spaCy installed. A non-zero exit therefore means the CLI is
+    genuinely broken (an import or argparse error) — fail loudly with its stderr
+    rather than returning None and silently skipping the flag-drift checks that
+    are the whole point of this section.
+    """
     p = subprocess.run(
         [sys.executable, os.path.join(HERE, script), "--help"],
         capture_output=True, text=True, timeout=120,
     )
-    if p.returncode != 0:
-        return None  # signal: could not obtain help (skip, don't fail)
+    assert p.returncode == 0, (
+        f"{script} --help failed ({p.returncode}): {p.stderr.strip()}")
     return set(re.findall(r"--[A-Za-z][A-Za-z0-9-]*", p.stdout))
 
 
@@ -206,9 +215,6 @@ print("build_argv() — flags stay in step with each CLI (anti-drift)")
 
 for t in tui.TOOLS:
     accepted = help_flags(t["script"])
-    if accepted is None:
-        print(f"  skip {t['script']} --help unavailable (engine missing?)")
-        continue
     for flag in sorted(argv_flags(t)):
         check(f"{t['script']} accepts {flag}", flag in accepted,
               f"TUI can emit {flag} but {t['script']} --help does not list it")
