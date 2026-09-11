@@ -755,8 +755,8 @@ def export_payload(row, ordered, ctx, target, suggest=False, gap_report=False,
     gmeta = ctx["grammar_meta"]
     grammar_available = gresults is not None and gmeta is not None
     if vocab_base is None:
-        vocab_base = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                                  "WordLists")
+        vocab_base = engine.data_dir(
+            "WordLists", near=(os.path.dirname(os.path.abspath(__file__)),))
     pieces = {
         "ordered": ordered,
         "total": row["totalWordCount"],
@@ -1548,7 +1548,7 @@ def write_per_text_exports(profiled, target, fmt, cloze=False, enrich=True,
     ``curriculumCoverage`` grid) — is reused instead of rebuilt.
     """
     script_dir = os.path.dirname(os.path.abspath(__file__))
-    base_dir = wordlists_dir or os.path.join(script_dir, "WordLists")
+    base_dir = engine.data_dir("WordLists", override=wordlists_dir, near=(script_dir,))
     # Load the curated simpler-alternative map once and hand it to every
     # payload, so a folder run doesn't re-read synonyms.csv per text.
     synonyms = (engine.load_synonyms(os.path.join(base_dir, "synonyms.csv"))

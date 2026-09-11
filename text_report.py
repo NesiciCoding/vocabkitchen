@@ -1272,7 +1272,8 @@ def _write_export(args, payload, target):
         content = export_csv(payload, cloze=args.cloze, suggest=args.suggest)
     elif args.export == "flashcards":
         script_dir = os.path.dirname(os.path.abspath(__file__))
-        base_dir = args.wordlists or os.path.join(script_dir, "WordLists")
+        base_dir = engine.data_dir("WordLists", override=args.wordlists,
+                                   near=(script_dir,))
         cache_path = None
         if not args.no_dictionary_cache:
             cache_path = args.dictionary_cache or default_dictionary_cache_path()
